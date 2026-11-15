@@ -123,11 +123,11 @@ public sealed class CollectionCoordinatorTests
         Assert.Equal(0, f.Source.Calls);
     }
 
-    internal static async Task Eventually(Func<bool> condition)
+    internal static async Task Eventually(Func<bool> condition, Func<string>? diagnostics = null)
     {
         var until = DateTime.UtcNow.AddSeconds(10);
         while (!condition() && DateTime.UtcNow < until) await Task.Delay(10);
-        Assert.True(condition());
+        Assert.True(condition(), diagnostics?.Invoke());
     }
 
     internal sealed class Fixture : IAsyncDisposable
