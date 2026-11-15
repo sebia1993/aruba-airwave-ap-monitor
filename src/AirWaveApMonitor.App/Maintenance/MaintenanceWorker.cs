@@ -2,8 +2,17 @@ using AirWaveApMonitor.App.Runtime;
 
 namespace AirWaveApMonitor.App.Maintenance;
 
-public sealed class MaintenanceWorker(MaintenanceCoordinator coordinator, TimeProvider clock, IHostApplicationLifetime host, BackgroundFailurePolicy? failurePolicy = null) : BackgroundService
+public sealed class MaintenanceWorker(MaintenanceCoordinator coordinator, TimeProvider clock, IHostApplicationLifetime host, BackgroundFailurePolicy? failurePolicy = null) : BackgroundService, IAsyncDisposable
 {
+    // DI disposal does not call hosted StopAsync. Keep data-directory ownership until
+    // cancelled backup/retention work has closed its SQLite and staging-file handles.
+    public async ValueTask DisposeAsync()
+    {
+        try { await StopAsync(CancellationToken.None); }
+        finally { base.Dispose(); }
+        GC.SuppressFinalize(this);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
