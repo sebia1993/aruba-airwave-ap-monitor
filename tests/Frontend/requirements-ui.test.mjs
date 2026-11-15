@@ -15,7 +15,8 @@ class Node {
   setAttribute(){} removeAttribute(){} addEventListener(name,fn){this.listeners[name]=fn;}
   querySelector(){if(!this.firstChild)this.append(new Node("button"));return this.firstChild;} focus(){}
 }
-const source=await readFile(new URL('../../src/AirWaveApMonitor.App/wwwroot/app.js',import.meta.url),'utf8');
+// Normalize the fixture's text boundaries so Windows CRLF checkout does not include application startup.
+const source=(await readFile(new URL('../../src/AirWaveApMonitor.App/wwwroot/app.js',import.meta.url),'utf8')).replace(/\r\n/g,'\n');
 const html=await readFile(new URL('../../src/AirWaveApMonitor.App/wwwroot/index.html',import.meta.url),'utf8');
 const ids=new Set([...html.matchAll(/id="([^"]+)"/g)].map(match=>match[1]));
 const functions=source.split('\ndocument.querySelectorAll("[data-view]")')[0].replace(/^import .*;$/gm,'');

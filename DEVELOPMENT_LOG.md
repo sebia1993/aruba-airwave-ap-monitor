@@ -1,5 +1,9 @@
 # Development Log
 
+## 2026-11-16 Windows Frontend 줄바꿈 회귀
+
+`8ef2650`의 Windows43768748800은 Frontend에서 실패했다. 새 UI fixture의 LF경계가 CRLF에서 앱 시작 코드를 포함한 것이 실제CRLF복사본에서도 동일오류로 재현됐다. 테스트 읽기텍스트만 정규화하여23개×LF/CRLF×3시간대 통과. 제품변경없음. 백엔드/패키지/native는 미실행이며 진행률66% 유지, 다음은 새 전체 Windows 실행이다.
+
 ## 2026-11-16 최종 로컬 인수
 
 실브라우저에서 확인한 Scope API enum wire 오류를 3개 실제 HTTP RED→GREEN으로 보완했다. 최종 clean Mac 검증은 공통890·Frontend100·Python11 통과, Windows전용9 Mac제외, 경고/오류0. 실제 범위3대/대조·재시작·과거2048대/CSV·연결2048 및 전력3×12288표본 보존 확인. 소스 ecca1d2의 AP4종 측정과 전력단기증가/30일산술을 원시JSON으로 보존했다. 다음은 최종Windows전체/정확한ZIP 검증, 확정66% 유지. 실제장비/사내Windows11·AD·장기운영은 미확인. [최신 상태](docs/DEVELOPMENT_STATUS.md)와 [측정](docs/PERFORMANCE_MEASUREMENTS.md)에 상세를 기록했다.

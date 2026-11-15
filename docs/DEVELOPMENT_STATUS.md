@@ -23,6 +23,12 @@
 
 아래 Task별 결과는 각 단계 당시의 소스·패키지·검증 기록이다. 각 절의 진행률·다음 작업·당시 미구현 설명은 그 시점의 기록이며 현재 요약은 위 표와 최신 Task 결과를 따른다.
 
+## 최종 Windows 첫 실행 — 테스트 줄바꿈 보완
+
+소스 `8ef2650`의 [Windows run 43768748800](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43768748800)는 Frontend 단계에서 실패했다. 새 요구사항 UI 검사가 LF 경계로 앱 시작 부분을 제외하도록 작성되어 Windows CRLF 체크아웃에서는 앱 시작 코드까지 fixture에서 실행했다. 실제 로그의 `enrichment?.renderHealth is not a function`을 제품 파일을 바꾸지 않은 CRLF 임시 복사본에서 동일하게 재현했다.
+
+테스트가 읽은 소스의 줄바꿈만 LF로 정규화해 원래 의도한 함수/이벤트 범위로 실행하도록 보완했다. 제품 코드나 실패를 가리는 stub은 바꾸지 않았다. 해당23개 검사는 LF/CRLF 각각 UTC·미국 서부·서울 **6조합 모두 통과**했다. Windows 첫 실행의 백엔드·publish·ZIP·native 단계는 미실행이며 artifact도0개다. 다음은 새 소스의 기존 전체 workflow 재실행·정확한 ZIP 확인이다. 확정 진행률66%, Windows 성공 주장은 아직 없다.
+
 ## 최종 로컬 인수 — Windows 실행 대기
 
 변경: 실제 브라우저에서 발견한 범위 API의 numeric enum/화면 문자열 불일치를 고쳤다. GET·POST·대조 결과의 3개 실제 HTTP 회귀 RED→GREEN을 추가했고 저장 프로필 형식은 유지했다. Task4·6 보완, Task9 조건부 관측, Task10 규모 측정·자료를 통합했다.
