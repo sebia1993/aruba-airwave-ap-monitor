@@ -17,11 +17,12 @@
 - root 통합 Release 빌드: 경고 0·오류 0. `dotnet test AirWaveApMonitor.slnx -c Release --no-build`: **공통 167개 통과**, Windows 전용 **5개 Mac에서 명시적 건너뜀**.
 - 독립 검토의 미관측 재편입 문제와 잘못 구성된 상태 enum의 허위 복구를 실패→통과 회귀 검사로 보완했다. 최종 요구 준수·품질 재검토 PASS, 남은 Critical/Important 없음.
 - 실제 로그·TRX·검토용 패치·상세 보고서는 로컬 `.superpowers/sdd/2026-11-15-macos-codex-implementation/`의 `task-3-*`와 `evidence/task-3-*`에 보관한다. 일부 초기 검사에서 분석기/타입 오류가 있었고, 전환 그룹의 엄격한 최초 TDD 작성 순서는 완전하지 않았다는 한계도 보고서에 기록했다. 컴파일 실패를 행동 검증으로 세지 않았다.
-- 이 단계는 순수 코어 검사이며 실제 SQLite 재시작·트랜잭션이나 자동 수집/화면 연결을 검증한 것은 아니다. Windows CI는 이번 소스 커밋을 대상으로 실행 후 기록한다.
+- 소스 `e007bae`의 [Windows CI 43730366360](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43730366360)가 성공했다. Windows Server 2025에서 공통 164 통과·Mac/Unix 3 건너뜀, Windows 전용 5 통과, Python 3 통과·Unix 2 건너뜀이다. self-contained 게시, ZIP 무결성, PowerShell 5.1 launcher 구문, 한글·공백 경로의 EXE·루프백·Demo 진단도 통과했다.
+- 이 단계의 상태 전환 검사는 순수 코어 검사이며 실제 SQLite 재시작·트랜잭션이나 자동 수집/현황 화면 연결을 검증한 것은 아니다. CI의 Windows Server 실행과 사내 Windows 11 검증도 구분한다.
 
 ### 다음 작업·진행률·실환경 미확인
 
-- Windows 자동 검증까지 완료하기 전에는 기존 **20 / 100%**를 유지한다. Task 3 전체 완료 후 가중치 14를 추가해 34%로 기록한다.
+- Task 3의 Windows 자동 검증과 독립 검토까지 완료하여 가중치 14를 추가했다. 확인된 개발 진행률은 **34 / 100%**다.
 - 다음 Task 4: 실제 SQLite의 원자적 회차/사건 저장·불변 과거 현황·재시작 중단 정리·인증 중단 영속화. 인증 중단 부분은 다른 managed worktree에서 병행하고 있으며 전체 Task 4 완료로 계산하지 않는다.
 - 실제 AirWave·사내 PAC/TLS·Windows 11 운영 계정·서비스/재부팅·장비 상태 대조는 여전히 미확인이다. 기존 초기 패키지는 Task 2의 연결 진단용이며 Task 3의 운영 이력 화면을 제공하는 패키지가 아니다.
 
