@@ -44,6 +44,7 @@ public sealed partial class SqliteCollectionStore
                 }
             }
         }
+        var isNewSample = sequence is null;
         if (sequence is null)
         {
             if (sample.Id == Guid.Empty) throw new ArgumentException("전력 표본 ID가 비어 있습니다.", nameof(sample));
@@ -68,7 +69,7 @@ public sealed partial class SqliteCollectionStore
         {
             Execute(connection, transaction, "INSERT INTO enrichment_power_current VALUES($profile,$key,$sequence) ON CONFLICT(profile_key,entity_key) DO UPDATE SET sample_sequence=excluded.sample_sequence", ("$profile", profile), ("$key", entity), ("$sequence", sequence));
             // Deduplicated reads retain the original sample attribution, not this read's current placement.
-            var storedTarget = ReadPowerEvidence(connection, transaction, sequence.Value)!.Attribution.Target;
+            var storedTarget = isNewSample ? attribution.Target : ReadPowerEvidence(connection, transaction, sequence.Value)!.Attribution.Target;
             Execute(connection, transaction, "INSERT INTO enrichment_accepted_power(profile_key,entity_key,run_id,sample_sequence,ap_id,generation_id,interval_id) VALUES($profile,$key,$run,$sequence,$ap,$gen,$interval)",
                 ("$profile", profile), ("$key", entity), ("$run", context.RunId), ("$sequence", sequence), ("$ap", storedTarget?.ApId),
                 ("$gen", storedTarget?.DeviceGenerationId), ("$interval", storedTarget?.MonitoringIntervalId));
