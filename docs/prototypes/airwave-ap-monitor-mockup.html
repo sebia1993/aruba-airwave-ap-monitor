@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>AirWave AP Monitor — 사용자 흐름 모의화면</title><meta name="description" content="가상 AP 데이터로 살펴보는 다운 AP 감시 프로그램 모의화면. 실제 AirWave에 연결하지 않습니다."><style>body{margin:0;padding:24px;background:light-dark(#eef1f5,#10151d);color-scheme:light dark;}#apm-prototype-v1{max-width:1200px;margin:auto;}@media(max-width:620px){body{padding:10px;}}</style></head><body>
+<div id="apm-prototype-v1" lang="ko">
+  <div class="am-previewbar">
+    <div><strong>화면 미리보기</strong><span>가상 장비 2,048대 · 실제 연결 없음</span></div>
+    <div class="am-previewcontrols">
+      <label for="am-scenario">수집 상황</label>
+      <select id="am-scenario" class="cursor-interaction" aria-label="가상 수집 상황">
+        <option value="0">11:05 · 수집 정상</option>
+        <option value="1">11:10 · 신규 Down</option>
+        <option value="2">11:15 · 복구 확인</option>
+        <option value="3">11:20 · 전체 수집 실패</option>
+        <option value="4">11:25 · 일부 AP 누락</option>
+      </select>
+      <button class="am-smallbtn cursor-interaction" type="button" data-action="play" id="am-play">순서대로 재생</button>
+    </div>
+  </div>
+  <div class="am-window">
+    <aside class="am-sidebar">
+      <div class="am-brand"><span class="am-brandmark">AP</span><div><strong>AirWave Monitor</strong><span>LOCAL OPERATIONS</span></div></div>
+      <div class="am-navcaption">모니터링</div>
+      <nav aria-label="프로그램 메뉴">
+        <button type="button" class="am-navitem cursor-interaction is-active" data-view="dashboard"><i data-lucide="radio-tower" aria-hidden="true"></i><span>다운 AP 현황</span><b id="am-nav-count">8</b></button>
+        <button type="button" class="am-navitem cursor-interaction" data-view="history"><i data-lucide="history" aria-hidden="true"></i><span>장애·복구 이력</span></button>
+        <button type="button" class="am-navitem cursor-interaction" data-view="runs"><i data-lucide="list-checks" aria-hidden="true"></i><span>수집 기록</span></button>
+        <div class="am-navcaption">관리</div>
+        <button type="button" class="am-navitem cursor-interaction" data-view="settings"><i data-lucide="settings-2" aria-hidden="true"></i><span>연결 설정</span></button>
+        <button type="button" class="am-navitem cursor-interaction" data-view="flow"><i data-lucide="route" aria-hidden="true"></i><span>사용 흐름 보기</span></button>
+      </nav>
+      <div class="am-sidebottom">
+        <span class="am-localdot"></span><strong>수집 PC 전용</strong>
+        <p>자동 수집 · 로컬 이력 보관</p>
+        <small>UI 제안안 / 가상 데이터</small>
+      </div>
+    </aside>
+    <div class="am-main">
+      <header class="am-topbar">
+        <div class="am-breadcrumb">운영 콘솔 <span>/</span> <strong id="am-crumb">다운 AP 현황</strong></div>
+        <div class="am-topright"><span class="am-collectbadge" id="am-collector">자동 수집 중</span><span class="am-profile">운영자</span></div>
+      </header>
+      <main id="am-stage" class="am-stage" aria-label="AP 감시 프로그램 모의화면"></main>
+      <footer class="am-footer"><span>가상 시각 · 2026.11.15 KST</span><span>실제 제품은 창을 닫아도 수집을 계속하도록 설계</span></footer>
+    </div>
+  </div>
+  <div class="am-toast" id="am-toast" role="status" aria-live="polite" hidden></div>
+</div>
+<style>
+#apm-prototype-v1 {
+  color-scheme: light dark;
+  --am-bg: light-dark(#f3f5f8,#101722);
+  --am-panel: light-dark(#ffffff,#192330);
+  --am-subtle: light-dark(#f7f9fc,#202d3d);
+  --am-ink: light-dark(#17283d,#e6edf6);
+  --am-muted: light-dark(#5b6c80,#a7b5c7);
+  --am-line: light-dark(#dce3ec,#344255);
+  --am-blue: light-dark(#1855cf,#94b8ff);
+  --am-bluebg: light-dark(#edf3ff,#243858);
+  --am-red: light-dark(#b72f43,#ff9eac);
+  --am-redbg: light-dark(#fff0f2,#452737);
+  --am-green: light-dark(#147356,#81d7b8);
+  --am-greenbg: light-dark(#edf9f3,#193c34);
+  --am-amber: light-dark(#8d590f,#f1c37c);
+  --am-amberbg: light-dark(#fff6e7,#413527);
+  --am-sidebar: light-dark(#17253b,#0d1420);
+  --am-sidebartext: light-dark(#ccd7e6,#becce0);
+  --am-sidebaractive: light-dark(#273b59,#243652);
+  --am-sidebarline: light-dark(#30425b,#2a3a50);
+  --am-white: light-dark(#ffffff,#e6edf6);
+  width:100%; min-width:0; color:var(--am-ink);
+  font-family:"Pretendard","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  font-size:13px; line-height:1.55; letter-spacing:-.025em;
+}
+#apm-prototype-v1 * { box-sizing:border-box; }
+#apm-prototype-v1 i[data-lucide]:empty {display:none;}
+#apm-prototype-v1 button, #apm-prototype-v1 input, #apm-prototype-v1 select, #apm-prototype-v1 textarea {font:inherit;letter-spacing:inherit;}
+#apm-prototype-v1 button {color:inherit;}
+#apm-prototype-v1 button:disabled {opacity:.48;cursor:not-allowed;}
+#apm-prototype-v1 .am-previewbar {display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;margin:0 0 12px;padding:8px 0;}
+#apm-prototype-v1 .am-previewbar>div:first-child {display:flex;flex-wrap:wrap;align-items:center;gap:10px;}
+#apm-prototype-v1 .am-previewbar strong {font-size:14px;font-weight:650;}
+#apm-prototype-v1 .am-previewbar span {font-size:12px;color:var(--am-muted);}
+#apm-prototype-v1 .am-previewcontrols {display:flex;gap:7px;align-items:center;flex-wrap:wrap;}
+#apm-prototype-v1 .am-previewcontrols label {color:var(--am-muted);font-size:12px;}
+#apm-prototype-v1 .am-previewcontrols select {border:1px solid var(--am-line);background:var(--am-panel);color:var(--am-ink);border-radius:7px;padding:7px 28px 7px 9px;max-width:100%;}
+#apm-prototype-v1 .am-smallbtn {background:var(--am-panel);border:1px solid var(--am-line);border-radius:7px;padding:7px 10px;white-space:nowrap;}
+#apm-prototype-v1 .am-window {display:grid;grid-template-columns:174px minmax(0,1fr);border:1px solid var(--am-line);border-radius:13px;overflow:clip;background:var(--am-bg);}
+#apm-prototype-v1 .am-sidebar {background:var(--am-sidebar);color:var(--am-sidebartext);display:flex;flex-direction:column;padding:24px 12px 18px;min-width:0;}
+#apm-prototype-v1 .am-brand {display:flex;gap:8px;align-items:center;padding:0 4px 28px;}
+#apm-prototype-v1 .am-brandmark {background:light-dark(#3480f7,#3573cc);color:light-dark(#fff,#fff);display:grid;place-items:center;width:31px;height:34px;border-radius:9px;font-size:13px;font-weight:750;letter-spacing:0;flex-shrink:0;}
+#apm-prototype-v1 .am-brand strong {display:block;font-size:12px;color:var(--am-white);letter-spacing:-.035em;white-space:nowrap;}
+#apm-prototype-v1 .am-brand span:not(.am-brandmark) {display:block;font-size:9px;letter-spacing:1px;margin-top:3px;color:light-dark(#a5b7cf,#a5b7cf);}
+#apm-prototype-v1 .am-navcaption {font-size:10px;letter-spacing:.08em;color:light-dark(#8da4c1,#9bb0cc);padding:0 10px;margin:5px 0 9px;}
+#apm-prototype-v1 nav .am-navcaption {margin-top:28px;}
+#apm-prototype-v1 .am-navitem {width:100%;display:flex;align-items:center;gap:9px;border:0;background:transparent;color:var(--am-sidebartext);padding:11px 10px;margin:3px 0;border-radius:8px;text-align:left;font-size:12px;white-space:nowrap;}
+#apm-prototype-v1 .am-navitem i, #apm-prototype-v1 .am-navitem svg {width:16px;height:16px;flex-shrink:0;opacity:.9;}
+#apm-prototype-v1 .am-navitem.is-active {background:var(--am-sidebaractive);color:var(--am-white);font-weight:650;}
+#apm-prototype-v1 .am-navitem b {margin-left:auto;background:light-dark(#46618a,#44618b);padding:0 6px;border-radius:5px;font-size:11px;}
+#apm-prototype-v1 .am-navitem:hover {background:var(--am-sidebaractive);}
+#apm-prototype-v1 .am-sidebottom {margin-top:auto;padding:50px 9px 0;font-size:11px;}
+#apm-prototype-v1 .am-sidebottom p {margin:5px 0 14px;color:light-dark(#a5b7cf,#a5b7cf);font-size:11px;}
+#apm-prototype-v1 .am-sidebottom small {border-top:1px solid var(--am-sidebarline);display:block;padding-top:12px;color:light-dark(#91a9c7,#9fb5d0);font-size:10px;}
+#apm-prototype-v1 .am-localdot {display:inline-block;width:6px;height:6px;border-radius:50%;background:light-dark(#7ccfb4,#7ccfb4);margin-right:7px;}
+#apm-prototype-v1 .am-main {min-width:0;}
+#apm-prototype-v1 .am-topbar {display:flex;gap:12px;align-items:center;justify-content:space-between;padding:15px 22px;background:var(--am-panel);border-bottom:1px solid var(--am-line);}
+#apm-prototype-v1 .am-breadcrumb {font-size:11px;color:var(--am-muted);display:flex;gap:9px;align-items:center;}
+#apm-prototype-v1 .am-breadcrumb strong {color:var(--am-ink);font-weight:550;}
+#apm-prototype-v1 .am-breadcrumb>span {color:var(--am-muted);opacity:.6;}
+#apm-prototype-v1 .am-topright {display:flex;align-items:center;gap:12px;font-size:11px;}
+#apm-prototype-v1 .am-collectbadge {display:inline-flex;align-items:center;gap:6px;color:var(--am-green);}
+#apm-prototype-v1 .am-collectbadge:before {content:"";width:6px;height:6px;background:currentColor;border-radius:50%;}
+#apm-prototype-v1 .am-collectbadge.is-error {color:var(--am-red);}
+#apm-prototype-v1 .am-collectbadge.is-warn {color:var(--am-amber);}
+#apm-prototype-v1 .am-profile {color:var(--am-muted);padding-left:12px;border-left:1px solid var(--am-line);}
+#apm-prototype-v1 .am-stage {padding:24px 22px 22px;min-width:0;min-height:620px;}
+#apm-prototype-v1 .am-heading {display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:18px;}
+#apm-prototype-v1 h1 {font-size:25px;line-height:1.25;font-weight:720;letter-spacing:-.05em;margin:0 0 8px;color:var(--am-ink);}
+#apm-prototype-v1 h2 {font-size:15px;font-weight:650;line-height:1.45;margin:0;color:var(--am-ink);}
+#apm-prototype-v1 h3 {font-size:13px;font-weight:650;margin:0 0 9px;}
+#apm-prototype-v1 p {margin:0;}
+#apm-prototype-v1 .am-subtitle {font-size:12px;color:var(--am-muted);}
+#apm-prototype-v1 .am-actions {display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+#apm-prototype-v1 .am-button {border:1px solid var(--am-line);background:var(--am-panel);padding:8px 12px;border-radius:7px;white-space:nowrap;font-size:12px;display:inline-flex;justify-content:center;align-items:center;gap:7px;text-decoration:none;}
+#apm-prototype-v1 .am-button:hover {background:var(--am-subtle);}
+#apm-prototype-v1 .am-button.am-primary {color:light-dark(#fff,#14223a);background:var(--am-blue);border-color:var(--am-blue);font-weight:600;}
+#apm-prototype-v1 .am-button.am-primary:hover {filter:brightness(.96);}
+#apm-prototype-v1 .am-button.am-text {border-color:transparent;background:transparent;color:var(--am-blue);padding:6px 0;}
+#apm-prototype-v1 .am-button svg {width:14px;height:14px;}
+#apm-prototype-v1 .am-statusline {display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap;border:1px solid var(--am-line);background:var(--am-panel);border-radius:8px;padding:10px 13px;margin-bottom:17px;font-size:11px;}
+#apm-prototype-v1 .am-statusline .am-statusleft {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+#apm-prototype-v1 .am-statusline strong {color:var(--am-green);font-weight:600;}
+#apm-prototype-v1 .am-statusline.is-error {background:var(--am-redbg);border-color:color-mix(in srgb,var(--am-red) 28%,var(--am-line));}
+#apm-prototype-v1 .am-statusline.is-error strong {color:var(--am-red);}
+#apm-prototype-v1 .am-statusline.is-warn {background:var(--am-amberbg);border-color:color-mix(in srgb,var(--am-amber) 25%,var(--am-line));}
+#apm-prototype-v1 .am-statusline.is-warn strong {color:var(--am-amber);}
+#apm-prototype-v1 .am-muted {color:var(--am-muted);}
+#apm-prototype-v1 .am-metrics {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px;}
+#apm-prototype-v1 .am-metric {text-align:left;border:1px solid var(--am-line);border-radius:10px;padding:13px 14px 12px;background:var(--am-panel);min-width:0;position:relative;}
+#apm-prototype-v1 .am-metric:hover {border-color:var(--am-blue);}
+#apm-prototype-v1 .am-metric .am-metriclabel {display:flex;align-items:center;justify-content:space-between;gap:4px;color:var(--am-muted);font-size:11px;margin-bottom:10px;}
+#apm-prototype-v1 .am-metric .am-metricvalue {display:block;font-size:31px;font-weight:700;line-height:1;letter-spacing:-.045em;font-variant-numeric:tabular-nums;}
+#apm-prototype-v1 .am-metric .am-metricvalue.is-word {font-size:23px;}
+#apm-prototype-v1 .am-metric .am-metricnote {display:block;font-size:10px;color:var(--am-muted);margin-top:9px;}
+#apm-prototype-v1 .am-metric.is-down {box-shadow:inset 0 3px 0 var(--am-red);}
+#apm-prototype-v1 .am-metric.is-down .am-metricvalue {color:var(--am-red);}
+#apm-prototype-v1 .am-metric.is-new .am-metricvalue {color:var(--am-blue);}
+#apm-prototype-v1 .am-metric.is-up .am-metricvalue {color:var(--am-green);}
+#apm-prototype-v1 .am-metric.is-unknown .am-metricvalue {color:var(--am-amber);}
+#apm-prototype-v1 .am-panel {background:var(--am-panel);border:1px solid var(--am-line);border-radius:10px;min-width:0;overflow:clip;}
+#apm-prototype-v1 .am-panelhead {padding:15px 16px 13px;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;}
+#apm-prototype-v1 .am-panelhead .am-muted {font-size:11px;}
+#apm-prototype-v1 .am-badge {display:inline-flex;align-items:center;gap:4px;border-radius:5px;padding:3px 6px;font-size:10px;font-weight:550;white-space:nowrap;background:var(--am-subtle);color:var(--am-muted);}
+#apm-prototype-v1 .am-badge.red {color:var(--am-red);background:var(--am-redbg);}
+#apm-prototype-v1 .am-badge.blue {color:var(--am-blue);background:var(--am-bluebg);}
+#apm-prototype-v1 .am-badge.green {color:var(--am-green);background:var(--am-greenbg);}
+#apm-prototype-v1 .am-badge.amber {color:var(--am-amber);background:var(--am-amberbg);}
+#apm-prototype-v1 .am-tabs {display:flex;gap:4px;flex-wrap:wrap;padding:0 16px 12px;border-bottom:1px solid var(--am-line);}
+#apm-prototype-v1 .am-tab {border:0;background:transparent;color:var(--am-muted);padding:6px 9px;border-radius:6px;font-size:11px;}
+#apm-prototype-v1 .am-tab.is-active {background:var(--am-bluebg);color:var(--am-blue);font-weight:650;}
+#apm-prototype-v1 .am-tab b {margin-left:4px;font-weight:650;}
+#apm-prototype-v1 .am-toolbar {display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px 16px;}
+#apm-prototype-v1 .am-searchbox {display:flex;align-items:center;gap:7px;border:1px solid var(--am-line);background:var(--am-subtle);border-radius:6px;padding:7px 9px;max-width:100%;min-width:200px;flex:1;}
+#apm-prototype-v1 .am-searchbox svg {width:14px;height:14px;color:var(--am-muted);}
+#apm-prototype-v1 .am-searchbox input {width:100%;min-width:0;background:transparent;border:0;color:var(--am-ink);font-size:11px;padding:0;}
+#apm-prototype-v1 .am-toolbar select {border:1px solid var(--am-line);border-radius:6px;background:var(--am-panel);color:var(--am-ink);font-size:11px;padding:7px 9px;max-width:100%;}
+#apm-prototype-v1 .am-check {display:flex;align-items:center;gap:5px;font-size:11px;color:var(--am-muted);white-space:nowrap;}
+#apm-prototype-v1 .am-check input {accent-color:var(--am-blue);margin:0;}
+#apm-prototype-v1 .am-tablewrap {overflow-x:auto;}
+#apm-prototype-v1 table {width:100%;border-collapse:collapse;text-align:left;font-size:11px;}
+#apm-prototype-v1 th {color:var(--am-muted);font-size:10px;font-weight:550;background:var(--am-subtle);padding:9px 10px;white-space:nowrap;}
+#apm-prototype-v1 th:first-child,#apm-prototype-v1 td:first-child {padding-left:16px;}
+#apm-prototype-v1 th:last-child,#apm-prototype-v1 td:last-child {padding-right:16px;}
+#apm-prototype-v1 td {padding:11px 10px;border-top:1px solid var(--am-line);vertical-align:middle;}
+#apm-prototype-v1 tbody tr:hover {background:var(--am-subtle);}
+#apm-prototype-v1 .am-aplink {display:block;border:0;background:transparent;color:var(--am-blue);padding:0;font-weight:650;font-size:11px;white-space:nowrap;text-align:left;}
+#apm-prototype-v1 .am-cellsub {display:block;color:var(--am-muted);font-size:10px;margin-top:3px;white-space:nowrap;}
+#apm-prototype-v1 .am-cellmain {font-weight:550;white-space:nowrap;}
+#apm-prototype-v1 .am-statuscell {min-width:88px;}
+#apm-prototype-v1 .am-statuscell .am-badge {margin-bottom:1px;}
+#apm-prototype-v1 .am-pager {display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 16px;border-top:1px solid var(--am-line);color:var(--am-muted);font-size:10px;flex-wrap:wrap;}
+#apm-prototype-v1 .am-pager .am-button {padding:4px 8px;font-size:10px;}
+#apm-prototype-v1 .am-empty {padding:35px 20px;text-align:center;}
+#apm-prototype-v1 .am-empty strong {display:block;font-size:13px;font-weight:600;margin-bottom:7px;}
+#apm-prototype-v1 .am-empty span {color:var(--am-muted);font-size:11px;}
+#apm-prototype-v1 .am-footnote {display:flex;gap:12px;flex-wrap:wrap;margin-top:13px;font-size:10px;color:var(--am-muted);}
+#apm-prototype-v1 .am-footnote b {font-weight:600;color:var(--am-ink);}
+#apm-prototype-v1 .am-footer {display:flex;gap:10px;flex-wrap:wrap;justify-content:space-between;border-top:1px solid var(--am-line);padding:10px 22px;color:var(--am-muted);font-size:10px;background:var(--am-panel);}
+#apm-prototype-v1 .am-historybanner {display:flex;align-items:center;gap:9px;justify-content:space-between;background:var(--am-bluebg);color:var(--am-blue);padding:9px 12px;border-radius:7px;margin-bottom:14px;font-size:11px;}
+#apm-prototype-v1 .am-detailgrid {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;}
+#apm-prototype-v1 .am-detailgrid .am-panel {padding:17px;}
+#apm-prototype-v1 .am-detailgrid .am-wide {grid-column:1/-1;}
+#apm-prototype-v1 .am-detailheader {display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;}
+#apm-prototype-v1 .am-detailheader h1 {font-size:22px;}
+#apm-prototype-v1 .am-detailmeta {display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--am-muted);margin:8px 0 17px;}
+#apm-prototype-v1 .am-detailpairs {display:grid;grid-template-columns:minmax(90px,.8fr) minmax(0,1.2fr);gap:9px 12px;margin:13px 0 0;font-size:11px;}
+#apm-prototype-v1 .am-detailpairs dt {color:var(--am-muted);}
+#apm-prototype-v1 .am-detailpairs dd {margin:0;overflow-wrap:anywhere;font-weight:550;}
+#apm-prototype-v1 .am-detailpairs .am-note {font-weight:400;font-size:10px;color:var(--am-muted);display:block;margin-top:2px;}
+#apm-prototype-v1 .am-timeline {list-style:none;padding:0 0 0 6px;margin:17px 0 0;}
+#apm-prototype-v1 .am-timeline li {position:relative;padding:0 0 17px 20px;border-left:1px solid var(--am-line);}
+#apm-prototype-v1 .am-timeline li:last-child {padding-bottom:0;}
+#apm-prototype-v1 .am-timeline li:before {content:"";position:absolute;left:-4px;top:5px;width:7px;height:7px;border-radius:50%;background:var(--am-blue);}
+#apm-prototype-v1 .am-timeline li.red:before {background:var(--am-red);}
+#apm-prototype-v1 .am-timeline li.green:before {background:var(--am-green);}
+#apm-prototype-v1 .am-timeline li.amber:before {background:var(--am-amber);}
+#apm-prototype-v1 .am-timeline time {font-size:10px;color:var(--am-muted);display:block;}
+#apm-prototype-v1 .am-timeline strong {font-size:12px;display:block;margin:2px 0;font-weight:600;}
+#apm-prototype-v1 .am-timeline p {font-size:11px;color:var(--am-muted);}
+#apm-prototype-v1 .am-noteentry {padding:9px 11px;border-left:2px solid var(--am-blue);background:var(--am-subtle);border-radius:0 5px 5px 0;margin-bottom:9px;font-size:11px;overflow-wrap:anywhere;}
+#apm-prototype-v1 .am-noteentry time {display:block;font-size:10px;color:var(--am-muted);margin-bottom:4px;}
+#apm-prototype-v1 .am-noteform {display:flex;gap:9px;align-items:flex-end;margin-top:12px;}
+#apm-prototype-v1 .am-noteform label {flex:1;min-width:0;}
+#apm-prototype-v1 .am-noteform textarea {width:100%;display:block;min-height:65px;resize:vertical;border:1px solid var(--am-line);border-radius:7px;background:var(--am-panel);color:var(--am-ink);padding:9px;font-size:12px;}
+#apm-prototype-v1 .am-help {font-size:10px;color:var(--am-muted);margin-top:9px;}
+#apm-prototype-v1 .am-formlayout {display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.9fr);gap:15px;}
+#apm-prototype-v1 .am-formpanel {padding:20px;}
+#apm-prototype-v1 .am-field {display:block;margin:16px 0;}
+#apm-prototype-v1 .am-field>span {font-size:12px;display:block;font-weight:550;margin-bottom:7px;}
+#apm-prototype-v1 .am-field input,#apm-prototype-v1 .am-field select {width:100%;padding:10px 11px;border:1px solid var(--am-line);border-radius:7px;color:var(--am-ink);background:var(--am-panel);min-width:0;}
+#apm-prototype-v1 .am-formpair {display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+#apm-prototype-v1 .am-setupsteps {list-style:none;padding:0;margin:15px 0 0;}
+#apm-prototype-v1 .am-setupsteps li {display:flex;gap:10px;margin:14px 0;font-size:11px;color:var(--am-muted);}
+#apm-prototype-v1 .am-setupsteps b {flex-shrink:0;background:var(--am-bluebg);color:var(--am-blue);width:22px;height:22px;display:grid;place-items:center;border-radius:50%;font-size:10px;}
+#apm-prototype-v1 .am-setupsteps strong {display:block;color:var(--am-ink);margin-bottom:4px;font-size:12px;}
+#apm-prototype-v1 .am-testresult {border:1px solid var(--am-line);border-radius:8px;padding:12px;margin:15px 0;font-size:11px;background:var(--am-subtle);}
+#apm-prototype-v1 .am-testresult.is-pass {background:var(--am-greenbg);border-color:color-mix(in srgb,var(--am-green) 35%,var(--am-line));color:var(--am-green);}
+#apm-prototype-v1 .am-testresult strong {display:block;margin-bottom:5px;}
+#apm-prototype-v1 .am-flow {display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+#apm-prototype-v1 .am-flowstep {padding:20px;border:1px solid var(--am-line);background:var(--am-panel);border-radius:10px;position:relative;}
+#apm-prototype-v1 .am-flowstep .am-stepnumber {font-size:11px;font-weight:600;color:var(--am-blue);display:block;margin-bottom:14px;letter-spacing:.04em;}
+#apm-prototype-v1 .am-flowstep h2 {font-size:17px;margin-bottom:7px;}
+#apm-prototype-v1 .am-flowstep p {font-size:12px;color:var(--am-muted);margin-bottom:15px;}
+#apm-prototype-v1 .am-flowmini {display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:12px;background:var(--am-subtle);border-radius:7px;margin:14px 0;}
+#apm-prototype-v1 .am-flowmini span {font-size:11px;}
+#apm-prototype-v1 .am-fork {margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+#apm-prototype-v1 .am-fork>div {border-left:3px solid var(--am-green);padding:10px 12px;background:var(--am-panel);font-size:11px;}
+#apm-prototype-v1 .am-fork>div:last-child {border-color:var(--am-amber);}
+#apm-prototype-v1 .am-fork strong {display:block;font-size:12px;margin-bottom:4px;}
+#apm-prototype-v1 .am-toast {margin-top:10px;padding:10px 13px;background:var(--am-bluebg);color:var(--am-blue);border:1px solid var(--am-line);border-radius:7px;font-size:12px;}
+#apm-prototype-v1 .am-sr {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+@media(max-width:850px) {
+  #apm-prototype-v1 .am-window {grid-template-columns:151px minmax(0,1fr);}
+  #apm-prototype-v1 .am-sidebar {padding-left:8px;padding-right:8px;}
+  #apm-prototype-v1 .am-brand strong {font-size:11px;}
+  #apm-prototype-v1 .am-brandmark {width:27px;height:30px;font-size:11px;}
+  #apm-prototype-v1 .am-brand {gap:6px;}
+  #apm-prototype-v1 .am-navitem {font-size:11px;padding-left:7px;gap:6px;}
+  #apm-prototype-v1 .am-stage {padding:20px 16px;}
+  #apm-prototype-v1 .am-topbar {padding:13px 16px;}
+  #apm-prototype-v1 .am-heading {flex-wrap:wrap;}
+  #apm-prototype-v1 .am-metrics {gap:7px;}
+  #apm-prototype-v1 .am-metric {padding:11px 10px;}
+  #apm-prototype-v1 .am-metric .am-metricvalue {font-size:28px;}
+  #apm-prototype-v1 .am-metric .am-metricvalue.is-word {font-size:19px;}
+  #apm-prototype-v1 th,#apm-prototype-v1 td {padding-left:8px;padding-right:8px;}
+  #apm-prototype-v1 .am-formlayout {grid-template-columns:1fr;}
+}
+@media(max-width:620px) {
+  #apm-prototype-v1 .am-window {grid-template-columns:1fr;}
+  #apm-prototype-v1 .am-sidebar {padding:13px 12px 8px;}
+  #apm-prototype-v1 .am-brand {padding:0 0 12px;}
+  #apm-prototype-v1 .am-brand strong {font-size:13px;}
+  #apm-prototype-v1 .am-sidebar> .am-navcaption,#apm-prototype-v1 nav .am-navcaption,#apm-prototype-v1 .am-sidebottom {display:none;}
+  #apm-prototype-v1 nav {display:flex;gap:4px;flex-wrap:wrap;}
+  #apm-prototype-v1 .am-navitem {width:auto;margin:0;font-size:11px;padding:8px;}
+  #apm-prototype-v1 .am-navitem svg,#apm-prototype-v1 .am-navitem i {display:none;}
+  #apm-prototype-v1 .am-navitem b {margin-left:3px;}
+  #apm-prototype-v1 .am-topbar {padding:11px 13px;}
+  #apm-prototype-v1 .am-profile {display:none;}
+  #apm-prototype-v1 .am-stage {padding:19px 12px;min-height:0;}
+  #apm-prototype-v1 h1 {font-size:23px;}
+  #apm-prototype-v1 .am-metrics {grid-template-columns:1fr 1fr;}
+  #apm-prototype-v1 .am-metric .am-metricvalue {font-size:31px;}
+  #apm-prototype-v1 .am-metric .am-metricvalue.is-word {font-size:23px;}
+  #apm-prototype-v1 .am-previewcontrols {width:100%;}
+  #apm-prototype-v1 .am-previewcontrols select {flex:1;min-width:0;font-size:12px;}
+  #apm-prototype-v1 .am-previewcontrols label {display:none;}
+  #apm-prototype-v1 .am-previewbar {margin-bottom:9px;}
+  #apm-prototype-v1 .am-previewbar>div:first-child {gap:6px;}
+  #apm-prototype-v1 .am-previewbar span {font-size:11px;}
+  #apm-prototype-v1 .am-detailgrid,#apm-prototype-v1 .am-flow,#apm-prototype-v1 .am-fork {grid-template-columns:1fr;}
+  #apm-prototype-v1 .am-detailgrid .am-wide {grid-column:auto;}
+  #apm-prototype-v1 .am-footer {padding:10px 13px;}
+  #apm-prototype-v1 .am-data-table thead {display:none;}
+  #apm-prototype-v1 .am-data-table tbody {display:block;}
+  #apm-prototype-v1 .am-data-table tr {display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--am-line);padding:9px 12px;}
+  #apm-prototype-v1 .am-data-table td {display:block;border:0;padding:6px!important;}
+  #apm-prototype-v1 .am-data-table td:before {content:attr(data-label);display:block;color:var(--am-muted);font-size:10px;margin-bottom:3px;}
+  #apm-prototype-v1 .am-data-table td:first-child {grid-column:1/-1;}
+  #apm-prototype-v1 .am-data-table td:first-child:before {display:none;}
+  #apm-prototype-v1 .am-aplink {font-size:13px;}
+  #apm-prototype-v1 .am-noteform {flex-wrap:wrap;}
+  #apm-prototype-v1 .am-noteform label {flex-basis:100%;}
+  #apm-prototype-v1 .am-formpair {grid-template-columns:1fr;gap:0;}
+}
+@media(pointer:coarse) {
+  #apm-prototype-v1 button,#apm-prototype-v1 select {min-height:44px;}
+  #apm-prototype-v1 input,#apm-prototype-v1 textarea {font-size:16px!important;}
+  #apm-prototype-v1 .am-check {min-height:44px;}
+}
+@media(prefers-reduced-motion:reduce) {
+  #apm-prototype-v1 * {animation:none!important;transition:none!important;scroll-behavior:auto!important;}
+}
+</style>
+<script>
+(function(){
+  "use strict";
+  const root=document.getElementById("apm-prototype-v1");
+  if(!root)return;
+  const q=s=>root.querySelector(s);
+  const all=s=>Array.from(root.querySelectorAll(s));
+  const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const fmt=n=>Number(n).toLocaleString("ko-KR");
+  const TOTAL=2048;
+  const inventory=Array.from({length:TOTAL},(_,i)=>{
+    const id=i+1,zone=id<=12?"A":id%2?"A":"B",floor=id<=4?3:id<=8?5:id<=12?7:1+id%9;
+    return {id,name:"AP-"+zone+String(floor).padStart(2,"0")+"-"+String(id).padStart(4,"0"),ip:"10.240."+Math.floor(i/250)+"."+(i%250+1),
+      zone,floor,place:zone+"동 "+floor+"층",area:id%3===0?"공용 구역":"연구 구역",
+      sw:"SW-"+zone+String(floor).padStart(2,"0")+"-"+(id%2?"01":"02"),
+      swip:"10.241."+floor+"."+(id%2?11:12),port:"1/1/"+(id%48+1),
+      serial:"DEMOAP"+String(id).padStart(6,"0"),
+      mac:"02:00:00:00:"+Math.floor(id/256).toString(16).padStart(2,"0")+":"+(id%256).toString(16).padStart(2,"0"),
+      planned:id===5,first:id===6,repeat:id===3?3:1,
+      firstAt:id===1?"11/14 16:20":id===2?"11/15 08:35":id===3?"11/15 09:10":id===4?"11/15 10:20":id===5?"11/15 10:30":id===6?"11/15 11:05":id===7||id===8?"11/15 11:05":id===9||id===10?"11/15 10:15":id===11||id===12?"11/15 11:10":null};
+  });
+  const runs=[
+    {time:"11:05",type:"success",label:"수집 정상",down:[1,2,3,4,5,6,7,8],unknown:[],newIds:[7,8],firstIds:[6],recovered:[9,10],last:"11:05",lastAll:"11:05",up:2040,duration:"2.4초"},
+    {time:"11:10",type:"success",label:"신규 Down",down:[1,2,3,4,5,6,7,8,11,12],unknown:[],newIds:[11,12],firstIds:[],recovered:[],last:"11:10",lastAll:"11:10",up:2038,duration:"2.6초"},
+    {time:"11:15",type:"success",label:"복구 확인",down:[1,3,5,6,7,8,11,12],unknown:[],newIds:[],firstIds:[],recovered:[2,4],last:"11:15",lastAll:"11:15",up:2040,duration:"2.3초"},
+    {time:"11:20",type:"failed",label:"전체 수집 실패",down:[],unknown:Array.from({length:TOTAL},(_,i)=>i+1),newIds:[],firstIds:[],recovered:[],last:"11:15",lastAll:"11:15",up:null,duration:"45초"},
+    {time:"11:25",type:"partial",label:"일부 AP 누락",down:[1,5,6,7,8,11,12],unknown:[3,20,21],newIds:[],firstIds:[],recovered:[],last:"11:25",lastAll:"11:15",up:2038,duration:"2.7초"}
+  ];
+  const state={live:0,snapshot:null,view:"dashboard",filter:"open",query:"",sort:"recent",hidePlanned:false,page:1,selected:1,backView:"dashboard",paused:false,notes:{},tested:false,settings:{address:"https://airwave.example.invalid",user:"demo-reader",password:"demo-only",proxy:"Windows 프록시 설정 사용"},historyFilter:"all",playing:false};
+  let playTimer=null,toastTimer=null;
+  function runIndex(){return state.snapshot===null?state.live:state.snapshot;}
+  function run(){return runs[runIndex()];}
+  function ap(id){return inventory[id-1];}
+  function openIds(index=runIndex()){return index<2?runs[index].down.slice():[1,3,5,6,7,8,11,12];}
+  function recoveredIds(index=runIndex()){return index<2?[9,10]:[9,10,2,4];}
+  function recoveryTime(id,index=runIndex()){return id===9||id===10?"11:05":(id===2||id===4)&&index>=2?"11:15":null;}
+  function incidentCell(a){
+    if(!a.firstAt)return '<span class="am-muted">장애 기록 없음</span>';
+    const ended=recoveryTime(a.id);
+    if(ended)return '<span class="am-cellmain">11/15 '+ended+' 복구</span><span class="am-cellsub">과거 사건 · '+age(a,{time:ended})+'</span>';
+    return '<span class="am-cellmain">'+a.firstAt+'</span><span class="am-cellsub">'+(a.first?"최초 확인 · ":"")+age(a)+'</span>';
+  }
+  function nextTime(r){const [h,m]=r.time.split(":").map(Number),t=h*60+m+5;return String(Math.floor(t/60)).padStart(2,"0")+":"+String(t%60).padStart(2,"0");}
+  function age(a,r=run()){
+    if(!a.firstAt)return "—";
+    const m=a.firstAt.match(/11\/(\d+) (\d+):(\d+)/);
+    const [h,mi]=r.time.split(":").map(Number);
+    const minutes=(15-Number(m[1]))*1440+h*60+mi-Number(m[2])*60-Number(m[3]);
+    if(minutes<0)return "—";
+    if(minutes>=60)return Math.floor(minutes/60)+"시간 "+(minutes%60?minutes%60+"분":"");
+    return minutes+"분";
+  }
+  function statusFor(id,index=runIndex()){
+    const r=runs[index];
+    if(r.unknown.includes(id))return "unknown";
+    return r.down.includes(id)?"down":"up";
+  }
+  function lastSeen(id,index=runIndex()){
+    const r=runs[index];
+    if(!r.unknown.includes(id))return r.time;
+    for(let i=index-1;i>=0;i--)if(!runs[i].unknown.includes(id))return runs[i].time;
+    return "11:00";
+  }
+  function lastKind(id,index=runIndex()){
+    if(statusFor(id,index)!=="unknown")return statusFor(id,index);
+    for(let i=index-1;i>=0;i--)if(statusFor(id,i)!=="unknown")return statusFor(id,i);
+    return id<=6?"down":"up";
+  }
+  function badge(text,type){return '<span class="am-badge '+(type||"")+'">'+esc(text)+'</span>';}
+  function button(text,action,primary,extra){return '<button type="button" class="am-button '+(primary?"am-primary ":"")+'cursor-interaction" data-action="'+action+'" '+(extra||"")+'>'+text+'</button>';}
+  function toast(text){
+    clearTimeout(toastTimer);q("#am-toast").textContent=text;q("#am-toast").hidden=false;
+    toastTimer=setTimeout(()=>{q("#am-toast").hidden=true;},6000);
+  }
+  function icons(){if(typeof lucide!=="undefined")lucide.createIcons({attrs:{width:16,height:16}});}
+  function setScenario(index){
+    state.live=Math.max(0,Math.min(4,index));state.snapshot=null;state.page=1;state.paused=false;
+    q("#am-scenario").value=String(state.live);render();
+  }
+  function stopPlay(){
+    if(playTimer)clearInterval(playTimer);playTimer=null;state.playing=false;q("#am-play").textContent="순서대로 재생";
+  }
+  function play(){
+    if(state.playing){stopPlay();return;}
+    state.view="dashboard";state.filter="open";state.query="";state.hidePlanned=false;state.playing=true;
+    q("#am-play").textContent="재생 멈추기";setScenario(0);
+    playTimer=setInterval(()=>{if(state.live>=4){stopPlay();toast("다섯 가지 모의 수집 상황을 모두 확인했습니다.");return;}setScenario(state.live+1);},3500);
+  }
+  function renderChrome(){
+    const labels={dashboard:"다운 AP 현황",detail:"AP 상세",history:"장애·복구 이력",runs:"수집 기록",settings:"연결 설정",flow:"사용 흐름"};
+    q("#am-crumb").textContent=labels[state.view];q("#am-nav-count").textContent=openIds(state.live).length;
+    all("[data-view]").forEach(el=>{
+      const selected=el.dataset.view===state.view||(state.view==="detail"&&el.dataset.view==="dashboard");
+      el.classList.toggle("is-active",selected);if(selected)el.setAttribute("aria-current","page");else el.removeAttribute("aria-current");
+    });
+    const r=runs[state.live],b=q("#am-collector");
+    b.textContent=state.paused?"수집 일시정지":r.type==="failed"?"수집 실패":r.type==="partial"?"일부 확인":"자동 수집 중";
+    b.className="am-collectbadge"+(r.type==="failed"&&!state.paused?" is-error":r.type==="partial"||state.paused?" is-warn":"");
+  }
+  function statusLine(){
+    const r=run(),past=state.snapshot!==null;
+    let title="수집 완료",type="",detail="감시 대상 "+fmt(TOTAL)+"대 · Up "+fmt(r.up)+"대 · Down "+r.down.length+"대";
+    if(r.type==="failed"){title="이번 현황 확인 불가";type="is-error";detail="AirWave 응답 시간 초과 · "+r.last+"에 확인한 미복구 목록 유지";}
+    if(r.type==="partial"){title="일부 AP 미확인";type="is-warn";detail="Up "+fmt(r.up)+"대 · Down "+r.down.length+"대 · 미확인 "+r.unknown.length+"대";}
+    if(state.paused&&!past){title="수집 일시정지";type="is-warn";detail="마지막 관측값 표시 · 수집을 재개하면 현황을 다시 확인합니다.";}
+    return '<div class="am-statusline '+type+'"><div class="am-statusleft"><strong>'+title+'</strong><span>'+detail+'</span></div><span class="am-muted">'+r.time+' 기준'+(past?"":" · 다음 "+(state.paused?"대기":nextTime(r)))+'</span></div>';
+  }
+  function snapshotBanner(){
+    return state.snapshot===null?"":'<div class="am-historybanner"><span>과거 회차 보기 · 2026.11.15 '+run().time+'</span>'+button("현재 현황으로","live",false)+'</div>';
+  }
+  function metric(label,value,note,type,action,word){
+    return '<button type="button" class="am-metric '+type+' cursor-interaction" data-action="'+action+'"><span class="am-metriclabel">'+label+'<span aria-hidden="true">↗</span></span><span class="am-metricvalue'+(word?" is-word":"")+'">'+value+'</span><span class="am-metricnote">'+note+'</span></button>';
+  }
+  function renderDashboard(){
+    const r=run(),failed=r.type==="failed",past=state.snapshot!==null;
+    const title=state.paused&&!past?"다운 AP 현황 · 일시정지":"다운 AP 현황";
+    const head='<div class="am-heading"><div><h1>'+title+'</h1><p class="am-subtitle">새로 발생한 Down과 아직 복구되지 않은 AP를 추적합니다.</p></div><div class="am-actions">'+button(state.paused?"수집 재개":"일시정지","pause",false,past?"disabled":"")+button("지금 수집","collect",true,past||state.live===4||state.paused?"disabled":"")+'</div></div>';
+    const metrics='<div class="am-metrics">'+
+      metric(state.paused&&!past?"마지막 수집 Down":"이번 Down 확인",failed?"미확인":String(r.down.length),failed?"직전 Down 8대 · "+r.last:"미복구 사건 "+openIds().length+"건","is-down","filter-confirmed",failed)+
+      metric("신규 Down",failed?"—":String(r.newIds.length),failed?"이번 전환 확인 불가":"이번 수집의 Up → Down","is-new","filter-new",false)+
+      metric("복구 확인",failed?"—":String(r.recovered.length),failed?"복구 여부 확인 불가":"이번 수집의 Down → Up","is-up","recovered",false)+
+      metric("이번 미확인",fmt(r.unknown.length),failed?"전체 대상 확인 불가":r.unknown.length?"마지막 Down 1대 포함":"전체 대상 확인 완료","is-unknown","filter-unknown",false)+'</div>';
+    const tabs=[["open","미복구 전체",openIds().length],["new","신규 Down",failed?"—":r.newIds.length],["unknown","이번 미확인",r.unknown.length]];
+    const panel='<section class="am-panel"><div class="am-panelhead"><h2>추적 중인 AP <span class="am-muted" id="am-listcount"></span></h2>'+button('<i data-lucide="download" aria-hidden="true"></i>CSV 내보내기',"csv",false)+'</div>'+
+      '<div class="am-tabs" aria-label="다운 목록 보기">'+tabs.map(t=>'<button type="button" class="am-tab cursor-interaction '+(state.filter===t[0]?"is-active":"")+'" data-filter="'+t[0]+'" aria-pressed="'+(state.filter===t[0])+'">'+t[1]+'<b>'+(t[2]==="—"?"—":fmt(t[2]))+'</b></button>').join("")+
+      (state.filter==="confirmed"?'<button type="button" class="am-tab is-active cursor-interaction" data-filter="confirmed" aria-pressed="true">이번 Down <b>'+(failed?"—":r.down.length)+'</b></button>':"")+'</div>'+
+      '<div class="am-toolbar"><label class="am-searchbox"><i data-lucide="search" aria-hidden="true"></i><span class="am-sr">AP 이름, IP 또는 스위치 검색</span><input id="am-search" value="'+esc(state.query)+'" placeholder="AP 이름, IP, 스위치 검색" autocomplete="off"></label>'+
+      '<select id="am-sort" class="cursor-interaction" aria-label="목록 정렬"><option value="recent" '+(state.sort==="recent"?"selected":"")+'>최근 감지순</option><option value="oldest" '+(state.sort==="oldest"?"selected":"")+'>오래된 미복구순</option><option value="name" '+(state.sort==="name"?"selected":"")+'>AP 이름순</option></select>'+
+      '<label class="am-check cursor-interaction"><input id="am-hideplanned" type="checkbox" '+(state.hidePlanned?"checked":"")+'>계획 작업 숨기기</label></div><div id="am-tablecontent"></div></section>';
+    q("#am-stage").innerHTML=head+snapshotBanner()+statusLine()+metrics+panel+
+      '<div class="am-footnote"><span>감시 대상 <b>'+fmt(TOTAL)+'대</b></span><span>마지막 전체 확인 <b>'+r.lastAll+'</b></span><span>수집 간격 <b>5분</b> · 제안값</span><span>AP 이름을 누르면 상세 이력을 봅니다.</span></div>';
+    renderRows();
+  }
+  function filteredRows(){
+    const r=run();
+    let ids=state.filter==="new"?r.newIds:state.filter==="unknown"?r.unknown:state.filter==="confirmed"?r.down:openIds();
+    const query=state.query.trim().toLowerCase();
+    let rows=ids.map(ap).filter(a=>!query||[a.name,a.ip,a.sw,a.swip,a.place].some(v=>v.toLowerCase().includes(query)));
+    const hidden=state.hidePlanned?rows.filter(a=>a.planned).length:0;
+    if(state.hidePlanned)rows=rows.filter(a=>!a.planned);
+    rows.sort((a,b)=>state.sort==="name"?a.name.localeCompare(b.name):state.sort==="oldest"?(a.firstAt||"99").localeCompare(b.firstAt||"99"):(b.firstAt||"").localeCompare(a.firstAt||""));
+    return {rows,hidden};
+  }
+  function rowStatus(a){
+    const r=run(),s=statusFor(a.id);
+    if(s==="unknown")return badge("이번 미확인","amber")+'<span class="am-cellsub">마지막 '+(lastKind(a.id)==="down"?"Down":"Up")+' · '+lastSeen(a.id)+'</span>';
+    if(s==="up")return badge("Up 확인","green")+'<span class="am-cellsub">'+lastSeen(a.id)+' 확인</span>';
+    let sub=r.newIds.includes(a.id)?"신규 Down":r.firstIds.includes(a.id)?"최초 확인 Down":a.first?"시작 시각 미상":"기존 미복구";
+    return badge("Down",r.newIds.includes(a.id)?"red":"red")+'<span class="am-cellsub">'+sub+'</span>';
+  }
+  function renderRows(){
+    const node=q("#am-tablecontent");if(!node)return;
+    const {rows,hidden}=filteredRows(),size=6,pages=Math.max(1,Math.ceil(rows.length/size));
+    state.page=Math.max(1,Math.min(state.page,pages));
+    q("#am-listcount").textContent="· "+fmt(rows.length)+"대";
+    if(!rows.length){
+      const text=state.query||state.hidePlanned?"조건에 맞는 AP가 없습니다":run().type==="failed"?"이번 Down 현황과 전환을 확인할 수 없습니다":state.filter==="unknown"?"이번 수집에서 미확인 AP가 없습니다":state.filter==="new"?"이번 수집의 신규 Down이 없습니다":"현재 추적 중인 Down AP가 없습니다";
+      node.innerHTML='<div class="am-empty"><strong>'+text+'</strong><span>'+(run().type==="failed"?"미복구 전체에서 마지막 확인 목록을 볼 수 있습니다.":"다른 보기 또는 검색 조건을 선택할 수 있습니다.")+'</span></div>';return;
+    }
+    const shown=rows.slice((state.page-1)*size,state.page*size);
+    node.innerHTML='<div class="am-tablewrap"><table class="am-data-table"><thead><tr><th scope="col">AP 이름 / IP</th><th scope="col">위치</th><th scope="col">연결 스위치 / 포트</th><th scope="col">장애 이력 / 경과</th><th scope="col">이번 확인</th></tr></thead><tbody>'+
+      shown.map(a=>'<tr><td data-label="AP"><button type="button" class="am-aplink cursor-interaction" data-ap="'+a.id+'">'+a.name+'</button><span class="am-cellsub">'+a.ip+'</span></td>'+
+        '<td data-label="위치"><span class="am-cellmain">'+a.place+'</span><span class="am-cellsub">'+(a.planned?"계획 작업":a.area)+'</span></td>'+
+        '<td data-label="연결"><span class="am-cellmain">'+a.sw+'</span><span class="am-cellsub">'+a.port+' · '+a.swip+'</span></td>'+
+        '<td data-label="장애 이력 / 경과">'+incidentCell(a)+'</td>'+
+        '<td class="am-statuscell" data-label="이번 확인">'+rowStatus(a)+'</td></tr>').join("")+'</tbody></table></div>'+
+      '<div class="am-pager"><span>'+((state.page-1)*size+1)+'–'+Math.min(state.page*size,rows.length)+' / '+fmt(rows.length)+'대'+(hidden?" · 계획 작업 "+hidden+"대 숨김":"")+'</span><div class="am-actions">'+
+      button("이전","prevpage",false,state.page===1?"disabled":"")+'<span>'+state.page+' / '+pages+'</span>'+button("다음","nextpage",false,state.page===pages?"disabled":"")+'</div></div>';
+  }
+  function pair(k,v){return "<dt>"+k+"</dt><dd>"+v+"</dd>";}
+  function timelineFor(a){
+    const ix=runIndex(),items=[];
+    if(a.firstAt&&(!(a.id===11||a.id===12)||ix>=1)){
+      items.push({time:a.firstAt,title:a.first?"최초 관측 당시 Down":"Down 감지",note:a.first?"실제 장애 시작 시각 미상":"AirWave 보고 상태를 기준으로 사건 생성",color:"red"});
+    }
+    if((a.id===9||a.id===10)&&ix>=0)items.push({time:"11/15 11:05",title:"복구 확인",note:"동일 AP에서 Up을 확인해 사건 종료",color:"green"});
+    if((a.id===2||a.id===4)&&ix>=2)items.push({time:"11/15 11:15",title:"복구 확인",note:"동일 AP에서 Up을 확인해 사건 종료",color:"green"});
+    if(ix>=3)items.push({time:"11/15 11:20",title:"상태 관측 공백",note:"AirWave 조회 실패 · 마지막 상태 보존",color:"amber"});
+    if(ix===4)items.push({time:"11/15 11:25",title:statusFor(a.id)==="unknown"?"목록에서 미확인":statusFor(a.id)==="down"?"Down 재확인":"Up 재확인",note:statusFor(a.id)==="unknown"?"복구로 처리하지 않고 이전 상태 유지":"이번 유효 응답으로 상태 확인",color:statusFor(a.id)==="unknown"?"amber":statusFor(a.id)==="down"?"red":"green"});
+    if(!items.length)items.push({time:"11/15 "+lastSeen(a.id),title:"마지막 Up 확인",note:"관측된 장애 사건 없음",color:"green"});
+    return items.map(i=>'<li class="'+i.color+'"><time>'+i.time+'</time><strong>'+i.title+'</strong><p>'+i.note+'</p></li>').join("");
+  }
+  function renderDetail(){
+    const a=ap(state.selected),r=run(),s=statusFor(a.id),isOpen=openIds().includes(a.id);
+    const notes=state.notes[a.id]||[];
+    const recoveredAt=recoveryTime(a.id);
+    const kind=s==="down"?badge("Down","red"):s==="up"?badge("Up 확인","green"):badge("이번 미확인","amber");
+    const notesHtml=notes.length?notes.map(n=>'<div class="am-noteentry"><time>'+esc(n.time)+' · 운영자</time>'+esc(n.text)+'</div>').join(""):'<p class="am-muted" style="font-size:11px;margin-top:12px">아직 기록된 조치 메모가 없습니다.</p>';
+    q("#am-stage").innerHTML=button("← 목록으로","back",false,'id="am-back"')+
+      '<div class="am-detailheader" style="margin-top:17px"><div><h1>'+a.name+'</h1><p class="am-subtitle">'+a.ip+' · '+a.place+' '+a.area+'</p></div>'+kind+'</div>'+
+      '<div class="am-detailmeta"><span>'+(a.first?"최초 확인 당시 Down":a.firstAt?"사건 INC-202611-"+String(a.id).padStart(4,"0"):"기록된 장애 없음")+'</span>'+badge(a.planned?"계획 작업 중":isOpen?"미복구 추적 중":"열린 장애 없음",a.planned?"blue":isOpen?"red":"green")+'<span>조회 기준 '+r.time+'</span></div>'+
+      snapshotBanner()+
+      (s==="unknown"?'<div class="am-statusline is-warn"><strong>현재 상태 확인 불가</strong><span>마지막 '+(lastKind(a.id)==="down"?"Down":"Up")+' 확인 '+lastSeen(a.id)+(isOpen?' · 복구 여부 미확인':recoveredAt?' · 과거 사건 복구 기록 유지':' · 열린 장애 없음')+'</span></div>':"")+
+      '<div class="am-detailgrid"><section class="am-panel"><h2>장비·연결 정보</h2><dl class="am-detailpairs">'+
+      pair("AP 모델","AP-535 (가상 장비)")+pair("유선 MAC",a.mac)+pair("시리얼",a.serial)+
+      pair("컨트롤러","WLC-DEMO-01")+pair("연결 스위치",a.sw+'<span class="am-note">'+a.swip+'</span>')+
+      pair("스위치 포트",a.port)+pair("연결 확인","11/15 11:00"+'<span class="am-note">마지막 유효 연결 · 사건 이후에도 보존</span>')+
+      '</dl></section><section class="am-panel"><h2>장애·관측 이력</h2><ol class="am-timeline">'+timelineFor(a)+'</ol></section>'+
+      '<section class="am-panel"><h2>장애 추적</h2><dl class="am-detailpairs">'+pair("첫 Down 감지",a.firstAt||"없음")+
+      pair(recoveredAt?"감지~복구 확인":"감지 후 경과",a.firstAt?age(a,recoveredAt?{time:recoveredAt}:r):"—")+pair("마지막 상태 확인",lastSeen(a.id))+
+      pair("복구 확인",a.id===9||a.id===10?"11/15 11:05":(a.id===2||a.id===4)&&runIndex()>=2?"11/15 11:15":isOpen?"아직 확인되지 않음":"해당 없음")+
+      pair("시작 시각",a.first?"최초 관측부터 Down · 실제 시작 미상":"감지 시각 기준")+'</dl></section>'+
+      '<section class="am-panel"><h2>조사 참고 정보 '+badge("가상 값","")+'</h2><dl class="am-detailpairs">'+
+      pair("AP 소비전력","12.8 W"+'<span class="am-note">11:00에 확인한 참고값</span>')+
+      pair("포트 할당 전력","30 W")+pair("이웃 출처","LLDP · 이웃 기록 있음")+
+      pair("원천 최신성",badge("확인 불가","amber"))+'</dl><p class="am-help">이웃 기록만으로 LLDP의 지속 정상 여부를 확정하지 않습니다.</p></section>'+
+      '<section class="am-panel am-wide"><h2>조치 메모</h2>'+notesHtml+
+      '<form id="am-noteform" class="am-noteform"><label for="am-note"><span class="am-sr">조치 메모 내용</span><textarea id="am-note" maxlength="1000" placeholder="예: 연결 포트와 케이블 상태 확인 중"></textarea></label><button class="am-button am-primary cursor-interaction" type="submit">메모 저장</button></form>'+
+      '<p class="am-help">메모를 저장해도 AP 상태는 바뀌지 않습니다. 복구는 다음 유효 관측으로 확인합니다. 모의 메모는 새로고침하면 초기화됩니다.</p></section></div>';
+  }
+  function incidentRows(){
+    const ix=runIndex();
+    const ids=[1,2,3,4,5,6,7,8,9,10].concat(ix>=1?[11,12]:[]);
+    return ids.map(ap).filter(a=>state.historyFilter!=="recovered"||run().recovered.includes(a.id));
+  }
+  function renderHistory(){
+    const rows=incidentRows(),rec=recoveredIds();
+    q("#am-stage").innerHTML='<div class="am-heading"><div><h1>장애·복구 이력</h1><p class="am-subtitle">같은 장애는 한 건으로 유지하고, 유효한 Up 관측으로 복구를 기록합니다.</p></div>'+button("현재 현황","dashboard",false)+'</div>'+
+      snapshotBanner()+'<div class="am-statusline"><span>조회 범위 <strong>2026.11.14–11.15</strong></span><span class="am-muted">가상 사건 · 현재 회차 '+run().time+'</span></div>'+
+      '<section class="am-panel"><div class="am-panelhead"><h2>장애 사건</h2><div class="am-actions"><button type="button" class="am-tab cursor-interaction '+(state.historyFilter==="all"?"is-active":"")+'" data-history="all">전체 사건</button><button type="button" class="am-tab cursor-interaction '+(state.historyFilter==="recovered"?"is-active":"")+'" data-history="recovered">이번 복구 '+(run().type==="failed"?"미확인":run().recovered.length+"건")+'</button></div></div>'+
+      (rows.length?'<div class="am-tablewrap"><table class="am-data-table"><thead><tr><th>AP / 사건</th><th>감지 시각</th><th>복구 확인</th><th>사건 상태</th></tr></thead><tbody>'+
+      rows.map(a=>'<tr><td data-label="AP"><button type="button" class="am-aplink cursor-interaction" data-ap="'+a.id+'">'+a.name+'</button><span class="am-cellsub">INC-202611-'+String(a.id).padStart(4,"0")+'</span></td><td data-label="감지 시각">'+a.firstAt+(a.first?'<span class="am-cellsub">최초 Down · 시작 미상</span>':"")+'</td><td data-label="복구 확인">'+(a.id===9||a.id===10?"11/15 11:05":rec.includes(a.id)?"11/15 11:15":"—")+'</td><td data-label="사건 상태">'+badge(rec.includes(a.id)?"복구 확인":"미복구",rec.includes(a.id)?"green":"red")+(statusFor(a.id)==="unknown"?'<span class="am-cellsub">이번 상태 미확인</span>':"")+'</td></tr>').join("")+'</tbody></table></div>':'<div class="am-empty"><strong>'+(run().type==="failed"?"이번 회차의 복구 여부를 확인할 수 없습니다.":"이번 회차의 복구 확인이 없습니다.")+'</strong><span>확인되지 않은 복구를 임의로 만들지 않습니다.</span></div>')+'</section>'+
+      '<p class="am-help">사건 수와 AP 대수는 구분합니다. 작업·목록 누락은 자동 복구 사유가 아닙니다.</p>';
+  }
+  function renderRuns(){
+    q("#am-stage").innerHTML='<div class="am-heading"><div><h1>수집 기록</h1><p class="am-subtitle">회차별 결과와 당시 Down 목록을 함께 확인합니다.</p></div>'+button("현재 현황","dashboard",false)+'</div>'+
+      '<section class="am-panel"><div class="am-panelhead"><h2>AP 상태 수집</h2><span class="am-muted">5분 주기 · KST · 가상 기록</span></div><div class="am-tablewrap"><table class="am-data-table"><thead><tr><th>수집 시각 / 결과</th><th>Up / Down</th><th>미확인</th><th>변화</th><th>회차 조회</th></tr></thead><tbody>'+
+      runs.slice(0,state.live+1).map((r,i)=>({r,i})).reverse().map(({r,i})=>'<tr><td data-label="수집 시각"><strong>'+r.time+'</strong><span class="am-cellsub">'+badge(r.type==="failed"?"실패":r.type==="partial"?"일부 확인":"성공",r.type==="failed"?"red":r.type==="partial"?"amber":"green")+' · '+r.duration+'</span></td>'+
+      '<td data-label="Up / Down">'+(r.type==="failed"?"확인 불가":fmt(r.up)+" / "+r.down.length)+'<span class="am-cellsub">'+(r.type==="failed"?"직전 Down 8대 참고":"대상 2,048대")+'</span></td>'+
+      '<td data-label="미확인">'+fmt(r.unknown.length)+'대</td><td data-label="변화">'+(r.type==="failed"?"전환 확인 불가":"신규 "+r.newIds.length+" · 복구 "+r.recovered.length)+'</td><td data-label="회차 조회"><button type="button" class="am-button cursor-interaction" data-run="'+i+'">현황 보기</button></td></tr>').join("")+
+      '</tbody></table></div></section><p class="am-help">실패 회차도 기록합니다. 이전 정상 결과를 이번 성공으로 덮어쓰지 않습니다.</p>';
+  }
+  function renderSettings(){
+    q("#am-stage").innerHTML='<div class="am-heading"><div><h1>처음 한 번, 연결 설정</h1><p class="am-subtitle">설정 이후에는 프로그램을 열면 다운 AP 현황부터 확인합니다.</p></div>'+badge("설정 모의체험","blue")+'</div>'+
+      '<div class="am-formlayout"><section class="am-panel am-formpanel"><h2>AirWave 연결</h2>'+
+      '<label class="am-field"><span>AirWave 주소</span><input id="am-address" type="url" value="'+esc(state.settings.address)+'" aria-describedby="am-setup-help"></label>'+
+      '<div class="am-formpair"><label class="am-field"><span>조회 계정</span><input value="'+esc(state.settings.user)+'" id="am-user" autocomplete="off"></label><label class="am-field"><span>비밀번호</span><input type="password" value="'+esc(state.settings.password)+'" id="am-password" autocomplete="off"></label></div>'+
+      '<div class="am-formpair"><label class="am-field"><span>AP 수집 간격</span><input value="5분 · 초기 제안값" readonly></label><label class="am-field"><span>접속 경로</span><select id="am-proxy">'+["Windows 프록시 설정 사용","직접 연결"].map(v=>'<option '+(v===state.settings.proxy?'selected':'')+'>'+v+'</option>').join('')+'</select></label></div>'+
+      '<p id="am-setup-help" class="am-help">이 화면은 실제 접속하지 않습니다. 모든 입력은 모의체험용입니다.</p>'+
+      '<div class="am-testresult '+(state.tested?"is-pass":"")+'" id="am-testresult">'+(state.tested?'<strong>모의 연결 확인 완료</strong>가상 AP 2,048대 · Up 2,040대 · Down 8대':'<strong>연결 확인 전</strong>실제 제품에서는 인증과 AP 조회 범위를 확인합니다.')+'</div>'+
+      '<div class="am-actions">'+button(state.tested?"모의 연결 다시 확인":"모의 연결 확인","test",false)+button("저장하고 현황 열기","save-settings",true,state.tested?"":"disabled")+'</div></section>'+
+      '<aside class="am-panel am-formpanel"><h2>이후에는 자동으로</h2><ol class="am-setupsteps"><li><b>1</b><div><strong>계정과 조회 범위 확인</strong>처음에는 실제 AirWave의 AP 대수와 대조합니다.</div></li><li><b>2</b><div><strong>정해진 주기로 상태 수집</strong>새 Down과 복구를 자동으로 비교합니다.</div></li><li><b>3</b><div><strong>필요할 때 현황 확인</strong>AP를 선택하면 연결 정보와 이력이 열립니다.</div></li></ol><div class="am-testresult"><strong>실제 제품의 동작</strong>창을 닫아도 백그라운드 수집을 계속하도록 설계합니다. 이 미리보기 자체는 실제 감시를 수행하지 않습니다.</div></aside></div>';
+  }
+  function renderFlow(){
+    const steps=[
+      ["01 · 최초 실행","연결을 설정합니다","AirWave 주소·조회 계정·수집 간격 확인","설정 화면 보기","settings"],
+      ["02 · 자동 수집","다운 목록이 갱신됩니다","이번 Down·신규 Down·복구·미확인 구분","다운 현황 보기","dashboard"],
+      ["03 · AP 선택","연결 위치와 이력을 봅니다","스위치·포트·첫 감지·관측 공백 확인","AP 상세 보기","sample-detail"],
+      ["04 · 추적과 조치","복구 확인까지 이어갑니다","조치 메모 기록·회차별 현황·복구 이력","수집 기록 보기","runs"]
+    ];
+    q("#am-stage").innerHTML='<div class="am-heading"><div><h1>사용자에게 보이는 흐름</h1><p class="am-subtitle">첫 설정 이후에는 다운 AP 현황에서 업무를 시작합니다.</p></div>'+button("현황으로 돌아가기","dashboard",true)+'</div>'+
+      '<div class="am-flow">'+steps.map(s=>'<section class="am-flowstep"><span class="am-stepnumber">'+s[0]+'</span><h2>'+s[1]+'</h2><p>'+s[2]+'</p>'+button(s[3],s[4],false)+'</section>').join("")+'</div>'+
+      '<div class="am-fork"><div><strong>유효한 Up 확인 → 복구 이력</strong>같은 AP의 열린 장애 사건에 복구 확인 시각을 남깁니다.</div><div><strong>조회 실패 → 마지막 목록 유지</strong>현재 미확인을 표시하고 기존 장애를 복구 처리하지 않습니다.</div></div>'+
+      '<div class="am-statusline" style="margin-top:15px"><span>실제 제품의 설계</span><strong>화면 닫기와 자동 수집 중지는 별도</strong></div>';
+  }
+  function render(){
+    renderChrome();
+    if(state.view==="dashboard")renderDashboard();
+    else if(state.view==="detail")renderDetail();
+    else if(state.view==="history")renderHistory();
+    else if(state.view==="runs")renderRuns();
+    else if(state.view==="settings")renderSettings();
+    else renderFlow();
+    icons();
+  }
+  function show(view){state.view=view;render();}
+  function selectAP(id){state.backView=state.view;state.selected=id;state.view="detail";render();q("#am-back").focus({preventScroll:true});}
+  function csv(){
+    const r=run(),rows=filteredRows().rows;
+    const cell=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
+    const header=["데이터구분","수집시각_KST","AP이름","AP_IP","설치위치","SW이름","SW_IP","SW포트","이번상태","마지막확인","첫Down감지","계획작업"];
+    const content="\uFEFF"+[header,...rows.map(a=>["가상 모의데이터","2026-11-15 "+r.time,a.name,a.ip,a.place,a.sw,a.swip,a.port,statusFor(a.id),lastSeen(a.id),a.firstAt||"",a.planned?"예":"아니오"])].map(line=>line.map(cell).join(",")).join("\r\n");
+    try{
+      const url=URL.createObjectURL(new Blob([content],{type:"text/csv;charset=utf-8"}));
+      const link=document.createElement("a");link.href=url;link.download="airwave-demo-"+r.time.replace(":","")+"-down.csv";root.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      toast("현재 필터의 가상 AP "+rows.length+"대가 CSV로 준비되었습니다.");
+    }catch(e){toast("이 미리보기에서는 다운로드가 제한될 수 있습니다.");}
+  }
+  root.addEventListener("click",e=>{
+    const b=e.target.closest("button");if(!b||!root.contains(b)||b.disabled)return;
+    if(b.dataset.view){stopPlay();show(b.dataset.view);return;}
+    if(b.dataset.ap){stopPlay();selectAP(Number(b.dataset.ap));return;}
+    if(b.dataset.filter){state.filter=b.dataset.filter;state.page=1;render();return;}
+    if(b.dataset.history){state.historyFilter=b.dataset.history;render();return;}
+    if(b.dataset.run!==undefined){stopPlay();state.snapshot=Number(b.dataset.run);state.view="dashboard";state.filter="open";state.query="";state.page=1;render();return;}
+    const a=b.dataset.action;
+    if(a==="play"){play();return;}
+    if(a==="dashboard"||a==="settings"||a==="runs"){stopPlay();if(a==="dashboard")state.snapshot=null;show(a);return;}
+    if(a==="sample-detail"){stopPlay();state.backView="flow";state.selected=1;state.view="detail";render();return;}
+    if(a==="back"){show(state.backView==="detail"?"dashboard":state.backView);return;}
+    if(a==="live"){state.snapshot=null;state.page=1;render();return;}
+    if(a==="pause"){stopPlay();state.paused=!state.paused;render();toast(state.paused?"모의 수집을 일시정지했습니다. 마지막 관측값을 표시합니다.":"모의 수집을 재개했습니다.");return;}
+    if(a==="collect"){stopPlay();setScenario(state.live+1);toast("다음 모의 수집 회차를 표시했습니다.");return;}
+    if(a==="filter-confirmed"||a==="filter-new"||a==="filter-unknown"){state.filter=a.replace("filter-","");state.page=1;render();return;}
+    if(a==="recovered"){state.historyFilter="recovered";show("history");return;}
+    if(a==="prevpage"||a==="nextpage"){state.page+=a==="prevpage"?-1:1;renderRows();return;}
+    if(a==="csv"){csv();return;}
+    if(a==="test"){
+      const address=q("#am-address").value.trim(),user=q("#am-user").value.trim();
+      if(!address.startsWith("https://")||!user){toast("모의 주소는 https:// 형식, 조회 계정은 빈 값 없이 입력해 주세요.");return;}
+      state.tested=true;renderSettings();icons();toast("모의 연결만 확인했습니다. 실제 AirWave에는 접속하지 않았습니다.");return;
+    }
+    if(a==="save-settings"){state.view="dashboard";state.filter="open";state.query="";state.page=1;setScenario(0);toast("설정 모의체험 완료 · 가상 다운 현황을 표시합니다.");}
+  });
+  root.addEventListener("input",e=>{
+    if(e.target.id==="am-search"){state.query=e.target.value;state.page=1;renderRows();}
+    const setting={"am-address":"address","am-user":"user","am-password":"password"}[e.target.id];
+    if(setting){state.settings[setting]=e.target.value;resetSettingsTest();}
+  });
+  function resetSettingsTest(){
+    state.tested=false;
+    const result=q("#am-testresult");if(!result)return;
+    result.classList.remove("is-pass");result.innerHTML="<strong>연결 확인 전</strong>설정을 바꿨습니다. 모의 연결 확인을 다시 진행하세요.";
+    q('[data-action="save-settings"]').disabled=true;
+    q('[data-action="test"]').textContent="모의 연결 확인";
+  }
+  root.addEventListener("change",e=>{
+    if(e.target.id==="am-scenario"){stopPlay();setScenario(Number(e.target.value));}
+    if(e.target.id==="am-sort"){state.sort=e.target.value;state.page=1;renderRows();}
+    if(e.target.id==="am-hideplanned"){state.hidePlanned=e.target.checked;state.page=1;renderRows();}
+    if(e.target.id==="am-proxy"){state.settings.proxy=e.target.value;resetSettingsTest();}
+  });
+  root.addEventListener("submit",e=>{
+    if(e.target.id!=="am-noteform")return;e.preventDefault();
+    const text=q("#am-note").value.trim();if(!text){toast("조치 내용을 입력해 주세요.");q("#am-note").focus();return;}
+    (state.notes[state.selected]||(state.notes[state.selected]=[])).push({text,time:"11/15 "+run().time+" (모의)"});
+    renderDetail();icons();toast("조치 메모를 저장했습니다. AP의 상태와 복구 여부는 바뀌지 않았습니다.");
+  });
+  render();
+})();
+</script>
+
+</body></html>
