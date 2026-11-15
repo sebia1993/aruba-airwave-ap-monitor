@@ -23,7 +23,9 @@
 
 ### 다음 작업·진행률·실환경 미확인
 
-- 완료 근거가 모두 있는 Task 1~7 기준 **80 / 100%**를 유지한다. 다음은 Task 8 Windows CI·정확한 패키지 검증과 Task 9 조건부 연결/전력 관측 저장·수집·화면 통합이다. 재시작 후 장애/공백 보존 인수 시나리오 1개도 실제 SQLite로 통과했다.
+- 세 번째 [Windows CI 43749748457](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43749748457), 소스 `ab9155b5fc929c876eaa2d589cea269b564cf9d2`가 성공했다. 공통 **528 통과·Mac/Unix 4 제외**, Windows 전용 **9**, Node **43**, Python **6 통과·Unix 2 제외**다. PS5.1 및 한글/공백 경로의 self-contained ZIP을 검사했고 실제 SCM 강제 종료 뒤 **66.039초**에 새 PID/회차로 복구했다. 백업/복원·RunId 상한·예약 작업·등록 제거 후 데이터 보존·검사 정리가 통과했다. Demo LocalSystem 검사이며 실제 재부팅·managed fatal 예외 주입은 아니다.
+- CI에서 실행한 ZIP과 내부 **378개 파일** SHA256이 모두 일치했다. `artifacts/win-x64/ci-43749748457/AirWaveAPMonitor-0.1.0-core-ab9155b5fc92-20261115T190455Z-2c7b41.zip`, **50,343,686 bytes**, SHA256 `3029aac8083ff1a19eccb1cfc64482b325e29dd4346143fc43fbfedf4f30f50d`. 소스 미커밋 변경 없음, `onsite_verified=false`; Task 9~10은 포함되지 않는다. 기존 패키지와 실패 기록은 보존했다.
+- Task 8까지 완료 근거가 확인되어 **92 / 100%**다. 다음은 Task 9 조건부 연결/전력 관측 저장·수집·화면 통합과 Task 10 최종 인수다. 재시작 후 장애/공백 보존 인수 시나리오 1개도 실제 SQLite로 통과했다.
 - 사내 Windows 11/AD·실제 대장·장비 교체/배치·AirWave·프록시/TLS·운영 계정·Windows GUI/Excel·장기 운영은 미확인이다. 브라우저는 실제 1280px만 확인했다.
 
 ## 2026-11-16 — Task 7 실제 구현: Windows 운영·보존·백업·복원

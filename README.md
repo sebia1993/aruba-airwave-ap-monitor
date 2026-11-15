@@ -2,7 +2,7 @@
 
 **핵심 목표는 AirWave를 주기적으로 조회하여 Down AP 현황을 추적하는 것입니다.** 수집 PC 한 대에서 이번 Down, 신규 Down, 미복구, 복구 확인과 반복 이력을 조회합니다. 정보·연결 변경, 장비 교체와 작업·조치 기록은 이 감시와 조사를 지원합니다.
 
-**현재 상태: Task 1~7의 자동 감시·현황/CSV·장애 이력·Windows 서비스/예약 작업·백업/복원을 구현하고 Windows CI를 통과했습니다. 확인된 개발 진행률은 80%입니다. Task 8 운영 기록·수동 대장/CSV를 통합 검증 중이며 Task 9 조건부 관측과 Task 10 최종 인수 검증을 이어갑니다. 실제 AirWave와 사내 Windows 11/AD 운영은 미확인입니다.**
+**현재 상태: Task 1~8의 자동 감시·현황/CSV·장애/운영 이력·수동 대장/CSV·설치 지점/작업·Windows 운영·백업/복원을 구현하고 Windows CI를 통과했습니다. 확인된 개발 진행률은 92%입니다. Task 9 조건부 연결/전력 관측과 Task 10 최종 인수 검증을 이어갑니다. 실제 AirWave와 사내 Windows 11/AD 운영은 미확인입니다.**
 
 실행: `./scripts/dev-mac.sh` → `http://127.0.0.1:8765`. [Mac 개발 안내](docs/guides/MAC_DEVELOPMENT.md)와 [작업별 진행·검증 기록](docs/DEVELOPMENT_STATUS.md)을 확인하세요. 초기 화면은 수집하지 않은 상태를 정상이나 Down 0대로 표시하지 않습니다.
 
