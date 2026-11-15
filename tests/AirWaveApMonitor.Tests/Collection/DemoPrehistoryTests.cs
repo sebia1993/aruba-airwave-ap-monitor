@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
 using AirWaveApMonitor.App.Collection;
 using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Infrastructure.AirWave;
@@ -14,12 +16,13 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Xunit.Abstractions;
 using static AirWaveApMonitor.Tests.Collection.CollectionCoordinatorTests;
 
 namespace AirWaveApMonitor.Tests.Collection;
 
 [Collection("Host environment")]
-public sealed class DemoPrehistoryTests
+public sealed class DemoPrehistoryTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task FreshDemo_CommitsPrehistoryBeforeAcceptedVisibleRun()
@@ -40,19 +43,49 @@ public sealed class DemoPrehistoryTests
         using var directory = new TemporaryDirectory();
         await using (var first = await DemoFixture.Create(directory.Path))
         {
-            await first.Coordinator.StartAsync(default);
-            await Eventually(() => first.Health.GetSnapshot().Phase == CollectorPhase.Idle);
+            await StartAndWaitForIdle(first, "first");
             Assert.Equal(2, await first.Checkpoint());
         }
         await using var restarted = await DemoFixture.Create(directory.Path);
-        await restarted.Coordinator.StartAsync(default);
-        await Eventually(() => restarted.Health.GetSnapshot().Phase == CollectorPhase.Idle);
+        await StartAndWaitForIdle(restarted, "restarted");
         var snapshot = await restarted.Store.GetDashboardAsync(new(restarted.Location.DatasetId, 1), default);
         Assert.Equal(4, restarted.RunCount());
         Assert.Equal(3, await restarted.Checkpoint());
         Assert.Equal(10, snapshot.Summary.ConfirmedDown);
         Assert.Equal(2, snapshot.Summary.NewDown);
         Assert.Equal(10, snapshot.Summary.OpenIncidents);
+
+        async Task StartAndWaitForIdle(DemoFixture fixture, string stage)
+        {
+            var timer = Stopwatch.StartNew();
+            try { await fixture.Coordinator.StartAsync(default); }
+            finally { output.WriteLine($"{stage} StartAsync: {timer.Elapsed.TotalMilliseconds:F3} ms; {HealthText()}"); }
+            timer.Restart();
+            var idleObserved = false;
+            try
+            {
+                await Eventually(() => fixture.Health.GetSnapshot().Phase == CollectorPhase.Idle,
+                    () => $"{stage} Idle wait after {timer.Elapsed.TotalMilliseconds:F3} ms; {HealthText()}");
+                idleObserved = true;
+            }
+            finally
+            {
+                output.WriteLine($"{stage} Idle wait: {timer.Elapsed.TotalMilliseconds:F3} ms; passed={idleObserved}; {HealthText()}");
+            }
+
+            string HealthText()
+            {
+                var health = fixture.Health.GetSnapshot();
+                return JsonSerializer.Serialize(new
+                {
+                    phase = health.Phase.ToString(), activeKind = health.ActiveKind?.ToString(), health.ActiveRunId,
+                    health.LastAttemptRunId, health.LastFinalRunId, lastOutcome = health.LastOutcome?.ToString(),
+                    health.LastValidCommittedAtUtc, health.LastCompleteCommittedAtUtc, health.StorageRecoveryPending,
+                    health.LastStorageError, lastCollectionError = health.LastCollectionError?.ToString(),
+                    health.BlockedReason, health.LastDiagnosticFileError, health.Paused
+                });
+            }
+        }
     }
 
     [Fact]
