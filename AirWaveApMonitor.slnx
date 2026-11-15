@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AirWaveApMonitor.Core/AirWaveApMonitor.Core.csproj" />
+    <Project Path="src/AirWaveApMonitor.Infrastructure/AirWaveApMonitor.Infrastructure.csproj" />
+    <Project Path="src/AirWaveApMonitor.App/AirWaveApMonitor.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AirWaveApMonitor.Tests/AirWaveApMonitor.Tests.csproj" />
+    <Project Path="tests/AirWaveApMonitor.WindowsTests/AirWaveApMonitor.WindowsTests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AirWave AP Monitor</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span class="brandmark">AP</span><div><strong>AirWave Monitor</strong><small>LOCAL OPERATIONS</small></div></div>
+      <p class="nav-label">모니터링</p>
+      <div class="nav-current">다운 AP 현황</div>
+      <p class="local-note">수집 PC 전용<br><span>루프백 연결</span></p>
+    </aside>
+    <div class="workspace">
+      <header><span>운영 콘솔 / <strong>시작 상태</strong></span><span id="mode" class="badge">모드 확인 중</span></header>
+      <main>
+        <p class="eyebrow">AirWave AP Monitor</p>
+        <h1>AP 감시 프로그램 시작 상태</h1>
+        <p class="subtitle" id="mode-description">실행 모드를 확인하고 있습니다.</p>
+        <section class="notice" aria-labelledby="status-title">
+          <span class="status-dot" aria-hidden="true"></span>
+          <div><h2 id="status-title">아직 수집된 현황이 없습니다</h2><p>현재는 실행 환경을 준비한 단계입니다. 수집·상태 판정·SQLite 저장은 후속 단계에서 연결됩니다.</p></div>
+        </section>
+        <section class="panel" aria-labelledby="ready-title">
+          <h2 id="ready-title">현재 준비 상태</h2>
+          <dl>
+            <div><dt>실행 모드</dt><dd id="mode-detail">확인 중</dd></div>
+            <div><dt>자동 수집</dt><dd>아직 구현되지 않음</dd></div>
+            <div><dt>이력 저장</dt><dd>아직 구현되지 않음</dd></div>
+            <div><dt>가상 시나리오</dt><dd id="scenario-detail">확인 중</dd></div>
+            <div><dt>Windows 운영 기능</dt><dd id="windows-detail">확인 중</dd></div>
+          </dl>
+        </section>
+        <p class="footnote">수집하지 않은 상태를 Down 0대 또는 전체 정상으로 표시하지 않습니다.</p>
+        <p id="error" class="error" role="alert" hidden></p>
+      </main>
+      <footer>로컬 자원만 사용하는 화면 · 데이터 폴더는 실행 모드별로 분리됩니다.</footer>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,5 +1,33 @@
 # Development Log
 
+## 2026-11-15 — Task 1 실제 구현: 실행 골격과 Demo 격리
+
+### 요청·변경 내용
+
+- Drive 작업 지시서와 저장소 문서의 일치를 확인하고 계획·설계·모의화면을 전체 검토했다. 빈 작업 폴더에 지정 저장소를 복제했으며 기존 사용자 미커밋 변경은 없었다. 기준 `727ddb2`, 작업 브랜치 `codex/macos-v0.1`.
+- .NET SDK 10.0.404 Arm64를 공식 SHA512 검증 후 사용자 경로에 설치했다. 공통 `net10.0` 솔루션·세 프로젝트·두 테스트 프로젝트와 Mac 실행 스크립트를 만들었다.
+- 공통 수집/관측/저장/자격 증명 계약을 정의했다. 불변 프로필과 기대 목록, nullable 실패 집계, 필드별 출처·시각·품질, 실행 생명주기와 수집 결과 분리, 비밀의 일반 직렬화 차단을 포함했다.
+- 영속 모드/데이터셋 표시자로 Demo/Live 폴더 혼용을 거부한다. 손상·필수값 누락 표시자와 기존 무표시 데이터를 임의로 채택하지 않는다. Demo는 Live 자격 증명 공급자를 만들지 않는다.
+- 가상 2,048대와 다섯 시나리오, 신규/최초 Down/복구의 근거가 되는 두 선행 관측을 준비했다. 아직 파서·상태 머신·DB가 없으므로 초기 화면과 건강 API는 미구현 범위를 명시한다.
+- UI는 루프백만 사용하고 모든 자원을 로컬에서 제공한다. 허용되지 않은 Host/Origin을 거부한다. Windows DPAPI·서비스·예약 작업은 Mac에서 미지원으로 표시한다.
+- 기존 Windows workflow가 없어 사용자 AGENTS 지침에 따라 `windows-latest` 빌드/테스트/게시와 한글·공백 경로의 EXE 실행 검증을 추가했다. 계획의 선택적 CI 문구보다 최신 사용자 지침을 우선했다.
+
+### 실제 검증
+
+- TDD: 모드 격리 8개 실패 → 구현 후 통과. 불완전 표시자 회귀 검사를 추가해 최종 ModeIsolationTests 9개 통과. 계약 및 부트스트랩/시나리오도 실패를 먼저 확인했다.
+- 초기 통합 실행에서 빈 설정 공급자 오류가 발생했다. 환경 설정을 비운 뒤 메모리 공급자를 등록해 해결했다. 중복 `UseUrls`/`Listen`으로 발생한 Kestrel 경고도 중복 설정을 제거했다.
+- `dotnet build AirWaveApMonitor.slnx -c Release`: 성공, 경고 0·오류 0.
+- `dotnet test AirWaveApMonitor.slnx -c Release --no-build`: 공통 34개 통과, Windows 전용 2개는 Mac에서 명시적으로 건너뜀.
+- `dotnet run --project src/AirWaveApMonitor.App -- --mode demo`: 실제 브라우저에서 Demo 표시와 미구현 안내 확인. `/api/health`는 `bootstrap`, 수집·저장은 `not-implemented`; `/api/dashboard`는 503. `lsof`로 `127.0.0.1:8765` 단일 수신 확인.
+- 독립 코드 검토와 Windows CI는 이 기록 작성 시 진행 중이다. 최종 결과는 `docs/DEVELOPMENT_STATUS.md`에 이어 기록한다.
+
+### 다음 작업·진행률·한계
+
+- 다음 단계: Task 2의 AirWave 읽기 어댑터·안전한 XML 파서·실행 계정 DPAPI·연결 진단·초기 Windows 패키지.
+- Task 1 가중치는 8%이며 독립 검토와 Windows CI 결과 확인 전에는 완료 점수를 부여하지 않았다. 전체 가중치와 완료 근거는 진행 기록에서 관리한다.
+- 실제 AirWave, 사내 PAC/TLS, Windows 11 운영 계정/서비스/재부팅, PoE·LLDP 필드와 상시 수집은 미확인이다. 이 단계는 자동 수집·SQLite 이력이나 반입 ZIP을 제공한 단계가 아니다.
+- 원래 계획·설계·모의화면과 이전 작업 기록을 보존했다. 실제 계정·내부 자료·DB·로그·배포 ZIP은 커밋 대상에서 제외했다.
+
 ## 2026-11-15 — MacBook Codex 실행용 작업 지시서
 
 ### 사용자 요청과 확정된 개발 방식
