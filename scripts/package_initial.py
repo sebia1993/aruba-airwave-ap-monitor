@@ -58,7 +58,7 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
     validate_publish(published)
     core = stage == "core-monitoring"
     if core:
-        for required in ("e_sqlite3.dll", "wwwroot/app.css", "wwwroot/ui-state.js"):
+        for required in ("e_sqlite3.dll", "wwwroot/app.css", "wwwroot/ui-state.js", "wwwroot/operations.js"):
             if not (published / required).is_file():
                 raise ValueError("핵심 감시 패키지의 필수 자원이 누락되었습니다: " + required)
     if not re.fullmatch(r"[0-9a-f]{40,64}", commit):
@@ -74,7 +74,7 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
         scripts = ("Start-Monitor.ps1", "Monitor-Common.ps1", "Monitor-ServiceRecovery.ps1", "Install-Service.ps1",
                    "Remove-Service.ps1", "Install-ScheduledTask.ps1",
                    "Remove-ScheduledTask.ps1", "Backup-Restore.ps1")
-        documents = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "ONSITE_VALIDATION.md")
+        documents = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "ONSITE_VALIDATION.md", "OPERATIONS.md")
         guides = {"scripts/windows/" + name: name for name in scripts}
         guides.update({"docs/guides/" + name: name for name in documents})
     elif (repository / "scripts/windows/Monitor-Common.ps1").exists():
@@ -101,9 +101,9 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
             "version": version, "stage": stage, "rid": "win-x64",
             "source_commit": commit, "working_tree_dirty": bool(dirty),
             "created_at_utc": now.isoformat(), "onsite_verified": False,
-            "scope": ("AP 자동 감시·장애/복구·불변 회차/CSV·백업/복원·Windows 서비스/예약 작업."
+            "scope": ("AP 자동 감시·장애/복구·불변 회차/CSV·운영 이력·수동 대장/CSV 등록·설치 지점/작업·백업/복원·Windows 서비스/예약 작업."
                       if core else "초기 연결 진단 반입 범위. 최신 코드 기능 범위는 개발 기록을 확인하세요."),
-            "remaining_scope": (["운영 이력 편집", "수동 정보 CSV 가져오기", "조건부 연결·LLDP·PoE", "최종 통합 인수"]
+            "remaining_scope": (["조건부 연결·LLDP·PoE", "최종 통합 인수"]
                                 if core else ["핵심 감시 반입·전체 승인 범위의 검증은 별도 패키지/기록 참조"]),
             "verification": "이 패키지의 Windows CI 결과와 사내 확인 여부는 별도 작업 기록을 참조하세요.",
         }

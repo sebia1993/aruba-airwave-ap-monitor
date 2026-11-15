@@ -8,10 +8,12 @@ namespace AirWaveApMonitor.Infrastructure.Storage;
 
 public sealed class SchemaMigrator
 {
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
     private static readonly Lazy<Dictionary<string, string>> VersionOneDefinitions = new(() => BuildExpectedDefinitions(1));
     private static readonly Lazy<Dictionary<string, string>> VersionTwoDefinitions = new(() => BuildExpectedDefinitions(2));
     private static readonly Lazy<Dictionary<string, string>> VersionThreeDefinitions = new(() => BuildExpectedDefinitions(3));
+
+    private static readonly Lazy<Dictionary<string, string>> VersionFourDefinitions = new(() => BuildExpectedDefinitions(4));
 
     public void Migrate(SqliteConnection connection, StorageLocation location, DateTimeOffset now)
     {
@@ -56,8 +58,13 @@ public sealed class SchemaMigrator
             Execute(connection, transaction, ReadMigration("002_source_checkpoints.sql"));
             Execute(connection, transaction, "UPDATE dataset SET schema_version=2; INSERT INTO schema_migrations VALUES(2,$at); PRAGMA user_version=2", ("$at", now));
         }
-        Execute(connection, transaction, ReadMigration("003_maintenance.sql"));
-        Execute(connection, transaction, "UPDATE dataset SET schema_version=3; INSERT INTO schema_migrations VALUES(3,$at); PRAGMA user_version=3", ("$at", now));
+        if (version < 3)
+        {
+            Execute(connection, transaction, ReadMigration("003_maintenance.sql"));
+            Execute(connection, transaction, "UPDATE dataset SET schema_version=3; INSERT INTO schema_migrations VALUES(3,$at); PRAGMA user_version=3", ("$at", now));
+        }
+        Execute(connection, transaction, ReadMigration("004_operations.sql"));
+        Execute(connection, transaction, "UPDATE dataset SET schema_version=4; INSERT INTO schema_migrations VALUES(4,$at); PRAGMA user_version=4", ("$at", now));
         transaction.Commit();
     }
 
@@ -120,7 +127,7 @@ public sealed class SchemaMigrator
                 throw new InvalidOperationException("DB와 데이터 폴더의 데이터셋/모드가 일치하지 않습니다.");
             }
             var actualDefinitions = ReadDefinitions(connection);
-            var expected = version switch { 1 => VersionOneDefinitions.Value, 2 => VersionTwoDefinitions.Value, 3 => VersionThreeDefinitions.Value, _ => throw new InvalidOperationException("지원하지 않는 DB 버전입니다.") };
+            var expected = version switch { 1 => VersionOneDefinitions.Value, 2 => VersionTwoDefinitions.Value, 3 => VersionThreeDefinitions.Value, 4 => VersionFourDefinitions.Value, _ => throw new InvalidOperationException("지원하지 않는 DB 버전입니다.") };
             if (expected.Any(pair => !actualDefinitions.TryGetValue(pair.Key, out var actual) || actual != pair.Value))
             {
                 throw new InvalidOperationException("필수 DB 열 또는 무결성 제약이 변경되었습니다.");
@@ -152,6 +159,7 @@ public sealed class SchemaMigrator
         Execute(connection, null, ReadMigration("001_core.sql"));
         if (version >= 2) Execute(connection, null, ReadMigration("002_source_checkpoints.sql"));
         if (version >= 3) Execute(connection, null, ReadMigration("003_maintenance.sql"));
+        if (version >= 4) Execute(connection, null, ReadMigration("004_operations.sql"));
         SqliteAuthenticationStateStore.EnsureSchema(connection);
         return ReadDefinitions(connection);
     }

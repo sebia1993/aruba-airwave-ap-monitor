@@ -23,14 +23,14 @@ class CorePackageTests(unittest.TestCase):
         for relative in ("AirWaveApMonitor.App.exe", "AirWaveApMonitor.App.deps.json",
                          "AirWaveApMonitor.App.runtimeconfig.json", "coreclr.dll", "hostfxr.dll",
                          "hostpolicy.dll", "e_sqlite3.dll", "wwwroot/index.html", "wwwroot/app.js",
-                         "wwwroot/app.css", "wwwroot/ui-state.js"):
+                         "wwwroot/app.css", "wwwroot/ui-state.js", "wwwroot/operations.js"):
             file = self.publish / relative
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text("synthetic publish fixture", encoding="utf-8")
         self.scripts = ("Start-Monitor.ps1", "Monitor-Common.ps1", "Monitor-ServiceRecovery.ps1", "Install-Service.ps1",
                         "Remove-Service.ps1", "Install-ScheduledTask.ps1",
                         "Remove-ScheduledTask.ps1", "Backup-Restore.ps1")
-        self.guides = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "ONSITE_VALIDATION.md")
+        self.guides = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "ONSITE_VALIDATION.md", "OPERATIONS.md")
         for relative in [*("scripts/windows/" + name for name in self.scripts),
                          *("docs/guides/" + name for name in self.guides)]:
             file = self.repository / relative
@@ -54,7 +54,10 @@ class CorePackageTests(unittest.TestCase):
             self.assertFalse(version["onsite_verified"])
             self.assertFalse(version["working_tree_dirty"])
             self.assertEqual("a" * 40, version["source_commit"])
-            self.assertIn("운영 이력 편집", version["remaining_scope"])
+            self.assertIn("운영 이력", version["scope"])
+            self.assertNotIn("운영 이력 편집", version["remaining_scope"])
+            self.assertIn("조건부 연결·LLDP·PoE", version["remaining_scope"])
+            self.assertIn("app/wwwroot/operations.js", names)
             entries = bundle.read("SHA256SUMS.txt").decode().splitlines()
             for line in entries:
                 digest, name = line.split("  ", 1)
@@ -65,7 +68,7 @@ class CorePackageTests(unittest.TestCase):
         self.output.mkdir()
         previous = self.output / "previous.zip"
         previous.write_bytes(b"preserve previously tested bundle")
-        for file in (self.publish / "e_sqlite3.dll", self.publish / "wwwroot/ui-state.js",
+        for file in (self.publish / "e_sqlite3.dll", self.publish / "wwwroot/ui-state.js", self.publish / "wwwroot/operations.js",
                      self.repository / "scripts/windows/Monitor-Common.ps1",
                      self.repository / "scripts/windows/Monitor-ServiceRecovery.ps1",
                      self.repository / "docs/guides/UPDATE_AND_RECOVERY.md"):

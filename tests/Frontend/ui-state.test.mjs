@@ -23,7 +23,7 @@ class StubNode {
 const appSource = await readFile(new URL("../../src/AirWaveApMonitor.App/wwwroot/app.js", import.meta.url), "utf8");
 const bindingStart = '\ndocument.querySelectorAll("[data-view]")';
 assert.equal(appSource.split(bindingStart).length, 2, "Locate the production event-binding boundary");
-const appFunctions = appSource.split(bindingStart)[0].replace(/^import .*;$/m, "");
+const appFunctions = appSource.split(bindingStart)[0].replace(/^import .*;$/gm, "");
 function appStub() {
   const nodes = new Map();
   const document = { getElementById(id) { if (!nodes.has(id)) nodes.set(id, new StubNode()); return nodes.get(id); }, createElement(tag) { return new StubNode(tag); } };

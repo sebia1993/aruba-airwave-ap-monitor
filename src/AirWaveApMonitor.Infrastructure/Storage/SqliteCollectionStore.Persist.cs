@@ -7,7 +7,7 @@ namespace AirWaveApMonitor.Infrastructure.Storage;
 
 public sealed partial class SqliteCollectionStore
 {
-    private static void PersistDecision(SqliteConnection connection, SqliteTransaction transaction,
+    private void PersistDecision(SqliteConnection connection, SqliteTransaction transaction,
         CollectionContext context, ApTransitionDecision decision, StoredAp? previous, bool includeRow)
     {
         var next = decision.Next;
@@ -36,6 +36,9 @@ public sealed partial class SqliteCollectionStore
                     ("$run", context.RunId), ("$generation", previous.View.DeviceGenerationId));
             }
         }
+        view = AttachFrozenRegistration(connection, transaction, context, view);
+        RecordAutomaticChanges(connection, transaction, context, previous?.View, view, decision.Identity?.Change ?? IdentityChange.Unchanged,
+            next.LastProcessedAtUtc ?? context.StartedAtUtc, previous?.Tracking.OpenGap is not null || decision.ClosedGap is not null, next.TimeNeedsReview);
         var measurements = new MetadataMeasurements(view.Metadata.Device.Uptime, view.Metadata.Device.RebootedAtUtc,
             view.Metadata.RawSourceValues);
         var metadataJson = Encode(view.Metadata with
@@ -81,6 +84,10 @@ public sealed partial class SqliteCollectionStore
             Execute(connection, transaction, "INSERT INTO run_transitions VALUES($run,$ap,$incident,$generation,$interval,$kind,$json)",
                 ("$run", context.RunId), ("$ap", apId), ("$incident", incident.IncidentId), ("$generation", incident.DeviceGenerationId),
                 ("$interval", incident.MonitoringIntervalId), ("$kind", mutation.Kind), ("$json", Encode(incident)));
+            var eventView = incident.DeviceGenerationId == view.DeviceGenerationId ? view : previous?.View;
+            var source = decision.AcceptedObservation?.Fields.GetValueOrDefault(MonitoringFieldNames.State)?.Source
+                ?? ReadFrozenBinding(connection, transaction, context.RunId, apId)?.PolicySource;
+            RecordIncidentEvent(connection, transaction, context, apId, mutation, source, eventView?.Metadata.ManualInventory?.Placement?.InstallationPointId);
             if (mutation.Kind is IncidentMutationKind.Created or IncidentMutationKind.Recovered)
             {
                 var snapshot = new IncidentSnapshotBuilder().Build(view, context);

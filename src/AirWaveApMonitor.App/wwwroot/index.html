@@ -19,6 +19,7 @@
         <button type="button" data-view="incidents" class="nav-item"><span aria-hidden="true">↺</span>장애·복구 이력</button>
         <button type="button" data-view="runs" class="nav-item"><span aria-hidden="true">☷</span>수집 기록</button>
         <p class="nav-label">관리</p>
+        <button type="button" data-view="operations" class="nav-item"><span aria-hidden="true">▤</span>운영 기록·대장</button>
         <button type="button" data-view="settings" class="nav-item"><span aria-hidden="true">⚙</span>연결 설정</button>
       </nav>
       <div class="side-bottom"><strong>수집 PC 전용</strong><p>루프백 연결 · 로컬 이력</p><small>창을 닫는 것과 수집 중지는 별개입니다.</small></div>
@@ -63,6 +64,10 @@
           <section class="panel"><div class="panel-head"><h2>수집 회차</h2><label class="compact-label">조회 범위<select id="run-scope"><option value="">모든 범위</option></select></label></div><div id="run-table"></div><div class="pager"><span id="run-page-label"></span><div class="actions"><button type="button" id="run-prev" disabled>이전</button><span id="run-page-number">1 / 1</span><button type="button" id="run-next" disabled>다음</button></div></div></section>
         </section>
         <section data-screen="detail" aria-labelledby="detail-title" hidden><button id="detail-back" type="button">← 목록으로</button><div id="detail-content"></div></section>
+        <section data-screen="operations" aria-labelledby="operations-title" hidden>
+          <div class="heading"><div><h1 id="operations-title">운영 기록·대장</h1><p class="subtitle">현재 등록·예정 작업과 자동 관측을 구분해 기록합니다.</p></div></div>
+          <div id="operations-content" aria-live="polite"></div>
+        </section>
         <section data-screen="settings" aria-labelledby="settings-title" hidden>
           <div class="heading"><div><h1 id="settings-title">연결 설정</h1><p class="subtitle" id="mode-description">실행 모드를 확인하고 있습니다.</p></div><button type="button" id="refresh-settings">설정 다시 읽기</button></div>
           <div class="settings-grid">

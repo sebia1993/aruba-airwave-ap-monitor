@@ -113,14 +113,14 @@ public sealed partial class SqliteCollectionStore
             selected.RemoveAll(row => row.ManualManagement?.Status == OperationalStatus.PlannedWork);
         IOrderedEnumerable<ApSnapshotRow> ordered = query.Sort switch
         {
-            DashboardSort.IpAddress => query.Descending ? selected.OrderByDescending(row => row.Device.IpAddress, StringComparer.OrdinalIgnoreCase)
-                : selected.OrderBy(row => row.Device.IpAddress, StringComparer.OrdinalIgnoreCase),
+            DashboardSort.IpAddress => query.Descending ? selected.OrderByDescending(row => DisplayValue(row, InventoryField.IpAddress), StringComparer.OrdinalIgnoreCase)
+                : selected.OrderBy(row => DisplayValue(row, InventoryField.IpAddress), StringComparer.OrdinalIgnoreCase),
             DashboardSort.LastObservedAt => query.Descending ? selected.OrderByDescending(row => row.LastValidObservedAtUtc)
                 : selected.OrderBy(row => row.LastValidObservedAtUtc),
             DashboardSort.FirstDownAt => query.Descending ? selected.OrderByDescending(row => row.FirstDownAtUtc)
                 : selected.OrderBy(row => row.FirstDownAtUtc),
-            _ => query.Descending ? selected.OrderByDescending(row => row.Device.Name, StringComparer.OrdinalIgnoreCase)
-                : selected.OrderBy(row => row.Device.Name, StringComparer.OrdinalIgnoreCase)
+            _ => query.Descending ? selected.OrderByDescending(row => DisplayValue(row, InventoryField.Name), StringComparer.OrdinalIgnoreCase)
+                : selected.OrderBy(row => DisplayValue(row, InventoryField.Name), StringComparer.OrdinalIgnoreCase)
         };
         var offset = ((long)query.Page - 1) * query.PageSize;
         var page = offset > int.MaxValue ? ImmutableArray<ApSnapshotRow>.Empty
@@ -166,11 +166,15 @@ public sealed partial class SqliteCollectionStore
                     Guid.Parse(reader.GetString(3)), metadata.Identity, metadata.Device, metadata.Location, metadata.Controller,
                     facts.CurrentState, facts.LastValidState, facts.LastValidObservedAtUtc, facts.FirstDownAtUtc,
                     facts.OpenIncidentId, facts.Classification, facts.Fields, metadata.SourceManagement, metadata.ManualManagement,
-                    upstream, facts.UnknownReason, facts.TimeNeedsReview, facts.LastValidRunId, facts.SourceAtUtc, facts.LastContactedAtUtc, metadata.RawSourceValues));
+                    upstream, facts.UnknownReason, facts.TimeNeedsReview, facts.LastValidRunId, facts.SourceAtUtc, facts.LastContactedAtUtc, metadata.RawSourceValues, metadata.ManualInventory));
             }
         }
         return rows;
     }
+
+    private static string? DisplayValue(ApSnapshotRow row, InventoryField field)
+        => row.ManualInventory?.ManualPreferredFields.Contains(field) == true && row.ManualInventory.Values.TryGetValue(field, out var preferred)
+            ? preferred : field == InventoryField.Name ? row.Device.Name : row.Device.IpAddress;
 
     private static bool MatchesSearch(ApSnapshotRow row, string search) => new[]
     {
@@ -179,7 +183,7 @@ public sealed partial class SqliteCollectionStore
         row.Location.AirWaveRawLocation, row.Location.Folder, row.Location.Group,
         row.Controller.SourceId, row.Controller.Name, row.Controller.IpAddress,
         row.Upstream?.SourceSwitchId, row.Upstream?.PortIndex, row.Upstream?.PortName, row.Upstream?.ApInterface
-    }.Any(value => value?.Contains(search, StringComparison.OrdinalIgnoreCase) == true);
+    }.Concat(row.ManualInventory?.Values.Values ?? []).Any(value => value?.Contains(search, StringComparison.OrdinalIgnoreCase) == true);
 
     private static bool MatchesFilter(ApSnapshotRow row, DashboardFilter filter) => filter switch
     {

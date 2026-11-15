@@ -6,7 +6,7 @@ namespace AirWaveApMonitor.Core.Contracts;
 public sealed record DeviceMetadata(DeviceIdentity Identity, DeviceDetails Device, LocationDetails Location,
     ControllerDetails Controller, SourceManagementDetails? SourceManagement = null,
     ManualManagementDetails? ManualManagement = null, UpstreamMetadata? Upstream = null,
-    ImmutableDictionary<string, string>? RawSourceValues = null);
+    ImmutableDictionary<string, string>? RawSourceValues = null, ManualInventorySnapshot? ManualInventory = null);
 
 public sealed record UpstreamMetadata(string? SourceSwitchId, string? PortIndex, string? PortName, string? ApInterface);
 

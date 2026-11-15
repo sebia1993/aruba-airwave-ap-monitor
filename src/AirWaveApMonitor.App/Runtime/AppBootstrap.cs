@@ -54,6 +54,7 @@ public static class AppBootstrap
         builder.Services.AddSingleton<InstanceLock>();
         builder.Services.AddSingleton<ICollectionStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
         builder.Services.AddSingleton<IMonitoringReadStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
+        builder.Services.AddSingleton<IOperationsStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
         builder.Services.AddSingleton<ISourceCheckpointStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
         builder.Services.AddHostedService<StorageInitialization>();
         builder.Services.AddSingleton<IAuthenticationStateStore>(sp => options.Mode == AppMode.Live
@@ -141,6 +142,7 @@ public static class AppBootstrap
         app.MapCollector();
         app.MapMonitoring();
         app.MapExport();
+        app.MapOperations();
         return app;
     }
 

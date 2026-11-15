@@ -13,7 +13,8 @@ public static class ExportEndpoints
         "AP 이름", "AP IP", "시리얼", "유선 MAC", "모델", "펌웨어", "사업장", "건물", "층", "구역", "상세 위치", "AirWave 위치",
         "폴더", "그룹", "컨트롤러 ID", "컨트롤러 이름", "컨트롤러 IP", "원천 SW ID", "포트 인덱스", "포트명", "AP 인터페이스",
         "이번 상태", "마지막 유효 상태", "마지막 유효 확인 UTC", "첫 Down UTC", "열린 사건 ID", "관측 분류", "미확인 사유",
-        "시간 확인 필요", "수동 관리 상태", "수동 관리 사유", "원천 유지보수 모드", "필드별 근거 JSON", "미검증 원문 JSON"];
+        "시간 확인 필요", "수동 관리 상태", "수동 관리 사유", "원천 유지보수 모드", "필드별 근거 JSON", "미검증 원문 JSON", "등록 SW 이름", "등록 SW IP", "자산 번호", "대장 메모",
+        "자동 정보 JSON", "수동 등록 JSON", "대장 버전", "대장 출처", "대장 기록 UTC", "수동 우선 필드 JSON", "관측 당시 설치 지점 JSON"];
 
     public static void MapExport(this IEndpointRouteBuilder routes)
     {
@@ -55,15 +56,27 @@ public static class ExportEndpoints
         snapshot.RunId.ToString(CultureInfo.InvariantCulture), Time(snapshot.StartedAtUtc), Time(snapshot.FinalizedAtUtc),
         snapshot.Lifecycle.ToString(), snapshot.Outcome?.ToString(), snapshot.Completeness.ToString(), snapshot.Summary.BaselineStatus.ToString(),
         row.SourceApId, row.ApId.ToString("D"), row.DeviceGenerationId.ToString("D"), row.MonitoringIntervalId.ToString("D"),
-        row.Device.Name, row.Device.IpAddress, row.Identity.SerialNumber, row.Identity.WiredMac, row.Device.Model, row.Device.Firmware,
-        row.Location.Site, row.Location.Building, row.Location.Floor, row.Location.Zone, row.Location.Detail, row.Location.AirWaveRawLocation,
-        row.Location.Folder, row.Location.Group, row.Controller.SourceId, row.Controller.Name, row.Controller.IpAddress,
-        row.Upstream?.SourceSwitchId, row.Upstream?.PortIndex, row.Upstream?.PortName, row.Upstream?.ApInterface,
+        Display(row, InventoryField.Name, row.Device.Name), Display(row, InventoryField.IpAddress, row.Device.IpAddress), row.Identity.SerialNumber, row.Identity.WiredMac, Display(row, InventoryField.Model, row.Device.Model), Display(row, InventoryField.Firmware, row.Device.Firmware),
+        Display(row, InventoryField.Site, row.Location.Site), Display(row, InventoryField.Building, row.Location.Building), Display(row, InventoryField.Floor, row.Location.Floor), Display(row, InventoryField.Zone, row.Location.Zone), Display(row, InventoryField.Detail, row.Location.Detail), Display(row, InventoryField.RawLocation, row.Location.AirWaveRawLocation),
+        Display(row, InventoryField.Folder, row.Location.Folder), Display(row, InventoryField.Group, row.Location.Group), Display(row, InventoryField.ControllerId, row.Controller.SourceId), Display(row, InventoryField.ControllerName, row.Controller.Name), Display(row, InventoryField.ControllerIp, row.Controller.IpAddress),
+        row.Upstream?.SourceSwitchId, row.Upstream?.PortIndex, Display(row, InventoryField.PortName, row.Upstream?.PortName), Display(row, InventoryField.ApInterface, row.Upstream?.ApInterface),
         row.CurrentState?.ToString() ?? "Unknown", row.LastValidState?.ToString(), Time(row.LastValidObservedAtUtc), Time(row.FirstDownAtUtc),
         row.OpenIncidentId?.ToString("D"), row.Classification.ToString(), row.UnknownReason?.ToString(), row.TimeNeedsReview.ToString(),
         row.ManualManagement?.Status.ToString(), row.ManualManagement?.Reason, row.SourceManagement?.MaintenanceMode?.ToString(),
-        MonitoringHttp.Serialize(row.Fields), row.RawSourceValues is null ? null : MonitoringHttp.Serialize(row.RawSourceValues)
+        MonitoringHttp.Serialize(row.Fields), row.RawSourceValues is null ? null : MonitoringHttp.Serialize(row.RawSourceValues),
+        Registered(row, InventoryField.SwitchName), Registered(row, InventoryField.SwitchIp),
+        Registered(row, InventoryField.AssetTag), Registered(row, InventoryField.Notes),
+        MonitoringHttp.Serialize(new { row.Device, row.Location, row.Controller, row.Upstream }),
+        row.ManualInventory is null ? null : MonitoringHttp.Serialize(row.ManualInventory.Values),
+        row.ManualInventory?.Version.ToString(CultureInfo.InvariantCulture), row.ManualInventory?.Source.ToString(),
+        Time(row.ManualInventory?.RecordedAtUtc),
+        row.ManualInventory is null ? null : MonitoringHttp.Serialize(row.ManualInventory.ManualPreferredFields),
+        row.ManualInventory?.Placement is null ? null : MonitoringHttp.Serialize(row.ManualInventory.Placement)
     ];
+    private static string? Registered(ApSnapshotRow row, InventoryField field)
+        => row.ManualInventory?.Values.GetValueOrDefault(field);
+    private static string? Display(ApSnapshotRow row, InventoryField field, string? automatic)
+        => row.ManualInventory?.ManualPreferredFields.Contains(field) == true && Registered(row, field) is { } manual ? manual : automatic;
     private static string? Time(DateTimeOffset? value) => value?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
     private static void Append(StringBuilder builder, IEnumerable<string?> values)
     {

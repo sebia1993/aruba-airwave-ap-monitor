@@ -42,7 +42,7 @@ public sealed record ApSnapshotRow(Guid ApId, string SourceApId, Guid DeviceGene
     ManualManagementDetails? ManualManagement = null, SourceUpstreamReference? Upstream = null,
     MissingObservationReason? UnknownReason = null, bool TimeNeedsReview = false, long? LastValidRunId = null,
     DateTimeOffset? SourceAtUtc = null, DateTimeOffset? LastContactedAtUtc = null,
-    ImmutableDictionary<string, string>? RawSourceValues = null);
+    ImmutableDictionary<string, string>? RawSourceValues = null, ManualInventorySnapshot? ManualInventory = null);
 public sealed record DashboardSnapshot(Guid DatasetId, long ScopeVersion, long RunId,
     DateTimeOffset StartedAtUtc, DateTimeOffset FinalizedAtUtc, RunLifecycle Lifecycle, RunOutcome? Outcome,
     RunSummary Summary, ImmutableArray<ApSnapshotRow> Rows, int TotalRows, ObservationCompleteness Completeness,

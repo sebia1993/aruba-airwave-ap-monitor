@@ -122,6 +122,7 @@ public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceChe
             var runId = Convert.ToInt64(Scalar(connection, transaction, "SELECT last_insert_rowid()"));
             var context = new CollectionContext(runId, frozenProfile, kind, trigger, now, now + profile.Settings.RunTimeout);
             Execute(connection, transaction, "UPDATE runs SET context_json=$json WHERE run_id=$run", ("$json", Encode(context)), ("$run", runId));
+            FreezeOperationBindings(connection, transaction, context);
             ct.ThrowIfCancellationRequested();
             transaction.Commit();
             return context;
@@ -203,6 +204,7 @@ public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceChe
         }
         new SchemaMigrator().Migrate(connection, location, timeProvider.GetUtcNow());
         using var transaction = connection.BeginTransaction();
+        InitializeOperations(connection, transaction, ct);
         var interrupted = new List<long>();
         using (var command = Command(connection, transaction, "SELECT run_id FROM runs WHERE lifecycle=0 ORDER BY run_id"))
         using (var reader = command.ExecuteReader())

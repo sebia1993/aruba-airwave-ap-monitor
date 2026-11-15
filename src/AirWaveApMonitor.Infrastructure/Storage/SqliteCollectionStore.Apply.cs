@@ -35,6 +35,10 @@ public sealed partial class SqliteCollectionStore
                 throw new InvalidDataException("실행 시작 당시 장비 세대·감시 구간과 저장된 현재값이 다릅니다.");
             }
         }
+        var bindings = saved.ToDictionary(pair => pair.Key, pair => ReadFrozenBinding(connection, transaction, context.RunId, pair.Value.View.ApId), StringComparer.Ordinal);
+        var policyExcluded = bindings.Where(pair => pair.Value?.Policy?.Directive is MonitoringDirective.TemporarilyExclude or MonitoringDirective.EndTracking)
+            .ToDictionary(pair => pair.Key, pair => pair.Value!.Policy!, StringComparer.Ordinal);
+        batch = batch with { Observations = batch.Observations.Select(observation => PreserveFreshIdentity(saved.GetValueOrDefault(observation.SourceApId), observation)).ToImmutableArray() };
         var conflicts = new IdentityResolver().FindBatchConflicts(batch.Observations);
         var duplicateIds = conflicts.DuplicateApIds.Union(batch.ExcludedRecords
             .Where(row => row.Reason == CollectionErrorCategory.DuplicateIdentity && row.SourceApId is not null)
@@ -43,14 +47,16 @@ public sealed partial class SqliteCollectionStore
                 !duplicateIds.Contains(observation.SourceApId))
             .ToDictionary(observation => observation.SourceApId, StringComparer.Ordinal);
         var validCount = accepted.Values.Count(ValidState);
-        var failed = lifecycle == RunLifecycle.Interrupted || batch.Outcome == RunOutcome.Failed || validCount == 0;
+        var appliedValidCount = accepted.Where(pair => !policyExcluded.ContainsKey(pair.Key)).Count(pair => ValidState(pair.Value));
+        var failed = lifecycle == RunLifecycle.Interrupted || batch.Outcome == RunOutcome.Failed || appliedValidCount == 0;
         var targets = frozen.Keys.ToHashSet(StringComparer.Ordinal);
         if (!failed)
         {
             targets.UnionWith(accepted.Keys);
         }
+        targets.ExceptWith(policyExcluded.Keys);
         var errors = batch.Errors.ToBuilder();
-        if (validCount == 0 && lifecycle != RunLifecycle.Interrupted)
+        if (appliedValidCount == 0 && lifecycle != RunLifecycle.Interrupted)
         {
             errors.Add(new(CollectionErrorCategory.Unverified, 1, "유효한 AP 상태가 0대입니다. 대상·권한·응답 확인이 필요합니다."));
         }
@@ -94,8 +100,16 @@ public sealed partial class SqliteCollectionStore
             Execute(connection, transaction, "INSERT OR IGNORE INTO expected_targets VALUES($dataset,$scope,$source)",
                 ("$dataset", location.DatasetId), ("$scope", context.Profile.ScopeVersion), ("$source", sourceId));
         }
+        foreach (var (sourceId, policy) in policyExcluded)
+        {
+            ct.ThrowIfCancellationRequested(); var previous = saved[sourceId];
+            // Explicitly ending a target cannot later become a paused old interval. Only Observe reenters.
+            var directive = previous.Tracking.MonitoringStatus == MonitoringStatus.Ended ? MonitoringDirective.EndTracking : policy.Directive;
+            var decision = transitions.ChangeMonitoring(previous.Tracking, directive, policy.Reason, batch.CollectedAtUtc, context);
+            PersistDecision(connection, transaction, context, decision, previous, false);
+        }
         // Scope membership is a configuration fact. Pausing retains the physical generation and open incident.
-        var excluded = saved.Where(pair => !targets.Contains(pair.Key)).ToArray();
+        var excluded = saved.Where(pair => !targets.Contains(pair.Key) && !policyExcluded.ContainsKey(pair.Key)).ToArray();
         foreach (var (sourceId, previous) in excluded)
         {
             ct.ThrowIfCancellationRequested();
@@ -112,7 +126,7 @@ public sealed partial class SqliteCollectionStore
             : unknown || batch.Outcome == RunOutcome.Partial || errors.Count > 0 || batch.Completeness != ObservationCompleteness.Complete
                 ? RunOutcome.Partial : RunOutcome.Succeeded;
         var summary = classifier.Summarize(decisions, targets, outcome,
-            new(context.Profile.BaselineStatus, targets.Count > 0, excluded.Length));
+            new(context.Profile.BaselineStatus, targets.Count > 0 || frozen.Count > 0, excluded.Length + policyExcluded.Count));
         var receipt = new CommitReceipt(context.RunId, false, outcome, summary);
         var finalized = timeProvider.GetUtcNow().ToUniversalTime();
         Execute(connection, transaction, """
@@ -122,7 +136,7 @@ public sealed partial class SqliteCollectionStore
             ("$outcome", outcome), ("$receipt", Encode(receipt)),
             ("$complete", failed ? ObservationCompleteness.Unknown : outcome == RunOutcome.Partial ? ObservationCompleteness.Partial : ObservationCompleteness.Complete),
             ("$errors", Encode(errors.ToImmutable())),
-            ("$evidence", Encode(new ApRunSourceEvidence(batch.Observations.Length, validCount, failed ? 0 : validCount,
+            ("$evidence", Encode(new ApRunSourceEvidence(batch.Observations.Length, validCount, failed ? 0 : appliedValidCount,
                 batch.ExcludedRecords, conflicts with { DuplicateApIds = duplicateIds.ToImmutableHashSet(StringComparer.Ordinal) }))));
         if (Execute(connection, transaction, "UPDATE runs SET lifecycle=$lifecycle WHERE run_id=$run AND lifecycle=0",
             ("$lifecycle", lifecycle), ("$run", context.RunId)) != 1)
@@ -147,7 +161,7 @@ public sealed partial class SqliteCollectionStore
                 ("$completeAt", outcome == RunOutcome.Succeeded ? finalized : null));
         }
         PersistCheckpoint(connection, transaction, context, batch, lifecycle);
-        PersistExecutionDetails(connection, transaction, context, batch, finalized, failed ? 0 : validCount);
+        PersistExecutionDetails(connection, transaction, context, batch, finalized, failed ? 0 : appliedValidCount);
         return receipt;
     }
 

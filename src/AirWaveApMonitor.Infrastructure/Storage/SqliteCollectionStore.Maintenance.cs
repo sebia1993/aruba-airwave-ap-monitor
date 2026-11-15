@@ -46,6 +46,7 @@ public sealed partial class SqliteCollectionStore
                 var context = new CollectionContext(restorationRun.Value, profile, CollectionKind.ApStatus, RunTrigger.DatabaseRestore,
                     item.RestoredAt, item.RestoredAt + profile.Settings.RunTimeout);
                 Execute(connection, transaction, "UPDATE runs SET context_json=$json WHERE run_id=$run", ("$json", Encode(context)), ("$run", context.RunId));
+                FreezeOperationBindings(connection, transaction, context);
                 FinalizeAp(connection, transaction, context,
                     new(RunOutcome.Failed, [], [], item.BackupAt, ObservationCompleteness.Unknown,
                         [new(CollectionErrorCategory.Interrupted, 1, "DB 백업 복원으로 보존되지 않은 관측 구간입니다. 다음 유효 관측까지 공백을 유지합니다.")]),

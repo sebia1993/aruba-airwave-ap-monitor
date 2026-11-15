@@ -1,8 +1,11 @@
 "use strict";
 import { countText, createRequestGate, dashboardQuery, observationStatus, incidentElapsed, settingsIdentity, shouldFollowLatest, authenticationUiState } from "./ui-state.js";
 
+import { createOperationsController } from "./operations.js";
+
+let operations = null;
 const byId = id => document.getElementById(id);
-const labels = { dashboard: "다운 AP 현황", incidents: "장애·복구 이력", runs: "수집 기록", settings: "연결 설정", detail: "상세 이력" };
+const labels = { dashboard: "다운 AP 현황", incidents: "장애·복구 이력", runs: "수집 기록", settings: "연결 설정", detail: "상세 이력", operations: "운영 기록·대장" };
 const statusLabels = { NewDown: "신규 Down", InitialDown: "최초 확인 Down · 실제 시작 미상", ExistingDown: "기존 Down", Recovered: "이번 복구 확인", Up: "Up 확인", Unknown: "이번 미확인" };
 const reasonLabels = { MissingRecord: "응답 목록 누락", UnknownState: "유효 상태 미제공", DuplicateIdentity: "중복 식별 제외", CollectionFailed: "수집 실패", Interrupted: "수집 중단", ScopeExcluded: "범위 일시 제외", TrackingEnded: "추적 종료", DatabaseRestored: "백업 복원으로 관측 공백" };
 const managementLabels = { Operating: "운영", PlannedWork: "계획 작업", Decommissioned: "철거", MonitoringExcluded: "감시 제외" };
@@ -79,13 +82,13 @@ function updatePager(prefix, total, page, pageSize, hidden = 0) {
 class ApiError extends Error {
   constructor(response, payload) { super(payload?.message || payload?.title || `요청을 완료하지 못했습니다. (${response.status})`); this.status = response.status; this.code = payload?.code; }
 }
-async function api(path, { method = "GET", body, timeout = 15000 } = {}) {
+async function api(path, { method = "GET", body, rawBody, contentType = "application/json", timeout = 15000 } = {}) {
   if (method !== "GET") await ensureToken();
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeout);
   try {
     const response = await fetch(path, { method, credentials:"same-origin", cache:"no-store", signal:controller.signal,
-      headers: method === "GET" ? { Accept:"application/json" } : { Accept:"application/json", "Content-Type":"application/json", "X-CSRF-TOKEN":state.token },
-      body: body === undefined ? undefined : JSON.stringify(body) });
+      headers: method === "GET" ? { Accept:"application/json" } : { Accept:"application/json", "Content-Type":contentType, "X-CSRF-TOKEN":state.token },
+      body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)) });
     let payload; try { payload = await response.json(); } catch { payload = null; }
     if (!response.ok) throw new ApiError(response, payload);
     if (payload == null) throw new Error("서버 응답을 읽지 못했습니다.");
@@ -103,6 +106,7 @@ async function ensureToken() {
 }
 function navigate(view, focus = true) {
   if (state.view !== view) {
+    if (state.view === "operations") operations?.leave();
     gates.dashboard.invalidate(); gates.incidents.invalidate(); gates.runs.invalidate(); gates.detail.invalidate(); state.dashboardLoading = false;
   }
   state.view = view;
@@ -120,6 +124,7 @@ async function show(view) {
   else if (view === "incidents") await loadIncidents();
   else if (view === "runs") await loadRuns();
   else if (view === "settings") await loadSettings(true);
+  else if (view === "operations") await operations?.show();
 }
 async function currentDashboard() {
   state.historical = false; state.selection = null; state.snapshot = null; state.filters.page = 1;
@@ -165,11 +170,11 @@ function renderDashboard(snapshot) {
   byId("status-filter").value = state.filters.filter;
   if (!snapshot.rows.length) empty(byId("ap-table"), failed ? "이 회차에서 조건에 맞는 AP를 확인할 수 없습니다" : "조건에 맞는 AP가 없습니다", `${snapshot.hiddenPlannedCount ? `계획 작업 ${countText(snapshot.hiddenPlannedCount)}대가 숨겨져 있습니다. ` : ""}${failed ? "미복구 전체에서 보존된 사건을 확인하세요." : "검색이나 상태·관리 필터를 변경할 수 있습니다."}`);
   else buildTable(byId("ap-table"), ["AP 이름 / IP","위치","연결 원천 참조 / 포트","장애 감지 / 관측 경과","이번 확인"], snapshot.rows, (tr,row) => {
-    const apButton = button(row.device.name || `AP ${row.sourceApId}`, () => showAp(row.apId, selectionOf(snapshot)), "ap-link"); apButton.dataset.apId = row.apId;
-    cell(tr,"AP",apButton,row.device.ipAddress || "IP 미제공");
-    const location = cell(tr,"위치",locationText(row.location), [row.location.folder,row.location.group].filter(Boolean).join(" · ") || "폴더·그룹 미제공");
-    const tags = el("span","cell-badges"); if (row.manualManagement) tags.append(badge(managementLabels[row.manualManagement.status] || row.manualManagement.status,"blue")); if (row.sourceManagement?.maintenanceMode) tags.append(badge("원천 유지보수","amber")); location.append(tags);
-    cell(tr,"연결 원천 참조",row.upstream?.sourceSwitchId || "스위치 참조 미제공", row.upstream?.portName || row.upstream?.portIndex || "포트 미제공");
+    const apButton = button(displayed(row,"Name",row.device.name) || `AP ${row.sourceApId}`, () => showAp(row.apId, selectionOf(snapshot)), "ap-link"); apButton.dataset.apId = row.apId;
+    cell(tr,"AP",apButton,displayed(row,"IpAddress",row.device.ipAddress) || "IP 미제공");
+    const location = cell(tr,"위치",displayedLocation(row), [displayed(row,"Folder",row.location.folder),displayed(row,"Group",row.location.group)].filter(Boolean).join(" · ") || "폴더·그룹 미제공");
+    const tags = el("span","cell-badges"); if (row.manualManagement) tags.append(badge(managementLabels[row.manualManagement.status] || row.manualManagement.status,"blue")); if (row.sourceManagement?.maintenanceMode) tags.append(badge("원천 유지보수","amber")); if (row.manualInventory?.manualPreferredFields?.length) tags.append(badge("등록값 우선 표시","blue")); location.append(tags);
+    cell(tr,"연결 원천 참조",row.upstream?.sourceSwitchId || "스위치 참조 미제공", displayed(row,"PortName",row.upstream?.portName) || row.upstream?.portIndex || "포트 미제공");
     cell(tr,"장애 감지 / 관측 경과",row.firstDownAtUtc ? dateText(row.firstDownAtUtc) : "열린 사건 없음", row.firstDownAtUtc ? `${row.timeNeedsReview ? "시간 확인 필요" : durationText(incidentElapsed({ firstDownAtUtc:row.firstDownAtUtc }, snapshot.finalizedAtUtc))} · 회차 기준` : "—");
     const status = observationStatus(row), statusCell = cell(tr,"이번 확인",badge(status.label,status.tone), row.currentState == null ? `마지막 ${row.lastValidState || "상태 미확인"} · ${dateText(row.lastValidObservedAtUtc)}` : statusLabels[row.classification]);
     if (row.currentState == null && row.openIncidentId) statusCell.append(el("span","cell-sub","미복구 사건 유지"));
@@ -263,15 +268,17 @@ function fieldValue(value,evidence) {
   if (evidence) node.append(el("small","evidence",`수집 ${dateText(evidence.collectedAtUtc)} · 원천 ${dateText(evidence.sourceAtUtc)}`));
   return node;
 }
+function displayed(row, field, fallback) { return operations?.displayValue(row,field,fallback) ?? fallback; }
+function displayedLocation(row) { return locationText({...row.location,...Object.fromEntries([["Site","site"],["Building","building"],["Floor","floor"],["Zone","zone"],["Detail","detail"],["RawLocation","airWaveRawLocation"]].map(([field,key])=>[key,displayed(row,field,row.location[key])]))}); }
 function metadataPanels(row) {
-  const fields = row.fields || {}, general = panel("AP 정보"), location = panel("위치와 컨트롤러"), upstream = panel("연결 원천 참조"), quality = panel("원천 자료와 품질",true);
+  const fields = row.fields || {}, general = panel("자동 AP 정보"), location = panel("자동 위치와 컨트롤러"), upstream = panel("자동 연결 원천 참조"), quality = panel("원천 자료와 품질",true);
   general.append(pairs([["AP 원천 ID",row.sourceApId],["이름",fieldValue(row.device.name,fields.name)],["IP",fieldValue(row.device.ipAddress,fields.lan_ip)],["시리얼",fieldValue(row.identity.serialNumber,fields.serial_number)],["유선 MAC",fieldValue(row.identity.wiredMac,fields.lan_mac)],["모델",fieldValue(row.device.model,fields.model)],["펌웨어",fieldValue(row.device.firmware,fields.firmware)],["가동 시간 원문",fieldValue(row.rawSourceValues?.snmp_uptime,fields.snmp_uptime)],["재부팅 관측 시각",fieldValue(dateText(row.device.rebootedAtUtc),fields.last_reboot)]]));
   location.append(pairs([["구조화 위치",locationText({ ...row.location,airWaveRawLocation:null })],["AirWave 위치 원문",fieldValue(row.location.airWaveRawLocation,fields.syslocation)],["폴더",fieldValue(row.location.folder,fields.folder)],["그룹",fieldValue(row.location.group,fields.group)],["컨트롤러 원천 ID",fieldValue(row.controller.sourceId,fields.controller_id)],["컨트롤러 이름 / IP",[row.controller.name,row.controller.ipAddress].filter(Boolean).join(" / ") || "미제공"],["관리 상태",row.manualManagement ? `${managementLabels[row.manualManagement.status] || row.manualManagement.status} · ${row.manualManagement.reason} · ${dateText(row.manualManagement.recordedAtUtc)}` : "사용자 관리 상태 미등록"],["원천 유지보수",row.sourceManagement?.maintenanceMode == null ? "미제공" : row.sourceManagement.maintenanceMode ? "유지보수 표시 있음 · 사용자 계획 작업과 별도" : "유지보수 표시 없음"],["원천 관리 값",row.sourceManagement?.managementStatus]]));
   upstream.append(pairs([["스위치 원천 ID",fieldValue(row.upstream?.sourceSwitchId,row.upstream?.evidence || fields.upstream_device_id)],["포트 인덱스",fieldValue(row.upstream?.portIndex,fields.upstream_port_index)],["포트 이름",row.upstream?.portName],["AP 인터페이스",row.upstream?.apInterface],["LLDP / 현재 물리 링크","미확인 · AP 목록의 연결 참조만 제공"],["PoE 상태 / 전력 / 예산","미확인 · 저장된 검증 수치 없음"]]));
   const details = el("details"); details.append(el("summary","","필드별 출처·유효성·원문 보기"));
   Object.entries(fields).sort(([a],[b]) => a.localeCompare(b)).forEach(([key,evidence]) => { const item = el("div","source-field"); item.append(el("strong","",key),fieldValue(row.rawSourceValues?.[key],evidence)); details.append(item); });
   quality.append(pairs([["장비 세대",row.deviceGenerationId],["감시 구간",row.monitoringIntervalId],["원천 시각 (UTC 원문)",row.sourceAtUtc],["마지막 접촉 (UTC 원문)",row.lastContactedAtUtc]]),details);
-  return [general,location,upstream,quality];
+  return [general,location,upstream,quality,...(operations ? [operations.snapshotPanel(row)] : [])];
 }
 async function showAp(apId,selection) {
   if (!selection) return;
@@ -281,9 +288,9 @@ async function showAp(apId,selection) {
   try {
     const result = await api(`/api/aps/${encodeURIComponent(apId)}?${new URLSearchParams({runId:selection.runId,scopeVersion:selection.scopeVersion})}`);
     if (!gates.detail.isCurrent(ticket) || state.view !== "detail") return;
-    const row = result.row, status = observationStatus(row), heading = el("div","detail-heading"), title = el("h1","",row.device.name || `AP ${row.sourceApId}`); title.id = "detail-title";
+    const row = result.row, status = observationStatus(row), heading = el("div","detail-heading"), title = el("h1","",displayed(row,"Name",row.device.name) || `AP ${row.sourceApId}`); title.id = "detail-title";
     heading.append(title,badge(status.label,status.tone));
-    const meta = el("p","detail-meta",`${selectionText(result.selection)} · ${row.device.ipAddress || "IP 미제공"}`), statusPanel = panel("이번 관측과 미복구 사건",true);
+    const meta = el("p","detail-meta",`${selectionText(result.selection)} · ${displayed(row,"IpAddress",row.device.ipAddress) || "IP 미제공"}`), statusPanel = panel("이번 관측과 미복구 사건",true);
     statusPanel.append(pairs([["이번 확인",statusLabels[row.classification] || status.label],["미확인 사유",row.currentState == null ? reasonLabels[row.unknownReason] || "원인 미확인" : "해당 없음"],["마지막 유효 관측",`${row.lastValidState || "미확인"} · ${dateText(row.lastValidObservedAtUtc)} · 회차 ${row.lastValidRunId ?? "미확인"}`],["열린 사건",row.openIncidentId ? "미복구 사건 유지" : "이 회차 기준 열린 사건 없음"],["시간 검토",row.timeNeedsReview ? "시계 역행 등으로 경과 시간 확인 필요" : "별도 시각 검토 표시 없음"]]));
     if (row.openIncidentId) statusPanel.append(button("미복구 사건 상세",() => showIncident(row.openIncidentId,result.selection)));
     const grid = el("div","detail-grid"); grid.append(statusPanel,...metadataPanels(row));
@@ -296,7 +303,7 @@ async function showAp(apId,selection) {
     if (!result.observations.length) events.append(el("li","","저장된 관측 없음")); timeline.append(events);
     if (result.moreObservations) timeline.append(el("p","footnote","최근 50개 관측을 표시합니다. 더 이전 관측은 수집 기록에서 해당 회차를 선택하세요."));
     const gaps = panel("관측 공백",true); appendGaps(gaps,result.observationGaps,result.moreObservationGaps);
-    const notes = panel("조치 기록",true); notes.append(el("p","footnote","현재는 저장된 상태와 이력을 읽을 수 있습니다. 조치 메모·계획 작업 등록 기능은 아직 제공되지 않습니다."));
+    const notes = operations?.actions({apId:row.apId,deviceGenerationId:row.deviceGenerationId}) || panel("운영 기록",true);
     grid.append(incidents,timeline,gaps,notes); container.replaceChildren(heading,meta,grid);
   } catch (error) { if (gates.detail.isCurrent(ticket) && state.view === "detail") empty(container,"AP 상세를 읽지 못했습니다",error.message); }
   finally { if (gates.detail.isCurrent(ticket)) container.removeAttribute("aria-busy"); }
@@ -324,9 +331,9 @@ async function showIncident(incidentId,selection) {
       else {
         const metadata = snapshot.device.metadata;
         section.append(pairs([["저장 회차",snapshot.runId],["저장 시각",dateText(snapshot.recordedAtUtc)],["이름 / IP",`${valueText(metadata.device.name)} / ${valueText(metadata.device.ipAddress)}`],["위치",locationText(metadata.location)],["시리얼 / MAC",`${valueText(metadata.identity.serialNumber)} / ${valueText(metadata.identity.wiredMac)}`],["연결 참조",`${valueText(metadata.upstream?.sourceSwitchId)} / ${valueText(metadata.upstream?.portName || metadata.upstream?.portIndex)}`],["장비 세대",snapshot.device.deviceGenerationId],["감시 구간",snapshot.device.monitoringIntervalId]]));
-      } grid.append(section);
+      } grid.append(section); if(snapshot && operations) grid.append(operations.snapshotPanel(snapshot.device.metadata));
     }
-    const gaps = panel("사건 중 관측 공백",true); appendGaps(gaps,item.observationGaps,item.moreObservationGaps); grid.append(gaps); container.replaceChildren(heading,meta,grid);
+    const gaps = panel("사건 중 관측 공백",true); appendGaps(gaps,item.observationGaps,item.moreObservationGaps); grid.append(gaps); if (operations) grid.append(operations.actions({apId:item.apId,deviceGenerationId:item.detection.device.deviceGenerationId,incidentId:item.incidentId})); container.replaceChildren(heading,meta,grid);
   } catch (error) { if (gates.detail.isCurrent(ticket) && state.view === "detail") empty(container,"사건을 읽지 못했습니다",error.message); }
   finally { if (gates.detail.isCurrent(ticket)) container.removeAttribute("aria-busy"); }
 }
@@ -524,6 +531,7 @@ function filterChanged(filter) {
   clearTimeout(searchTimer); state.filters.filter = filter; state.filters.page = 1; void loadDashboard();
 }
 document.querySelectorAll("[data-view]").forEach(node => node.addEventListener("click",() => { clearTimeout(searchTimer); clearTimeout(incidentSearchTimer); setMessage(""); void show(node.dataset.view); }));
+operations = createOperationsController({api,onMessage:setMessage,navigate,dateText,isCurrentView:()=>state.view === "operations"});
 document.querySelectorAll("[data-action='current']").forEach(node => node.addEventListener("click",() => { clearTimeout(searchTimer); clearTimeout(incidentSearchTimer); setMessage(""); void currentDashboard(); }));
 document.querySelectorAll("[data-filter]").forEach(node => node.addEventListener("click",() => filterChanged(node.dataset.filter)));
 byId("status-filter").addEventListener("change",event => filterChanged(event.target.value));
