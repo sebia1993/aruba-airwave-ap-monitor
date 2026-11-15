@@ -15,7 +15,7 @@ AP와 독립된 연결·이웃/전력 runner, bounded 요청·AP 우선 스케�
 - `NODE_BIN=... ./scripts/verify-mac.sh`: clean/restore/Release build 경고 0·오류 0, **공통 802 PASS**, Windows 전용 **9 Mac SKIP**, Node **76**, Python **9 PASS**. 최종 로그 `task-9-10-final-clean-verification.log`.
 - 실제 AppBootstrap/runner/Demo/SQLite/HTTP의 부분 전력에서도 AP 성공·과거 AP/사건 스냅샷 불변 확인. 별도 실제 브라우저 정상 흐름은 연결 2,048건·전력 12,288개 정상 확정, AP 성공 회차/시각 불변, 마지막 페이지 접근·AP 소비전력 필터·현재 연결 중복 0 확인.
 - 실제 프로세스 재시작 전후 설정/연결·전력 JSON 해시 동일, 원시 12,288개 유지, 새 AP 회차 7은 전력 6개/과거 회차 4는 0개. 브라우저 console error 0, 1280px. 최종 전력 단위 1.212초는 합성 로컬 결과다.
-- 검증/패키지 wrapper·성능 도구·A01–A20 근거표·사용자 인수/자료 사전/설정 예시·문서 링크 보존을 준비했다. 최종 2,000/5,000대 측정·Mac win-x64 게시·Windows CI·정확한 ZIP 해시는 후속 기록한다.
+- 검증/패키지 wrapper·성능 도구·A01–A20 근거표·사용자 인수/자료 사전/설정 예시·문서 링크 보존을 준비했다. 소스 `4d9a822`의 clean 작업 트리에서 2,000/5,000대 각 9프레임·모든 500행 목록 검사를 별도 프로세스로 통과했다. 전체 측정 11.082/36.030초, [측정 기록](docs/PERFORMANCE_MEASUREMENTS.md)에 DB·메모리·시간과 DLL 해시를 보존했다. Mac win-x64 게시·Windows CI·정확한 ZIP 해시는 후속 기록한다.
 
 ### 다음 작업·진행률·실환경
 

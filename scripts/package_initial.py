@@ -80,7 +80,9 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
         guides = {"scripts/windows/" + name: name for name in scripts}
         guides.update({"docs/guides/" + name: name for name in documents})
         guides.update({"docs/DEVELOPMENT_STATUS.md": "DEVELOPMENT_STATUS.md", "docs/ACCEPTANCE_EVIDENCE.md": "ACCEPTANCE_EVIDENCE.md",
-                       "DEVELOPMENT_LOG.md": "DEVELOPMENT_LOG.md"})
+                       "DEVELOPMENT_LOG.md": "DEVELOPMENT_LOG.md", "docs/PERFORMANCE_MEASUREMENTS.md": "PERFORMANCE_MEASUREMENTS.md",
+                       "docs/measurements/2026-11-16-ap-2000.json": "2026-11-16-ap-2000.json",
+                       "docs/measurements/2026-11-16-ap-5000.json": "2026-11-16-ap-5000.json"})
     elif (repository / "scripts/windows/Monitor-Common.ps1").exists():
         # Later launchers share this dependency. Historic diagnostics generation must
         # not create a launcher that refers to a missing helper.

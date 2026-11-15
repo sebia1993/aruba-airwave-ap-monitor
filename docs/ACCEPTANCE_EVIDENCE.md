@@ -8,7 +8,7 @@
 
 - **기존 검증(Task 1–8):** Mac 공통 532·Node 43·Python 8 통과. Windows Actions `43749748457`, 소스 `ab9155b5fc929c876eaa2d589cea269b564cf9d2` 성공: 공통 528 통과·Mac/Unix 4 건너뜀, Windows 전용 9 통과, Node 43, Python 6 통과·Unix 2 건너뜀. 실행한 ZIP 내부 378개 파일 해시를 대조했다. 이 ZIP에는 Task 9–10이 없다.
 - **초기 통합(Task 9):** Mac 788·Node 64·Python 9의 초기 검사 뒤 교체 후 귀속·회차 경계·버튼/중복 표시와 실제 2,048대의 전력 저장 시간 초과를 발견해 수정했다. 당시 결과와 실패 기록은 개발 기록에 보존하며 최종 인수 완료로 대체하지 않는다.
-- **수정 후 Mac 통합:** 공통 **802 PASS**, Windows 전용 **9 Mac SKIP**, Node **76**, Python **9 PASS**, clean/restore/Release build 경고·오류 0. 실제 Demo 브라우저의 연결 2,048·전력 12,288 정상 확정과 AP 성공 시각 불변, 프로세스 재시작·과거 스냅샷 유지 확인. 새 소스의 Windows CI·최종 대규모 측정·ZIP 검증은 대기 중이다.
+- **수정 후 Mac 통합:** 공통 **802 PASS**, Windows 전용 **9 Mac SKIP**, Node **76**, Python **9 PASS**, clean/restore/Release build 경고·오류 0. 실제 Demo 브라우저의 연결 2,048·전력 12,288 정상 확정과 AP 성공 시각 불변, 프로세스 재시작·과거 스냅샷 유지 확인. 소스 `4d9a822`의 2,000/5,000대 9프레임 합성 측정도 통과했다. [실제 측정](PERFORMANCE_MEASUREMENTS.md)을 참고하며 새 소스의 Windows CI·ZIP 검증은 대기 중이다.
 - **실환경:** Windows CI는 Server 2025의 자동 검사다. Mac·fixture·DOM 검사와 실제 Windows 실행, 사내 Windows 11/AD·계정·AirWave·장비 확인을 구분한다. Live 연결·LLDP·PoE 어댑터는 미구현·미검증·비활성이며 Demo 자료로 제공 확인을 대체하지 않는다.
 
 ## 항목별 근거
@@ -36,10 +36,10 @@
 | A17 시계·재개·중복 실행 | `tests/AirWaveApMonitor.Tests/Monitoring/StateTransitionEngineTests.cs::ClockRollback_DoesNotProduceNegativeDuration`: 원래 시각·순서 보존, 기간 null/시간 확인 표시. `tests/AirWaveApMonitor.Tests/Collection/CollectionCoordinatorTests.cs::Resume_CollectsOnceWithoutCatchupStorm`, `ScheduledAndManualRequests_NeverOverlap`: 재개 1회·중복 요청 단일 수집. | 가상 시계·pause/resume 기존 검증. Windows 실제 중복 EXE 거부·SCM 강제 종료 후 66.039초 복구 확인. **실제 절전·재부팅·managed fatal SCM 주입은 미실행.** |
 | A18 정리·쓰기/백업 실패·업데이트 | `tests/AirWaveApMonitor.Tests/Maintenance/RetentionServiceTests.cs::PruneAfter90Days_PreservesHistoricalRunsAndOpenIncidentGapDetails`: 역사/열린 참조 보존. `tests/AirWaveApMonitor.Tests/Maintenance/BackupServiceTests.cs::FailedNewBackup_KeepsSevenGoodBackups`, `Update_PreservesDatabaseAndSettingsAndSeparatePreUpdateBackup`: 정상 7개·사전 백업/설정 보존. | 기존 검증·Windows 정지 상태 백업/복원·RunId 상한/데이터 보존 확인. `tests/AirWaveApMonitor.Tests/EnrichmentStorage/EnrichmentStorageTests.cs::PowerRetention_ExpiresNumericDetailButKeepsPermanentIncidentEvidence`는 Mac 통합: 31일 뒤 원시 표본 만료·사건 불변. 실제 디스크 고장·운영 업데이트 미확인. |
 | A19 서비스 A·UI B·계정 변경 | `tests/AirWaveApMonitor.WindowsTests/DpapiCredentialStoreTests.cs::CurrentProcessAccount_RoundTripsAndBindsToDatasetAndOrigin`, `CopiedCiphertext_CannotBeReboundToAnotherDatasetOrOrigin`, `TamperedCiphertext_RequiresReregistrationWithoutPlaintextFallback`: 현재 계정 DPAPI·출처/데이터셋 바인딩·복호화 오류 재등록. | Windows 동일 실행 계정 검사 통과. 서비스 smoke는 Demo LocalSystem. **서로 다른 실제 계정 A/B·계정 전환 후 재등록·사내 AD 권한은 미검증.** |
-| A20 2,000/5,000대·전체 Down/미확인 | `tests/Performance/Program.cs`의 `Require`/`CheckRows`: 9프레임 집계·모든 500행 페이지의 고유 ID/상태·반복 사건·재열기/보존 검증, 파싱/저장/조회·메모리·DB 크기 측정. | **최종 2,000/5,000대 측정 미실행.** 25/501대 도구 smoke만 각 9프레임 통과. 순차 직접-store 도구이며 HTTP/스케줄러 동시부하·실서버 처리량을 측정하지 않음. |
+| A20 2,000/5,000대·전체 Down/미확인 | `tests/Performance/Program.cs`의 `Require`/`CheckRows`: 9프레임 집계·모든 500행 페이지의 고유 ID/상태·반복 사건·재열기/보존 검증, 파싱/저장/조회·메모리·DB 크기 측정. | 최종 2,000/5,000대 각각 9프레임과 전체 목록 대조 통과. 총 11.082/36.030초, 자세한 DB·메모리·단계별 수치는 [측정 기록](PERFORMANCE_MEASUREMENTS.md). 순차 직접-store 도구이며 HTTP/스케줄러 동시부하·실서버 처리량을 측정하지 않음. |
 
 ## 최종 인수 시 갱신할 범위
 
-Task9 수정 후 실제 SQLite·수집기·HTTP·브라우저 회귀를 통과했다. Windows CI 결과를 확정하고, 그 소스 및 실행 파일 식별 정보로 2,000/5,000대 측정을 기록한다. 최종 ZIP은 Windows에서 실행한 정확한 artifact와 내부 해시를 대조한다. 기존 Task8 ZIP이나 초기 통합 결과를 최종 전체 기능 검증으로 바꾸어 표시하지 않는다.
+Task9 수정 후 실제 SQLite·수집기·HTTP·브라우저 회귀를 통과했다. Windows CI 결과를 확정하고, 측정 소스와 실행 DLL 해시를 포함한 2,000/5,000대 결과를 보존한다. 최종 ZIP은 Windows에서 실행한 정확한 artifact와 내부 해시를 대조한다. 기존 Task8 ZIP이나 초기 통합 결과를 최종 전체 기능 검증으로 바꾸어 표시하지 않는다.
 
 현장 검증에서는 실제 AirWave 목록·권한·분류, TLS/프록시, 서비스 계정·DPAPI, 절전/재부팅, 스위치/포트·LLDP 원천 시각·전력 단위, 장기 수집을 별도로 확인한다. 실제 계정·사내 원문 응답·운영 DB를 공개 산출물에 넣지 않는다.

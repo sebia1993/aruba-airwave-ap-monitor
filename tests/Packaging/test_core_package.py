@@ -40,7 +40,12 @@ class CorePackageTests(unittest.TestCase):
 
         (self.repository / "docs/DEVELOPMENT_STATUS.md").write_text("Synthetic status", encoding="utf-8")
         (self.repository / "docs/ACCEPTANCE_EVIDENCE.md").write_text("Synthetic acceptance evidence", encoding="utf-8")
+        (self.repository / "docs/PERFORMANCE_MEASUREMENTS.md").write_text("Synthetic measurement record", encoding="utf-8")
         (self.repository / "DEVELOPMENT_LOG.md").write_text("Synthetic log", encoding="utf-8")
+        for count in (2000, 5000):
+            measurement = self.repository / f"docs/measurements/2026-11-16-ap-{count}.json"
+            measurement.parent.mkdir(parents=True, exist_ok=True)
+            measurement.write_text("{}", encoding="utf-8")
 
     def build(self):
         return PACKAGE.create_package(self.publish, self.output, self.repository, "a" * 40, False,
@@ -54,6 +59,9 @@ class CorePackageTests(unittest.TestCase):
             self.assertIn("DEVELOPMENT_STATUS.md", names)
             self.assertIn("DEVELOPMENT_LOG.md", names)
             self.assertIn("ACCEPTANCE_EVIDENCE.md", names)
+            self.assertIn("PERFORMANCE_MEASUREMENTS.md", names)
+            self.assertIn("2026-11-16-ap-2000.json", names)
+            self.assertIn("2026-11-16-ap-5000.json", names)
             self.assertIn("app/e_sqlite3.dll", names)
             self.assertIn("app/wwwroot/ui-state.js", names)
             version = json.loads(bundle.read("VERSION.json"))
