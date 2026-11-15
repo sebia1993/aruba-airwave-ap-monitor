@@ -49,7 +49,9 @@ public sealed class BootstrapTests
         var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(temp.Path, "monitor.db"));
         Assert.Equal("SQLite format 3\0", System.Text.Encoding.ASCII.GetString(databaseBytes, 0, 16));
         Assert.False(health.GetProperty("liveConfigured").GetBoolean());
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/api/dashboard")).StatusCode);
+        var emptyDashboard = await client.GetAsync("/api/dashboard");
+        Assert.Equal(HttpStatusCode.NotFound, emptyDashboard.StatusCode);
+        Assert.Equal("no_final_run", JsonDocument.Parse(await emptyDashboard.Content.ReadAsStringAsync()).RootElement.GetProperty("code").GetString());
         Assert.Contains("AirWave AP Monitor", await client.GetStringAsync("/"));
         if (mode == "live")
         {

@@ -43,6 +43,14 @@ jobs:
       - uses: actions/setup-dotnet@v6.1.0
         with:
           global-json-file: global.json
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+      - name: Frontend syntax and state behavior
+        run: |
+          node --check src/AirWaveApMonitor.App/wwwroot/app.js
+          node --check src/AirWaveApMonitor.App/wwwroot/ui-state.js
+          node tests/Frontend/ui-state.test.mjs
       - name: Restore
         run: dotnet restore AirWaveApMonitor.slnx
       - name: Build

@@ -59,7 +59,8 @@ public sealed partial class SqliteCollectionStore
     {
         ValidateDataset(query.DatasetId);
         if (query.ScopeVersion <= 0 || query.Page <= 0 || query.PageSize is < 1 or > 10000 ||
-            !Enum.IsDefined(query.Filter) || !Enum.IsDefined(query.Sort))
+            !Enum.IsDefined(query.Filter) || !Enum.IsDefined(query.Sort) ||
+            query.RunId is <= 0 || (query.ManagementStatus is { } management && !Enum.IsDefined(management)))
         {
             throw new ArgumentOutOfRangeException(nameof(query));
         }
@@ -87,50 +88,29 @@ public sealed partial class SqliteCollectionStore
                 throw new KeyNotFoundException("선택한 범위에 최종 확정한 AP 회차가 없습니다.");
             }
             runId = reader.GetInt64(0);
-            context = Decode<CollectionContext>(reader.GetString(1));
+            context = ReadStored<CollectionContext>(reader.GetString(1));
             lifecycle = (RunLifecycle)reader.GetInt32(2);
             finalized = Time(reader, 3)!.Value;
-            receipt = Decode<CommitReceipt>(reader.GetString(4));
+            receipt = ReadStored<CommitReceipt>(reader.GetString(4));
             completeness = (ObservationCompleteness)reader.GetInt32(5);
-            errors = Decode<ImmutableArray<CollectionError>>(reader.GetString(6));
-            sourceEvidence = Decode<ApRunSourceEvidence>(reader.GetString(7));
+            errors = ReadStored<ImmutableArray<CollectionError>>(reader.GetString(6));
+            sourceEvidence = ReadStored<ApRunSourceEvidence>(reader.GetString(7));
             if (context.RunId != runId || receipt.RunId != runId || context.Profile.DatasetId != query.DatasetId ||
                 context.Profile.ScopeVersion != query.ScopeVersion || context.Kind != CollectionKind.ApStatus)
             {
                 throw new InvalidDataException("과거 현황의 회차 참조가 일치하지 않습니다.");
             }
         }
-        var rows = new List<ApSnapshotRow>();
-        using (var command = Command(connection, transaction, """
-            SELECT r.ap_id,a.source_ap_id,r.generation_id,r.interval_id,m.metadata_json,r.facts_json
-            FROM run_rows r JOIN aps a ON a.ap_id=r.ap_id JOIN metadata_versions m ON m.metadata_version_id=r.metadata_version_id
-            WHERE r.run_id=$run
-            """, ("$run", runId)))
-        using (var reader = command.ExecuteReader())
-        {
-            while (reader.Read())
-            {
-                ct.ThrowIfCancellationRequested();
-                var facts = Decode<RowFacts>(reader.GetString(5));
-                var metadata = RestoreMeasurements(Decode<DeviceMetadata>(reader.GetString(4)), facts.Measurements);
-                var upstream = metadata.Upstream is { } reference && facts.Fields.TryGetValue("upstream_device_id", out var upstreamEvidence)
-                    ? new SourceUpstreamReference(reference.SourceSwitchId, reference.PortIndex, reference.PortName, reference.ApInterface, upstreamEvidence)
-                    : null;
-                rows.Add(new(Guid.Parse(reader.GetString(0)), reader.GetString(1), Guid.Parse(reader.GetString(2)),
-                    Guid.Parse(reader.GetString(3)), metadata.Identity, metadata.Device, metadata.Location, metadata.Controller,
-                    facts.CurrentState, facts.LastValidState, facts.LastValidObservedAtUtc, facts.FirstDownAtUtc,
-                    facts.OpenIncidentId, facts.Classification, facts.Fields, metadata.SourceManagement, metadata.ManualManagement,
-                    upstream, facts.UnknownReason, facts.TimeNeedsReview, facts.LastValidRunId, facts.SourceAtUtc, facts.LastContactedAtUtc, metadata.RawSourceValues));
-            }
-        }
+        var rows = ReadSnapshotRows(connection, transaction, runId, ct);
         IEnumerable<ApSnapshotRow> filtered = rows.Where(row => MatchesFilter(row, query.Filter));
         if (!string.IsNullOrWhiteSpace(query.Search))
-        {
-            filtered = filtered.Where(row => new[] { row.SourceApId, row.Device.Name, row.Device.IpAddress,
-                row.Identity.SerialNumber, row.Identity.WiredMac, row.Location.AirWaveRawLocation, row.Location.Folder,
-                row.Location.Group, row.Controller.Name }.Any(value => value?.Contains(query.Search, StringComparison.OrdinalIgnoreCase) == true));
-        }
+            filtered = filtered.Where(row => MatchesSearch(row, query.Search));
+        if (query.ManagementStatus is { } managementStatus)
+            filtered = filtered.Where(row => row.ManualManagement?.Status == managementStatus);
         var selected = filtered.ToList();
+        var hidden = query.HidePlanned ? selected.Count(row => row.ManualManagement?.Status == OperationalStatus.PlannedWork) : 0;
+        if (query.HidePlanned)
+            selected.RemoveAll(row => row.ManualManagement?.Status == OperationalStatus.PlannedWork);
         IOrderedEnumerable<ApSnapshotRow> ordered = query.Sort switch
         {
             DashboardSort.IpAddress => query.Descending ? selected.OrderByDescending(row => row.Device.IpAddress, StringComparer.OrdinalIgnoreCase)
@@ -146,7 +126,7 @@ public sealed partial class SqliteCollectionStore
         var page = offset > int.MaxValue ? ImmutableArray<ApSnapshotRow>.Empty
             : ordered.ThenBy(row => row.SourceApId, StringComparer.Ordinal).Skip((int)offset).Take(query.PageSize).ToImmutableArray();
         return new(query.DatasetId, query.ScopeVersion, runId, context.StartedAtUtc, finalized, lifecycle,
-            receipt.Outcome, receipt.Summary, page, selected.Count, completeness, errors, sourceEvidence);
+            receipt.Outcome, receipt.Summary, page, selected.Count, completeness, errors, sourceEvidence, hidden);
     }
 
     public async Task<CollectionSuccessTimes> GetSuccessTimesAsync(Guid datasetId, long scopeVersion, CancellationToken ct)
@@ -163,9 +143,49 @@ public sealed partial class SqliteCollectionStore
             reader.IsDBNull(2) ? null : reader.GetInt64(2), Time(reader, 3)) : new(null, null, null, null);
     }
 
+    private static List<ApSnapshotRow> ReadSnapshotRows(SqliteConnection connection, SqliteTransaction transaction,
+        long runId, CancellationToken ct)
+    {
+        var rows = new List<ApSnapshotRow>();
+        using (var command = Command(connection, transaction, """
+            SELECT r.ap_id,a.source_ap_id,r.generation_id,r.interval_id,m.metadata_json,r.facts_json
+            FROM run_rows r JOIN aps a ON a.ap_id=r.ap_id JOIN metadata_versions m ON m.metadata_version_id=r.metadata_version_id
+            WHERE r.run_id=$run
+            """, ("$run", runId)))
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                ct.ThrowIfCancellationRequested();
+                var facts = ReadStored<RowFacts>(reader.GetString(5));
+                var metadata = RestoreMeasurements(ReadStored<DeviceMetadata>(reader.GetString(4)), facts.Measurements);
+                var upstream = metadata.Upstream is { } reference && facts.Fields.TryGetValue("upstream_device_id", out var upstreamEvidence)
+                    ? new SourceUpstreamReference(reference.SourceSwitchId, reference.PortIndex, reference.PortName, reference.ApInterface, upstreamEvidence)
+                    : null;
+                rows.Add(new(Guid.Parse(reader.GetString(0)), reader.GetString(1), Guid.Parse(reader.GetString(2)),
+                    Guid.Parse(reader.GetString(3)), metadata.Identity, metadata.Device, metadata.Location, metadata.Controller,
+                    facts.CurrentState, facts.LastValidState, facts.LastValidObservedAtUtc, facts.FirstDownAtUtc,
+                    facts.OpenIncidentId, facts.Classification, facts.Fields, metadata.SourceManagement, metadata.ManualManagement,
+                    upstream, facts.UnknownReason, facts.TimeNeedsReview, facts.LastValidRunId, facts.SourceAtUtc, facts.LastContactedAtUtc, metadata.RawSourceValues));
+            }
+        }
+        return rows;
+    }
+
+    private static bool MatchesSearch(ApSnapshotRow row, string search) => new[]
+    {
+        row.SourceApId, row.Device.Name, row.Device.IpAddress, row.Identity.SerialNumber, row.Identity.WiredMac,
+        row.Location.Site, row.Location.Building, row.Location.Floor, row.Location.Zone, row.Location.Detail,
+        row.Location.AirWaveRawLocation, row.Location.Folder, row.Location.Group,
+        row.Controller.SourceId, row.Controller.Name, row.Controller.IpAddress,
+        row.Upstream?.SourceSwitchId, row.Upstream?.PortIndex, row.Upstream?.PortName, row.Upstream?.ApInterface
+    }.Any(value => value?.Contains(search, StringComparison.OrdinalIgnoreCase) == true);
+
     private static bool MatchesFilter(ApSnapshotRow row, DashboardFilter filter) => filter switch
     {
         DashboardFilter.All => true,
+        DashboardFilter.OpenIncidents => row.OpenIncidentId is not null,
+        DashboardFilter.Up => row.CurrentState == ApState.Up,
         DashboardFilter.Down => row.CurrentState == ApState.Down,
         DashboardFilter.NewDown => row.Classification == ObservationClassification.NewDown,
         DashboardFilter.InitialDown => row.Classification == ObservationClassification.InitialDown,

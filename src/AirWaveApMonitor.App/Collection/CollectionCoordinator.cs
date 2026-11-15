@@ -18,6 +18,7 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
     private readonly CollectorHealth health;
     private readonly TimeProvider clock;
     private readonly IEnrichmentRunner? enrichment;
+    private readonly DemoPrehistoryInitializer? demoPrehistory;
     private readonly CollectorDiagnostics diagnostics;
     private readonly CancellationTokenSource lifetime = new();
     private ActiveRun? active;
@@ -40,10 +41,12 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
     }
 
     public CollectionCoordinator(ProfileStore profiles, IApSource source, ICollectionStore store, AirWaveSession session,
-        ICredentialStore credentials, StorageLocation location, CollectorHealth health, TimeProvider clock, IEnrichmentRunner? enrichment = null)
+        ICredentialStore credentials, StorageLocation location, CollectorHealth health, TimeProvider clock, IEnrichmentRunner? enrichment = null,
+        DemoPrehistoryInitializer? demoPrehistory = null)
     {
         this.profiles = profiles; this.source = source; this.store = store; this.session = session;
         this.credentials = credentials; this.health = health; this.clock = clock; this.enrichment = enrichment;
+        this.demoPrehistory = demoPrehistory;
         diagnostics = new(location, clock);
         lastTick = clock.GetUtcNow();
         configurationVersion = profiles.Current?.ConfigurationVersion ?? 0;
@@ -145,10 +148,31 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
             });
             if (kind == CollectionKind.ApStatus)
             {
-                health.Update(s => s with { LastAttemptAtUtc = clock.GetUtcNow(), LastAttemptRunId = null });
-                var context = await store.BeginRunAsync(profile, kind, trigger, admission.Token);
-                lock (gate) run.Context = context;
-                health.Update(s => s with { LastAttemptRunId = context.RunId, ActiveRunId = context.RunId, Phase = CollectorPhase.Collecting });
+                while (demoPrehistory is not null && await demoPrehistory.GetNextPositionAsync(profile, admission.Token) is { } seedPosition)
+                {
+                    lock (gate)
+                    {
+                        if (stopping) return Receipt(RunRequestStatus.Stopping);
+                        if (paused) return Receipt(RunRequestStatus.Paused);
+                    }
+                    var seed = await BeginApAsync(run, profile, admission.Token);
+                    var receipt = await ExecuteApUnitAsync(seed, admission.Token);
+                    admission.Token.ThrowIfCancellationRequested();
+                    if (receipt is null) return Receipt(RunRequestStatus.StorageBlocked, seed.RunId);
+                    // A failed/interrupted seed is a real final run. Stop this admission;
+                    // the next request retries the same uncommitted checkpoint, never a busy loop.
+                    if (receipt.Outcome == RunOutcome.Failed) return Receipt(RunRequestStatus.Accepted, seed.RunId);
+                    if (await demoPrehistory.GetNextPositionAsync(profile, admission.Token) == seedPosition)
+                        throw new InvalidOperationException("Demo 선행 관측의 저장된 진행 위치가 전진하지 않았습니다.");
+                    lock (gate) run.Context = null;
+                    health.Update(s => s with { Phase = CollectorPhase.Preparing, ActiveRunId = null });
+                }
+                lock (gate)
+                {
+                    if (stopping) return Receipt(RunRequestStatus.Stopping);
+                    if (paused) return Receipt(RunRequestStatus.Paused);
+                }
+                var context = await BeginApAsync(run, profile, admission.Token);
                 launched = true;
                 _ = Task.Run(() => ExecuteApAsync(run, context), CancellationToken.None);
                 return Receipt(RunRequestStatus.Accepted, context.RunId);
@@ -176,60 +200,75 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
         }
     }
 
+    private async Task<CollectionContext> BeginApAsync(ActiveRun run, ProfileSnapshot profile, CancellationToken ct)
+    {
+        health.Update(s => s with { LastAttemptAtUtc = clock.GetUtcNow(), LastAttemptRunId = null });
+        var context = await store.BeginRunAsync(profile, CollectionKind.ApStatus, run.Trigger, ct);
+        lock (gate) run.Context = context;
+        health.Update(s => s with { LastAttemptRunId = context.RunId, ActiveRunId = context.RunId, Phase = CollectorPhase.Collecting });
+        return context;
+    }
+
     private async Task ExecuteApAsync(ActiveRun run, CollectionContext context)
     {
-        try
-        {
-            ApCollectionBatch? batch = null;
-            var remaining = context.DeadlineUtc - clock.GetUtcNow();
-            using var budget = new CancellationTokenSource(TimeSpan.FromTicks(Math.Clamp(remaining.Ticks, 0, context.Profile.Settings.RunTimeout.Ticks)), clock);
-            if (remaining <= TimeSpan.Zero) budget.Cancel();
-            using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, budget.Token);
-            try { batch = await source.CollectAsync(context, request.Token); }
-            catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
-            catch (OperationCanceledException) { batch = Failure(CollectionErrorCategory.Timeout); }
-            catch (Exception error) when (error is not OutOfMemoryException)
-            {
-                batch = Failure(error is IOException or HttpRequestException ? CollectionErrorCategory.Transport : CollectionErrorCategory.InvalidResponse);
-            }
-            health.Update(s => s with { Phase = CollectorPhase.Finalizing });
-            using var finalization = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            if (lifetime.IsCancellationRequested) batch = null;
-            else if (budget.IsCancellationRequested) batch = Failure(CollectionErrorCategory.Timeout);
-            try
-            {
-                var receipt = batch is null
-                    ? await store.InterruptRunAsync(context, finalization.Token)
-                    : await store.ApplyApBatchAsync(context, batch, request.IsCancellationRequested ? finalization.Token : request.Token);
-                await ReflectCommitAsync(context, receipt, finalization.Token);
-                ReflectCollectionError(receipt, batch, batch is null);
-            }
-            catch (Exception error) when (error is not OutOfMemoryException)
-            {
-                // The first call may have committed before losing its response. Resolve the
-                // same context; never manufacture a second failure over an existing result.
-                using var resolution = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                try
-                {
-                    var receipt = await store.InterruptRunAsync(context, resolution.Token);
-                    await ReflectCommitAsync(context, receipt, resolution.Token);
-                    ReflectCollectionError(receipt, batch, !receipt.AlreadyApplied);
-                    if (!receipt.AlreadyApplied && IsStorageFailure(error)) RecordResolvedWriteFailure(context);
-                }
-                catch (Exception resolutionError) when (resolutionError is not OutOfMemoryException) { MarkStorageFailure(context); }
-            }
-            health.Update(s => s with
-            {
-                AuthenticationBlocked = session.AuthenticationBlocked,
-                AuthenticationStop = session.AuthenticationStop,
-                BlockedReason = session.AuthenticationBlocked ? "authentication-rejected" : s.BlockedReason
-            });
-        }
+        try { await ExecuteApUnitAsync(context, lifetime.Token); }
         finally
         {
             profiles.OperationGate.Release();
             Finish(run);
         }
+    }
+
+    private async Task<CommitReceipt?> ExecuteApUnitAsync(CollectionContext context, CancellationToken ownerToken)
+    {
+        CommitReceipt? result = null;
+        ApCollectionBatch? batch = null;
+        var remaining = context.DeadlineUtc - clock.GetUtcNow();
+        using var budget = new CancellationTokenSource(TimeSpan.FromTicks(Math.Clamp(remaining.Ticks, 0, context.Profile.Settings.RunTimeout.Ticks)), clock);
+        if (remaining <= TimeSpan.Zero) budget.Cancel();
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(ownerToken, budget.Token);
+        try { batch = await source.CollectAsync(context, request.Token); }
+        catch (OperationCanceledException) when (ownerToken.IsCancellationRequested) { }
+        catch (OperationCanceledException) { batch = Failure(CollectionErrorCategory.Timeout); }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            batch = Failure(error is IOException or HttpRequestException ? CollectionErrorCategory.Transport : CollectionErrorCategory.InvalidResponse);
+        }
+        health.Update(s => s with { Phase = CollectorPhase.Finalizing });
+        using var finalization = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        if (ownerToken.IsCancellationRequested) batch = null;
+        else if (budget.IsCancellationRequested) batch = Failure(CollectionErrorCategory.Timeout);
+        try
+        {
+            var receipt = batch is null
+                ? await store.InterruptRunAsync(context, finalization.Token)
+                : await store.ApplyApBatchAsync(context, batch, request.IsCancellationRequested ? finalization.Token : request.Token);
+            result = receipt;
+            await ReflectCommitAsync(context, receipt, finalization.Token);
+            ReflectCollectionError(receipt, batch, batch is null);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            // The first call may have committed before losing its response. Resolve the
+            // same context; never manufacture a second failure over an existing result.
+            using var resolution = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try
+            {
+                var receipt = await store.InterruptRunAsync(context, resolution.Token);
+                result = receipt;
+                await ReflectCommitAsync(context, receipt, resolution.Token);
+                ReflectCollectionError(receipt, batch, !receipt.AlreadyApplied);
+                if (!receipt.AlreadyApplied && IsStorageFailure(error)) RecordResolvedWriteFailure(context);
+            }
+            catch (Exception resolutionError) when (resolutionError is not OutOfMemoryException) { result = null; MarkStorageFailure(context); }
+        }
+        health.Update(s => s with
+        {
+            AuthenticationBlocked = session.AuthenticationBlocked,
+            AuthenticationStop = session.AuthenticationStop,
+            BlockedReason = session.AuthenticationBlocked ? "authentication-rejected" : s.BlockedReason
+        });
+        return result;
     }
 
     private async Task ExecuteEnrichmentAsync(ActiveRun run, ProfileSnapshot profile)

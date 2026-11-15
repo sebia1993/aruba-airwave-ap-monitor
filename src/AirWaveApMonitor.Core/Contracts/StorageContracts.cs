@@ -27,12 +27,13 @@ public sealed record EnrichmentCommitReceipt(Guid DatasetId, CollectionKind Kind
     public int SchemaVersion => 1;
 }
 
-public enum DashboardFilter { All, Down, NewDown, InitialDown, ExistingDown, Recovered, Unknown }
+public enum DashboardFilter { All, Down, NewDown, InitialDown, ExistingDown, Recovered, Unknown, OpenIncidents, Up }
 public enum DashboardSort { Name, IpAddress, LastObservedAt, FirstDownAt }
 public enum ObservationClassification { Up, NewDown, InitialDown, ExistingDown, Recovered, Unknown }
 public sealed record DashboardQuery(Guid DatasetId, long ScopeVersion, long? RunId = null, string? Search = null,
     DashboardFilter Filter = DashboardFilter.All, DashboardSort Sort = DashboardSort.Name,
-    bool Descending = false, int Page = 1, int PageSize = 50);
+    bool Descending = false, int Page = 1, int PageSize = 50,
+    OperationalStatus? ManagementStatus = null, bool HidePlanned = false);
 public sealed record ApSnapshotRow(Guid ApId, string SourceApId, Guid DeviceGenerationId, Guid MonitoringIntervalId,
     DeviceIdentity Identity, DeviceDetails Device, LocationDetails Location, ControllerDetails Controller,
     ApState? CurrentState, ApState? LastValidState, DateTimeOffset? LastValidObservedAtUtc,
@@ -45,7 +46,8 @@ public sealed record ApSnapshotRow(Guid ApId, string SourceApId, Guid DeviceGene
 public sealed record DashboardSnapshot(Guid DatasetId, long ScopeVersion, long RunId,
     DateTimeOffset StartedAtUtc, DateTimeOffset FinalizedAtUtc, RunLifecycle Lifecycle, RunOutcome? Outcome,
     RunSummary Summary, ImmutableArray<ApSnapshotRow> Rows, int TotalRows, ObservationCompleteness Completeness,
-    ImmutableArray<CollectionError> Errors, ApRunSourceEvidence? SourceEvidence = null)
+    ImmutableArray<CollectionError> Errors, ApRunSourceEvidence? SourceEvidence = null,
+    int HiddenPlannedCount = 0)
 {
     public int SchemaVersion => 1;
 }

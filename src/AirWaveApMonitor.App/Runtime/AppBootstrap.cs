@@ -40,7 +40,10 @@ public static class AppBootstrap
         builder.Services.AddSingleton<ICredentialStore>(_ => CredentialStoreSelection.Create(options.Mode,
             () => new DpapiCredentialStore(location.DataDirectory)));
         if (options.Mode == AppMode.Demo)
+        {
             builder.Services.AddSingleton<IApSource, ScenarioApSource>();
+            builder.Services.AddSingleton<DemoPrehistoryInitializer>();
+        }
 
         builder.Services.AddAntiforgery(o => { o.HeaderName = "X-CSRF-TOKEN"; o.Cookie.Name = "AirWave-CSRF"; o.Cookie.HttpOnly = true; o.Cookie.SameSite = SameSiteMode.Strict; });
         builder.Services.AddSingleton<ProfileStore>();
@@ -48,6 +51,7 @@ public static class AppBootstrap
         builder.Services.AddSingleton<SqliteCollectionStore>();
         builder.Services.AddSingleton<InstanceLock>();
         builder.Services.AddSingleton<ICollectionStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
+        builder.Services.AddSingleton<IMonitoringReadStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
         builder.Services.AddSingleton<ISourceCheckpointStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
         builder.Services.AddHostedService<StorageInitialization>();
         builder.Services.AddSingleton<IAuthenticationStateStore>(sp => options.Mode == AppMode.Live
@@ -114,8 +118,6 @@ public static class AppBootstrap
                 collector
             }, CollectorEndpoints.Json);
         });
-        app.MapGet("/api/dashboard", () => Results.Problem(statusCode: 503,
-            title: "AP 현황 화면을 아직 제공하지 않습니다.", detail: "자동 수집과 저장은 실행 중이며 현황 화면은 후속 구현 단계입니다."));
         app.MapGet("/api/capabilities/windows", () => new
         {
             supported = OperatingSystem.IsWindows(),
@@ -125,6 +127,8 @@ public static class AppBootstrap
         });
         app.MapSettings();
         app.MapCollector();
+        app.MapMonitoring();
+        app.MapExport();
         return app;
     }
 

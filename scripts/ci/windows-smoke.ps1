@@ -68,6 +68,21 @@ try {
     if ($diagnostic.connectionPath -ne 'synthetic-memory' -or $null -ne $diagnostic.httpStatus -or $null -ne $diagnostic.runId) {
         throw 'Diagnostic reported a live HTTP result or operational run identity.'
     }
+    $dashboard = Invoke-RestMethod -Uri 'http://127.0.0.1:18765/api/dashboard' -TimeoutSec 10
+    if ([long]$dashboard.runId -ne [long]$health.collector.lastFinalRunId -or
+        $dashboard.summary.confirmedDown -ne 8 -or $dashboard.summary.confirmedUp -ne 2040 -or
+        $dashboard.summary.newDown -ne 2 -or $dashboard.summary.initialDown -ne 1 -or
+        $dashboard.summary.existingDown -ne 5 -or $dashboard.summary.recovered -ne 2 -or
+        $dashboard.summary.openIncidents -ne 8 -or $dashboard.totalRows -ne 8) {
+        throw 'First visible Demo dashboard did not match committed parser/state/store results.'
+    }
+    $selectedAp = $dashboard.rows[0].apId
+    $detail = Invoke-RestMethod -Uri ('http://127.0.0.1:18765/api/aps/' + $selectedAp + '?runId=' + $dashboard.runId) -TimeoutSec 10
+    if ([long]$detail.selection.runId -ne [long]$dashboard.runId) { throw 'AP detail changed the selected run.' }
+    $export = Invoke-WebRequest -Uri ('http://127.0.0.1:18765/api/export.csv?runId=' + $dashboard.runId + '&filter=Down&pageSize=1') -UseBasicParsing -TimeoutSec 10
+    if ([long]$export.Headers['X-AirWave-Run-Id'] -ne [long]$dashboard.runId -or $export.Headers['X-AirWave-Row-Count'] -ne '8') {
+        throw 'CSV did not preserve the selected run or export the whole filtered set.'
+    }
     $firstRunId = [long]$health.collector.lastFinalRunId
     $profilePath = Join-Path $demoData 'profile.json'
     $firstInstanceId = (Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8 | ConvertFrom-Json).InstanceId
@@ -84,6 +99,10 @@ try {
     $process.WaitForExit()
     $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $packageRoot -PassThru -RedirectStandardOutput (Join-Path $testRoot 'restart-stdout.log') -RedirectStandardError (Join-Path $testRoot 'restart-stderr.log')
     $health = Wait-CollectorReady -Monitor $process -AfterRunId $firstRunId
+    $restartedDashboard = Invoke-RestMethod -Uri 'http://127.0.0.1:18765/api/dashboard' -TimeoutSec 10
+    if ($restartedDashboard.summary.confirmedDown -ne 10 -or [long]$restartedDashboard.runId -le $firstRunId) {
+        throw 'Demo restart replayed prehistory instead of advancing to the next visible scenario.'
+    }
     $restartedInstanceId = (Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8 | ConvertFrom-Json).InstanceId
     if ($restartedInstanceId -ne $firstInstanceId) { throw 'Restart replaced the Demo physical instance identity.' }
     $listeners = @(Get-NetTCPConnection -State Listen -OwningProcess $process.Id)
@@ -91,7 +110,7 @@ try {
     if (@($listeners | Where-Object { $_.LocalAddress -notin @('127.0.0.1', '::1') }).Count -gt 0) {
         throw 'Application bound a non-loopback address.'
     }
-    Write-Host 'PASS: self-contained Windows executable, automatic committed collection without browser, preserved run/profile after restart, duplicate process rejection, native SQLite, Korean/space path, loopback-only listener and guarded Demo diagnostic.'
+    Write-Host 'PASS: self-contained Windows executable, automatic committed collection without browser, dashboard/detail/whole-filter CSV, preserved run/profile/scenario after restart, duplicate process rejection, native SQLite, Korean/space path, loopback-only listener and guarded Demo diagnostic.'
 } catch {
     Get-Content (Join-Path $testRoot 'stdout.log') -ErrorAction SilentlyContinue
     Get-Content (Join-Path $testRoot 'stderr.log') -ErrorAction SilentlyContinue

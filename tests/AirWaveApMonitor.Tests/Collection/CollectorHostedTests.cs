@@ -47,8 +47,17 @@ public sealed class CollectorHostedTests
             await Eventually(() => health.GetSnapshot().LastFinalRunId is not null && health.GetSnapshot().Phase == CollectorPhase.Idle);
             firstRun = health.GetSnapshot().LastFinalRunId!.Value;
             instance = app.Services.GetRequiredService<ProfileStore>().Current!.InstanceId;
-            Assert.Equal(0, (await app.Services.GetRequiredService<SqliteCollectionStore>().GetSourceCheckpointAsync(
+            Assert.Equal(2, (await app.Services.GetRequiredService<SqliteCollectionStore>().GetSourceCheckpointAsync(
                 app.Services.GetRequiredService<StorageLocation>().DatasetId, ScenarioApSource.CheckpointSource, default))!.Position);
+            var first = await app.Services.GetRequiredService<ICollectionStore>().GetDashboardAsync(new(
+                app.Services.GetRequiredService<StorageLocation>().DatasetId, 1), default);
+            Assert.Equal(2040, first.Summary.ConfirmedUp);
+            Assert.Equal(8, first.Summary.ConfirmedDown);
+            Assert.Equal(2, first.Summary.NewDown);
+            Assert.Equal(1, first.Summary.InitialDown);
+            Assert.Equal(5, first.Summary.ExistingDown);
+            Assert.Equal(2, first.Summary.Recovered);
+            Assert.Equal(8, first.Summary.OpenIncidents);
             await app.StopAsync();
         }
         await using (var app = AppBootstrap.Build(["--mode", "demo", "--data-dir", directory.Path, "--port", SettingsEndpointTests.Port().ToString()]))
@@ -59,8 +68,8 @@ public sealed class CollectorHostedTests
             var profile = app.Services.GetRequiredService<ProfileStore>().Current!;
             Assert.Equal(instance, profile.InstanceId);
             var view = await app.Services.GetRequiredService<ICollectionStore>().GetDashboardAsync(new(profile.DatasetId, 1), default);
-            Assert.Equal(7, view.Summary.ConfirmedDown);
-            Assert.Equal(7, view.Summary.NewDown);
+            Assert.Equal(10, view.Summary.ConfirmedDown);
+            Assert.Equal(2, view.Summary.NewDown);
             Assert.Equal(0, view.Summary.InitialDown);
             await app.StopAsync();
         }
