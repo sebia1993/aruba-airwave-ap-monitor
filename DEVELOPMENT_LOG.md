@@ -1,5 +1,13 @@
 # Development Log
 
+## 2026-11-16 최신 Windows 네이티브 재시작 진단
+
+e30/Windows43773086532는 공통887통과/4제외·Windows9·Node100·Python9통과/2제외·게시까지 성공했지만 EXE 강제 종료 후 재시작 준비45초 검사에서 실패했다. 최초 회차3·현황/상세/CSV는 통과, 후속SCM/task/backup/restore와ZIP보존은 미실행이다. 마지막health/restartstdout이 없어 원인은미확정. Power12,288은 취소 토큰 후 원래 커밋의AlreadyApplied 복구로 성공했으며5초 벽시계 보장을 주장하지 않는다. 제품/45초한도 유지, 단계별상태·UTF8로그·실패artifact를 추가한 뒤 전체Windows와정확ZIP을 확인한다. 진행률92%, 실환경미확인 유지.
+
+## 2026-11-16 Task 4·6 보완 확정 —92%
+
+진단 기준소스 f0e31c6의 Windows43771962572 전체SUCCESS: 공통886통과/4플랫폼제외, Windows9·Frontend100·Python9통과/Unix2제외, 실제PS5.1/SCM66.72초복구/백업·복원/예약작업·정리 통과. 정확ZIP50,653,799bytes·내부manifest397개 SHA검증, ZIP SHA256 `7d0bd8b02fd9b41086b07bdc3c74cc799a495772bc3544cb313ad89a9dbab8bd`. 측정JSON7개는CRLF바이트차이를구분하고구조화값일치확인. Task4·6은최신e30과제품차이0이므로26점회복, **92%**다. Task9 최신전력최적화와Task10최종패키지는 e30/Windows43773086532 gate로8점보류한다. 기존실패원인미확정·사내실환경미확인은유지하며 정확ZIP은재포장하지않았다.
+
 ## 2026-11-16 신규 전력 표본 재조회 보완
 
 신규 표본의 저장 직후 SELECT/JSON 재독출만 제거하고 기존 키의 최초 귀속을 보존했다. 지점 이동 재독출 회귀는 원본PASS·잘못된 현재귀속 mutationFAIL·보완PASS, 부가272개와 독립검토PASS다. 단일 Mac 비교 저장1.931→1.378초(둘다12,288정상); 전체 clean Mac 공통891·Frontend100·Python11 통과, Windows전용9 Mac제외·경고/오류0. 제품5초예산/스키마/저장형식불변. 진단Windows43771962572는 최적화 전소스이며 원래실패원인과 보완후전체Windows/ZIP은 별도확인한다. 진행률66%, 다음은 두 실행의 근거 분리와 최종검증, 실환경은 미확인이다.

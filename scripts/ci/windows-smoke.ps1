@@ -9,22 +9,103 @@ $packageRoot = Join-Path $testRoot '앱 폴더'
 $demoData = Join-Path $testRoot '데모 데이터'
 $process = $null
 $duplicate = $null
+$script:collectorWaitDiagnostics = New-Object 'System.Collections.Generic.List[object]'
+$diagnosticsDirectory = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../artifacts/windows-smoke-diagnostics'))
+$diagnosticLogNames = @('stdout.log', 'stderr.log', 'restart-stdout.log', 'restart-stderr.log', 'duplicate-stdout.log', 'duplicate-stderr.log')
+
+function Add-CollectorWaitDiagnostic {
+    param($Monitor, [string]$Invocation, [long]$AfterRunId, $Watch, [string]$Result,
+        $LastHealth, $LastHealthElapsedMs, $LastHttpException, $LastRequestSucceeded, [int]$Attempts)
+    $exited = $Monitor.HasExited
+    $record = [pscustomobject]@{
+        invocation = $Invocation
+        result = $Result
+        elapsedMs = [math]::Round($Watch.Elapsed.TotalMilliseconds, 3)
+        processId = $Monitor.Id
+        processExited = $exited
+        exitCode = $(if ($exited) { $Monitor.ExitCode } else { $null })
+        afterRunId = $AfterRunId
+        attempts = $Attempts
+        lastRequestSucceeded = $LastRequestSucceeded
+        lastHealthElapsedMs = $LastHealthElapsedMs
+        lastHealth = $LastHealth
+        lastHttpException = $LastHttpException
+    }
+    [void]$script:collectorWaitDiagnostics.Add($record)
+    Write-Host ('Collector wait {0}: {1}, elapsedMs={2}, processId={3}, exited={4}, afterRunId={5}, phase={6}, lastFinalRunId={7}' -f
+        $Invocation, $Result, $record.elapsedMs, $record.processId, $exited, $AfterRunId,
+        $LastHealth.collector.phase, $LastHealth.collector.lastFinalRunId)
+}
+
+function Save-SmokeDiagnostics {
+    # Only explicitly named synthetic process logs and health observations leave the
+    # temporary directory. Never copy the data directory, profile, DB or package.
+    try {
+        New-Item -ItemType Directory -Path $diagnosticsDirectory -Force | Out-Null
+        $json = ConvertTo-Json -InputObject @($script:collectorWaitDiagnostics.ToArray()) -Depth 20
+        [System.IO.File]::WriteAllText((Join-Path $diagnosticsDirectory 'collector-waits.json'), $json,
+            (New-Object System.Text.UTF8Encoding($false)))
+        foreach ($name in $diagnosticLogNames) {
+            try {
+                $source = Join-Path $testRoot $name
+                if (Test-Path -LiteralPath $source) {
+                    Copy-Item -LiteralPath $source -Destination (Join-Path $diagnosticsDirectory $name) -Force
+                }
+            } catch {
+                Write-Warning ('Could not preserve ' + $name + ': ' + $_.Exception.GetType().FullName)
+            }
+        }
+    } catch {
+        Write-Warning ('Could not preserve native smoke diagnostics: ' + $_.Exception.GetType().FullName)
+    }
+}
 
 function Wait-CollectorReady {
-    param([System.Diagnostics.Process]$Monitor, [long]$AfterRunId = 0)
+    param([System.Diagnostics.Process]$Monitor, [long]$AfterRunId = 0, [string]$Invocation)
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    $lastHealth = $null
+    $lastHealthElapsedMs = $null
+    $lastHttpException = $null
+    $lastRequestSucceeded = $null
+    $firstPoll = $true
+    $nextMilestone = 10
+    $attempts = 0
     while ($watch.Elapsed.TotalSeconds -lt 45) {
-        if ($Monitor.HasExited) { throw ('App exited with code ' + $Monitor.ExitCode) }
+        if ($Monitor.HasExited) {
+            Add-CollectorWaitDiagnostic $Monitor $Invocation $AfterRunId $watch 'ProcessExited' $lastHealth $lastHealthElapsedMs $lastHttpException $lastRequestSucceeded $attempts
+            throw ('App exited with code ' + $Monitor.ExitCode)
+        }
         try {
+            $attempts++
             $candidate = Invoke-RestMethod -Uri 'http://127.0.0.1:18765/api/health' -TimeoutSec 2
+            $lastHealth = $candidate
+            $lastHealthElapsedMs = [math]::Round($watch.Elapsed.TotalMilliseconds, 3)
+            $lastRequestSucceeded = $true
             if ($candidate.collector.phase -eq 'Idle' -and
                 $null -ne $candidate.collector.lastValidCommittedAtUtc -and
                 [long]$candidate.collector.lastFinalRunId -gt $AfterRunId) {
+                Add-CollectorWaitDiagnostic $Monitor $Invocation $AfterRunId $watch 'Ready' $lastHealth $lastHealthElapsedMs $lastHttpException $lastRequestSucceeded $attempts
                 return $candidate
             }
-        } catch { }
+        } catch {
+            $message = $_.Exception.Message
+            if ($message.Length -gt 2048) { $message = $message.Substring(0, 2048) }
+            $lastRequestSucceeded = $false
+            $lastHttpException = [pscustomobject]@{
+                elapsedMs = [math]::Round($watch.Elapsed.TotalMilliseconds, 3)
+                type = $_.Exception.GetType().FullName
+                message = $message
+                statusCode = $(if ($null -ne $_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { $null })
+            }
+        }
+        if ($firstPoll -or $watch.Elapsed.TotalSeconds -ge $nextMilestone) {
+            Add-CollectorWaitDiagnostic $Monitor $Invocation $AfterRunId $watch 'Waiting' $lastHealth $lastHealthElapsedMs $lastHttpException $lastRequestSucceeded $attempts
+            $firstPoll = $false
+            if ($watch.Elapsed.TotalSeconds -ge $nextMilestone) { $nextMilestone += 10 }
+        }
         Start-Sleep -Milliseconds 250
     }
+    Add-CollectorWaitDiagnostic $Monitor $Invocation $AfterRunId $watch 'TimedOut' $lastHealth $lastHealthElapsedMs $lastHttpException $lastRequestSucceeded $attempts
     throw 'Automatic AP collection did not reach a committed idle state within 45 seconds.'
 }
 
@@ -35,7 +116,7 @@ try {
     if (-not (Test-Path $exe)) { throw 'Published Windows executable missing.' }
     $arguments = '--mode demo --data-dir "' + $demoData + '" --port 18765'
     $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $packageRoot -PassThru -RedirectStandardOutput (Join-Path $testRoot 'stdout.log') -RedirectStandardError (Join-Path $testRoot 'stderr.log')
-    $health = Wait-CollectorReady -Monitor $process
+    $health = Wait-CollectorReady -Monitor $process -Invocation 'initial'
     if ($health.mode -ne 'demo') { throw 'Demo mode not reported.' }
     if ($health.collection -ne 'automatic') { throw 'Automatic collector was not reported.' }
     if ($health.persistence -ne 'sqlite-ready') { throw 'Native SQLite storage was not initialized before serving HTTP.' }
@@ -98,7 +179,7 @@ try {
     Stop-Process -Id $process.Id -Force
     $process.WaitForExit()
     $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $packageRoot -PassThru -RedirectStandardOutput (Join-Path $testRoot 'restart-stdout.log') -RedirectStandardError (Join-Path $testRoot 'restart-stderr.log')
-    $health = Wait-CollectorReady -Monitor $process -AfterRunId $firstRunId
+    $health = Wait-CollectorReady -Monitor $process -AfterRunId $firstRunId -Invocation 'restart'
     $restartedDashboard = Invoke-RestMethod -Uri 'http://127.0.0.1:18765/api/dashboard' -TimeoutSec 10
     if ($restartedDashboard.summary.confirmedDown -ne 10 -or [long]$restartedDashboard.runId -le $firstRunId) {
         throw 'Demo restart replayed prehistory instead of advancing to the next visible scenario.'
@@ -112,12 +193,15 @@ try {
     }
     Write-Host 'PASS: self-contained Windows executable, automatic committed collection without browser, dashboard/detail/whole-filter CSV, preserved run/profile/scenario after restart, duplicate process rejection, native SQLite, Korean/space path, loopback-only listener and guarded Demo diagnostic.'
 } catch {
-    Get-Content (Join-Path $testRoot 'stdout.log') -ErrorAction SilentlyContinue
-    Get-Content (Join-Path $testRoot 'stderr.log') -ErrorAction SilentlyContinue
-    Get-Content (Join-Path $testRoot 'restart-stderr.log') -ErrorAction SilentlyContinue
-    Get-Content (Join-Path $testRoot 'duplicate-stderr.log') -ErrorAction SilentlyContinue
+    Write-Host '--- Collector wait diagnostics (synthetic Demo) ---'
+    Write-Host (ConvertTo-Json -InputObject @($script:collectorWaitDiagnostics.ToArray()) -Depth 20)
+    foreach ($name in $diagnosticLogNames) {
+        Write-Host ('--- ' + $name + ' (UTF-8) ---')
+        Get-Content -LiteralPath (Join-Path $testRoot $name) -Encoding UTF8 -ErrorAction SilentlyContinue
+    }
     throw
 } finally {
+    Save-SmokeDiagnostics
     if ($null -ne $duplicate -and -not $duplicate.HasExited) {
         Stop-Process -Id $duplicate.Id -Force
         $duplicate.WaitForExit()
@@ -126,5 +210,7 @@ try {
         Stop-Process -Id $process.Id -Force
         $process.WaitForExit()
     }
+    # Capture the final redirected output after process termination has flushed it.
+    Save-SmokeDiagnostics
     if (Test-Path $testRoot) { Remove-Item -LiteralPath $testRoot -Recurse -Force }
 }

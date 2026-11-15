@@ -11,17 +11,37 @@
 | 1. Mac 골격·계약·모드 분리 | 8 | 완료 | `454dee4`, Mac 34 통과, Windows CI 성공, 독립 검토 통과 |
 | 2. API·진단·계정 보호 | 12 | 완료 | `9366a71`, Mac 87 통과, Windows CI 성공, 초기 ZIP·독립 검토 PASS |
 | 3. 식별·상태·사건 | 14 | 완료 | `e007bae`, Mac 167 통과, Windows CI 성공, 독립 재검토 PASS |
-| 4. 원자적 저장·회차 현황 | 14 | 저장 구조 보완 중 | 초기 `0f15663` 검증은 보존. 최종 원문 감사에서 정상 AP 전량 사실 누적을 확인하여 Down/미확인 중심 구조 및 정확한 과거 조회를 보완 |
+| 4. 원자적 저장·회차 현황 | 14 | 보완 완료 | schema6·정확한 과거 조회, Mac/측정/독립 검토와 `f0e31c6` Windows 전체·정확한 ZIP 검증 통과 |
 | 5. 자동 수집·건강 상태 | 10 | 완료 | `d66a3a2`, Mac 268 통과, Windows CI 자동 실행·재시작·중복 차단·독립 검토 PASS |
-| 6. 핵심 화면·CSV | 12 | 최종 Windows 검증 대기 | `818e740`·`efb954b`, Mac 327·Node 16, 실제 브라우저·Windows CI·독립 검토 PASS |
+| 6. 핵심 화면·CSV | 12 | 보완 완료 | KST·기간·전환·미복구·CSV·범위/대조, 실제 브라우저/재시작·독립 검토와 `f0e31c6` Windows 전체·정확한 ZIP 통과 |
 | 7. Windows 운영·백업·패키지 | 10 | 완료 | `22b0f16`, Mac 378·Windows CI·실제 서비스/예약 작업/복원·검증 ZIP·독립 검토 PASS |
 | 8. 운영 이력·가져오기 | 12 | 완료 | `ab9155b`, Mac 532·Node 43·Python 8, 실제 브라우저·Windows CI·검증 ZIP·독립 검토 PASS |
 | 9. 조건부 부가 관측 | 5 | 최종 검증 중 | 공통/Demo 구현, Mac 891·Node 100·Python 11, 실제 2,048대·전력 3회·재시작·독립 검토 PASS; 최종 Windows 대기 |
 | 10. 통합 확인·인수 자료 | 3 | 최종 검증 중 | clean 검증·2,000/5,000대 측정·스크립트·A01–A20·안내 PASS; 최종 Windows/ZIP 대기 |
 
-**완료로 확인된 개발 진행률: 66 / 100%.** 이전 92점에서 미충족이 확인된 Task 4의 14점과 Task 6의 12점을 제외했다. Task 9~10 진행 중 작업도 아직 점수에 넣지 않았으며 실환경 운영 보장률이 아니다.
+**완료로 확인된 개발 진행률: 92 / 100%.** Task 4·6 보완의 전체 Windows·정확한 ZIP 근거를 확보해26점을 회복했다. Task 1–8이 완료됐으며, 최신 전력 보완 `e30b639`의 Task 9·10은 전체 Windows와 최종 ZIP 확인까지8점을 보류한다. 실환경 운영 보장률이 아니다.
 
 아래 Task별 결과는 각 단계 당시의 소스·패키지·검증 기록이다. 각 절의 진행률·다음 작업·당시 미구현 설명은 그 시점의 기록이며 현재 요약은 위 표와 최신 Task 결과를 따른다.
+
+## 최신 Windows 실행 — 네이티브 재시작 진단
+
+최적화 소스 e30b639의 [Windows43773086532](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43773086532)는 공통 **887 통과·Mac/Unix4 제외**, Windows전용 **9**, Frontend **100**, Python **9 통과·Unix2 제외**, self-contained 게시까지 성공했다. 마지막 ZIP 실행 검사의 EXE 강제 종료 후 재시작 준비 대기가45초 조건을 만족하지 못해 전체 실패했다. 첫 실행의 회차3·현황·상세·CSV와 중복 실행 거부는 앞서 통과했다. 후속 서비스·예약 작업·백업/복원은 호출 전이며 검증 가능한 ZIP artifact는 없다.
+
+같은 실행에서 실제 전력12,288표본은 정상 확정됐다. Apply5.787초의 반환 시 토큰은 취소 상태였고, 건강 상태 반영이 취소된 뒤 별도 토큰으로 원래 커밋의 AlreadyApplied/Succeeded를 확인했다. 이를5초 이내 벽시계 완료나 이전 중단 원인의 해결로 표현하지 않는다.
+
+재시작 실패 때 마지막 health JSON과 restart stdout이 보존되지 않아 초기화·수집·저장 복구·HTTP 문제를 아직 구분하지 못한다. 제품 코드와45초 준비/2초 HTTP 한도는 유지한다. 검사는 initial/restart 단계·경과·프로세스·마지막 HTTP/collector/maintenance 상태와 UTF-8 표준출력/오류를 기록하고, 합성 검사 로그만 별도 CI artifact로 보존하도록 보완한다.
+
+Mac PowerShell7.6.10의 구문·모의 helper 검사에서 반환값 분리, 오류 길이 제한, health JSON·로그 원본 바이트 보존과 DB/프로필 제외를 확인했다. 첫 로그 복사를 실패시켜도 JSON과 나머지5개 로그를 보존했다. Windows PowerShell5.1·실제 EXE 검증과는 구분한다. 다음은 진단 포함 전체 Windows 실행과 정확한 최종 ZIP 확인이다. Task4·6의 f0e31c6 근거와 최신 Task9·10 gate를 구분해 **92%**를 유지한다. 실제 AirWave·사내 Windows11/AD·장비·장기운영 미확인 항목도 유지한다.
+
+## Task 4·6 보완 완료 — 개발 진행률92%
+
+변경: Down/미확인 중심 schema6·정확한 과거 조회와 KST·기간·전환·미복구·CSV 조건·감시 범위/기준 대조의 원문 누락 보완을 완료했다. 기존 사용자 자료·원본 계획/설계/모의화면을 보존했다.
+
+실제 검증: `f0e31c67557d6d793d5b8b9f115f944eb597db94`의 [Windows43771962572](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43771962572)가 전체 성공했다. Windows Server2025 공통 **886 통과·Mac/Unix4 제외**, Windows전용 **9**, Frontend **100**, Python **9 통과·Unix2 제외**다. Power Apply4.334초/12,288표본으로 정상 확정했고 실제 PS5.1·한글/공백 경로 ZIP 실행·SCM 강제 종료 후66.72초 복구·schema6 백업/복원·예약 작업과 정리를 통과했다. 이전 Power 중단 및 Demo Idle 실패 원인을 이후 PASS만으로 확정하거나 해결됐다고 주장하지 않는다.
+
+정확한 CI ZIP `AirWaveAPMonitor-0.1.0-f0e31c67557d-20261115T230244Z-6189cd.zip`는50,653,799bytes이며 SHA256 `7d0bd8b02fd9b41086b07bdc3c74cc799a495772bc3544cb313ad89a9dbab8bd`다. 내부 manifest397개 해시/목록, 가이드9개·측정JSON7개·수정 계획의 포함과 실제 운영 자료의 미포함을 확인했다. 측정JSON은 Windows CRLF로 원본 바이트와 다르지만 LF정규화·구조화 값은7/7 동일하다. ZIP을 다시 포장하지 않았으며 그 안의 개발 기록은 검증 전66% 시점이다. 최신 상태는 이 문서를 따른다.
+
+다음: `f0e31c6`과 `e30b639`의 Task4·6 제품 코드는 동일하므로 해당26점을 회복해 **92%**다. 최신 소스의 제품 차이는 Task9 신규 전력 표본 재조회 제거뿐이며, Task9·10은 [Windows43773086532](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43773086532)와 그 정확한 ZIP을 확인한 뒤 완료한다. Live 부가 전송 어댑터 미구현·미검증·비활성, 실제 Windows11/AD·AirWave/장비·GUI/재부팅/절전·장기 용량은 미확인이다.
 
 ## 전력 신규 표본 재조회 보완 — Windows 확인 대기
 
