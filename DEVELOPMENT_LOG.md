@@ -1,5 +1,9 @@
 # Development Log
 
+## 2026-11-16 최종 로컬 인수
+
+실브라우저에서 확인한 Scope API enum wire 오류를 3개 실제 HTTP RED→GREEN으로 보완했다. 최종 clean Mac 검증은 공통890·Frontend100·Python11 통과, Windows전용9 Mac제외, 경고/오류0. 실제 범위3대/대조·재시작·과거2048대/CSV·연결2048 및 전력3×12288표본 보존 확인. 소스 ecca1d2의 AP4종 측정과 전력단기증가/30일산술을 원시JSON으로 보존했다. 다음은 최종Windows전체/정확한ZIP 검증, 확정66% 유지. 실제장비/사내Windows11·AD·장기운영은 미확인. [최신 상태](docs/DEVELOPMENT_STATUS.md)와 [측정](docs/PERFORMANCE_MEASUREMENTS.md)에 상세를 기록했다.
+
 ## 2026-11-16 원문 보완 통합
 
 Task 4·6 compact/scope/KST/기간·전환/CSV 보완을 통합했다. macOS clean 빌드 경고·오류 0, 공통 887·Frontend 100·Python 11 통과, Windows 전용 9개 Mac 제외. Frontend 3개 시간대 각각 100 통과. 독립 검토 보완 포함; 실제 브라우저·새 규모 측정·Windows 전체/ZIP은 다음 단계다. 현재 확정 66%, 실환경 미확인 경계는 유지한다. 자세한 결과는 [개발 상태](docs/DEVELOPMENT_STATUS.md)를 따른다.

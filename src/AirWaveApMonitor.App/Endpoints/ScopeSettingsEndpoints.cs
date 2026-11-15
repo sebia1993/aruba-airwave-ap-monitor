@@ -16,7 +16,7 @@ public static class ScopeSettingsEndpoints
             await ScopeGuard(profiles, http, async () =>
             {
                 http.Response.Headers.CacheControl = "no-store";
-                return Results.Ok(await store.GetScopeSettingsAsync(profiles.Current ?? throw new ArgumentException(), http.RequestAborted));
+                return MonitoringHttp.Json(await store.GetScopeSettingsAsync(profiles.Current ?? throw new ArgumentException(), http.RequestAborted));
             }, waitForGate: true));
         app.MapPost("/api/scope", async (HttpContext http, ProfileStore profiles, SqliteCollectionStore store) =>
             await ScopeGuard(profiles, http, async () =>
@@ -33,7 +33,7 @@ public static class ScopeSettingsEndpoints
                 var view = await store.GetScopeSettingsAsync(profiles.Current ?? throw new ArgumentException(), http.RequestAborted);
                 await profiles.UpdateScopeAsync(definition, view.KnownTargets.Select(target => target.SourceApId).ToImmutableArray(),
                     request.Reason ?? "", request.ExpectedConfigurationVersion, http.RequestAborted);
-                return Results.Ok(await store.GetScopeSettingsAsync(profiles.Current!, http.RequestAborted));
+                return MonitoringHttp.Json(await store.GetScopeSettingsAsync(profiles.Current!, http.RequestAborted));
             }));
         app.MapPost("/api/scope/confirm", async (HttpContext http, ProfileStore profiles, SqliteCollectionStore store) =>
             await ScopeGuard(profiles, http, async () =>
@@ -44,7 +44,7 @@ public static class ScopeSettingsEndpoints
                     throw new ProfileConflictException("대조 회차가 바뀌었습니다. 최신 회차의 대수와 목록을 다시 확인하세요.");
                 await profiles.ConfirmBaselineAsync(compared, request.ComparedTargetCount, request.Reason ?? "",
                     request.ExpectedConfigurationVersion, http.RequestAborted);
-                return Results.Ok(await store.GetScopeSettingsAsync(profiles.Current!, http.RequestAborted));
+                return MonitoringHttp.Json(await store.GetScopeSettingsAsync(profiles.Current!, http.RequestAborted));
             }));
     }
     private static Task<IResult> ScopeGuard(ProfileStore profiles, HttpContext http, Func<Task<IResult>> action, bool waitForGate = false)

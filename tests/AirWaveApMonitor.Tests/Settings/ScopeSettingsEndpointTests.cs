@@ -13,6 +13,69 @@ namespace AirWaveApMonitor.Tests.Settings;
 [Collection("Host environment")]
 public sealed class ScopeSettingsEndpointTests
 {
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("POST")]
+    [InlineData("CONFIRM")]
+    public async Task SuccessfulScopeResponsesUseStringEnumsWithoutChangingStoredProfileSerialization(string operation)
+    {
+        using var temp = new TemporaryDirectory(); var port = SettingsEndpointTests.Port();
+        await using var app = AppBootstrap.Build(["--mode", "demo", "--data-dir", temp.Path, "--port", port.ToString()]);
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
+        await app.StartAsync(); using var client = SettingsEndpointTests.Client(port); await SettingsEndpointTests.Token(client);
+        var profiles = app.Services.GetRequiredService<ProfileStore>(); var store = app.Services.GetRequiredService<ICollectionStore>();
+        await Apply(store, profiles.Current!);
+        HttpResponseMessage response;
+        if (operation == "POST")
+        {
+            response = await client.PostAsJsonAsync("/api/scope", new { expectedConfigurationVersion = 1,
+                mode = "SelectedApIds", sourceApIds = new[] { "100" }, reason = "합성 HTTP 직렬화 검증" });
+        }
+        else
+        {
+            await profiles.UpdateScopeAsync(new(MonitoringScopeMode.SelectedApIds, ["100"]), ["100", "200"],
+                "합성 HTTP 직렬화 준비", 1, default);
+            var run = operation == "GET" ? await Apply(store, profiles.Current!, null, null) : await Apply(store, profiles.Current!);
+            response = operation == "GET" ? await client.GetAsync("/api/scope")
+                : await client.PostAsJsonAsync("/api/scope/confirm", new { expectedConfigurationVersion = 2,
+                    runId = run.RunId, comparedTargetCount = 1, reason = "합성 HTTP 대조 응답 검증" });
+        }
+        using (response)
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var profile = json.RootElement.GetProperty("profile");
+            AssertString(profile.GetProperty("monitoringScope").GetProperty("mode"), "SelectedApIds");
+            AssertString(profile.GetProperty("baselineStatus"), operation == "CONFIRM" ? "Confirmed" : "Unverified");
+            AssertString(profile.GetProperty("scopeRevisions")[0].GetProperty("definition").GetProperty("mode"), "SelectedApIds");
+            var comparison = json.RootElement.GetProperty("comparisonRun");
+            if (operation == "POST") Assert.Equal(JsonValueKind.Null, comparison.ValueKind);
+            else
+            {
+                AssertString(comparison.GetProperty("outcome"), operation == "GET" ? "Failed" : "Succeeded");
+                AssertString(comparison.GetProperty("baselineStatus"), "Unverified");
+            }
+        }
+        // HTTP enum names must not change the persisted/default ProfileSnapshot JSON contract.
+        var profilePath = Path.Combine(temp.Path, "profile.json");
+        using var stored = JsonDocument.Parse(File.ReadAllText(profilePath));
+        Assert.Equal(JsonValueKind.Number, stored.RootElement.GetProperty("MonitoringScope").GetProperty("Mode").ValueKind);
+        Assert.Equal((int)MonitoringScopeMode.SelectedApIds, stored.RootElement.GetProperty("MonitoringScope").GetProperty("Mode").GetInt32());
+        Assert.Equal((int)profiles.Current!.BaselineStatus, stored.RootElement.GetProperty("BaselineStatus").GetInt32());
+        Assert.Equal(File.ReadAllText(profilePath), JsonSerializer.Serialize(profiles.Current));
+        var reopened = new ProfileStore(AirWaveApMonitor.Infrastructure.Maintenance.StoragePaths.Open(AppMode.Demo, temp.Path));
+        Assert.Equal(profiles.Current.MonitoringScope!.Mode, reopened.Current!.MonitoringScope!.Mode);
+        Assert.Equal(profiles.Current.MonitoringScope.SourceApIds.ToArray(), reopened.Current.MonitoringScope.SourceApIds.ToArray());
+        Assert.Equal(profiles.Current.BaselineStatus, reopened.Current.BaselineStatus);
+        await app.StopAsync();
+
+        static void AssertString(JsonElement value, string expected)
+        {
+            Assert.Equal(JsonValueKind.String, value.ValueKind);
+            Assert.Equal(expected, value.GetString());
+        }
+    }
+
     [Fact]
     public async Task SelectedScopeExcludesReturnedOtherApAndPreservesEarlierRun()
     {
