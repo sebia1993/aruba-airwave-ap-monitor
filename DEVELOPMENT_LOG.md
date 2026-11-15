@@ -18,11 +18,11 @@
 - 추가 통합 검사에서 실제 XML 파서→SQLite→재열기로 2,048대를 처리했다. 부분 누락은 Up 2,038·Down 7·미확인 3·미복구 8이며 이전 전체 실패 회차의 현재 Down은 null로 남는다. DB 손상 시 원본 파일 보존·HTTP 시작 거부도 확인했다.
 - 초기 통합의 실패 4건은 기존 ‘DB 없음’ 검사 가정이었다. 실제 운영 회차/인증 행 미생성 검사로 갱신하고 실행 중 저장 오류와 시작 전 손상을 구분한 뒤 전체가 통과했다. 요구 준수·품질·인증·통합 검사 변경의 독립 재검토 PASS, 남은 Critical/Important 없음.
 - TDD·오류 주입·실행 로그와 패치는 로컬 `.superpowers/sdd/2026-11-15-macos-codex-implementation/`에 보관한다. 원시 값 시각 회귀는 최초 수정 후 해당 갱신 제거로 실패를 입증한 순서이며 엄격한 최초 테스트 작성 증거와 구분한다. 실제 OS 강제 종료·전원/디스크 고장 재현은 아니다.
-- Windows CI는 이 통합 소스 커밋을 대상으로 실행 후 기록한다. Mac 검사를 Windows 통과로 계산하지 않는다.
+- 소스 `0f15663`의 [Windows CI 43732858917](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43732858917)가 성공했다. Windows Server 2025에서 공통 236 통과·Mac/Unix 4 건너뜀, Windows 전용 5 통과, Python 3 통과·Unix 2 건너뜀이다. self-contained ZIP 360개 해시, PowerShell 5.1 launcher 구문, 한글·공백 경로 EXE의 실제 SQLite 초기화·루프백·Demo 진단도 통과했다.
 
 ### 다음 작업·진행률·실환경 미확인
 
-- Windows 자동 검증 전에는 **34 / 100%**를 유지한다. Task 4 전체 완료 후 가중치 14를 더해 48%로 기록한다.
+- Task 4의 Windows 자동 검증과 독립 검토까지 완료하여 가중치 14를 추가했다. 확인된 개발 진행률은 **48 / 100%**다.
 - Task 5: 수동/예약/시작/복귀 공통 조정기, 건강 상태, 실패 후 회차 정리, 프로세스 중복 실행 방지와 Demo 재시작. 이후 Task 6에서 실제 현황·과거 회차·CSV를 연결한다.
 - 사내 AirWave·PAC/TLS·Windows 11 운영 계정·서비스/재부팅·실제 장비 상태는 미확인이다. 이번 저장 검사는 부가 LLDP/PoE 수집이나 실제 운영 장기 안정성을 확인한 것이 아니다.
 
