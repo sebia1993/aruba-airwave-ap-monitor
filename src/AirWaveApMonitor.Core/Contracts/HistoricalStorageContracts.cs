@@ -14,7 +14,10 @@ public sealed record UpstreamMetadata(string? SourceSwitchId, string? PortIndex,
 public sealed record CommittedDeviceView(Guid ApId, string SourceApId, Guid DeviceGenerationId,
     Guid MonitoringIntervalId, DeviceMetadata Metadata, ImmutableDictionary<string, FieldEvidence> Fields,
     DateTimeOffset? SourceAtUtc = null, DateTimeOffset? LastContactedAtUtc = null,
-    ImmutableArray<EnrichmentObservation> Enrichment = default);
+    ImmutableArray<EnrichmentObservation> Enrichment = default)
+{
+    public EnrichmentSnapshot? EnrichmentDetail { get; init; }
+}
 
 /// <summary>Immutable detection or recovery information, never rebuilt from current AP tables.</summary>
 public sealed record IncidentSnapshot(Guid DatasetId, Guid InstanceId, long ScopeVersion, long RunId,

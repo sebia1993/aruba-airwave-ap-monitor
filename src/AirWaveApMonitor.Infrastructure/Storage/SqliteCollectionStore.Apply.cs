@@ -15,7 +15,12 @@ public sealed partial class SqliteCollectionStore
         DateTimeOffset? LastValidObservedAtUtc, DateTimeOffset? FirstDownAtUtc, Guid? OpenIncidentId,
         ObservationClassification Classification, ImmutableDictionary<string, FieldEvidence> Fields,
         MissingObservationReason? UnknownReason, bool TimeNeedsReview, DateTimeOffset? SourceAtUtc,
-        DateTimeOffset? LastContactedAtUtc, MetadataMeasurements Measurements);
+        DateTimeOffset? LastContactedAtUtc, MetadataMeasurements Measurements)
+    {
+        public long? EnrichmentReferenceId { get; init; }
+        public long EnrichmentCommitSequence { get; init; }
+        public DateTimeOffset? EnrichmentCapturedAtUtc { get; init; }
+    }
 
     private CommitReceipt FinalizeAp(SqliteConnection connection, SqliteTransaction transaction,
         CollectionContext context, ApCollectionBatch batch, RunLifecycle lifecycle, CancellationToken ct)
@@ -160,6 +165,7 @@ public sealed partial class SqliteCollectionStore
                 ("$at", finalized), ("$completeRun", outcome == RunOutcome.Succeeded ? context.RunId : null),
                 ("$completeAt", outcome == RunOutcome.Succeeded ? finalized : null));
         }
+        Execute(connection, transaction, "INSERT INTO collection_commits(run_id) VALUES($run)", ("$run", context.RunId));
         PersistCheckpoint(connection, transaction, context, batch, lifecycle);
         PersistExecutionDetails(connection, transaction, context, batch, finalized, failed ? 0 : appliedValidCount);
         return receipt;

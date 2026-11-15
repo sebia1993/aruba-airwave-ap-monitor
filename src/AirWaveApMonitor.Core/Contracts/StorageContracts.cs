@@ -25,6 +25,8 @@ public sealed record EnrichmentCommitReceipt(Guid DatasetId, CollectionKind Kind
     ImmutableArray<CollectionError> Errors)
 {
     public int SchemaVersion => 1;
+    /// <summary>Null is a legacy receipt without an explicit current/historical application decision.</summary>
+    public EnrichmentApplicationDisposition? Disposition { get; init; }
 }
 
 public enum DashboardFilter { All, Down, NewDown, InitialDown, ExistingDown, Recovered, Unknown, OpenIncidents, Up }
@@ -42,7 +44,10 @@ public sealed record ApSnapshotRow(Guid ApId, string SourceApId, Guid DeviceGene
     ManualManagementDetails? ManualManagement = null, SourceUpstreamReference? Upstream = null,
     MissingObservationReason? UnknownReason = null, bool TimeNeedsReview = false, long? LastValidRunId = null,
     DateTimeOffset? SourceAtUtc = null, DateTimeOffset? LastContactedAtUtc = null,
-    ImmutableDictionary<string, string>? RawSourceValues = null, ManualInventorySnapshot? ManualInventory = null);
+    ImmutableDictionary<string, string>? RawSourceValues = null, ManualInventorySnapshot? ManualInventory = null)
+{
+    public EnrichmentSnapshot? EnrichmentDetail { get; init; }
+}
 public sealed record DashboardSnapshot(Guid DatasetId, long ScopeVersion, long RunId,
     DateTimeOffset StartedAtUtc, DateTimeOffset FinalizedAtUtc, RunLifecycle Lifecycle, RunOutcome? Outcome,
     RunSummary Summary, ImmutableArray<ApSnapshotRow> Rows, int TotalRows, ObservationCompleteness Completeness,

@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import posixpath
 from pathlib import Path
 import re
 import shutil
@@ -58,7 +59,7 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
     validate_publish(published)
     core = stage == "core-monitoring"
     if core:
-        for required in ("e_sqlite3.dll", "wwwroot/app.css", "wwwroot/ui-state.js", "wwwroot/operations.js"):
+        for required in ("e_sqlite3.dll", "wwwroot/app.css", "wwwroot/ui-state.js", "wwwroot/operations.js", "wwwroot/enrichment.js"):
             if not (published / required).is_file():
                 raise ValueError("핵심 감시 패키지의 필수 자원이 누락되었습니다: " + required)
     if not re.fullmatch(r"[0-9a-f]{40,64}", commit):
@@ -74,9 +75,12 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
         scripts = ("Start-Monitor.ps1", "Monitor-Common.ps1", "Monitor-ServiceRecovery.ps1", "Install-Service.ps1",
                    "Remove-Service.ps1", "Install-ScheduledTask.ps1",
                    "Remove-ScheduledTask.ps1", "Backup-Restore.ps1")
-        documents = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "ONSITE_VALIDATION.md", "OPERATIONS.md")
+        documents = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "ONSITE_VALIDATION.md", "OPERATIONS.md",
+                     "ENRICHMENT.md", "DATA_DICTIONARY.md", "CONFIGURATION_EXAMPLE.json", "MAC_DEVELOPMENT.md")
         guides = {"scripts/windows/" + name: name for name in scripts}
         guides.update({"docs/guides/" + name: name for name in documents})
+        guides.update({"docs/DEVELOPMENT_STATUS.md": "DEVELOPMENT_STATUS.md", "docs/ACCEPTANCE_EVIDENCE.md": "ACCEPTANCE_EVIDENCE.md",
+                       "DEVELOPMENT_LOG.md": "DEVELOPMENT_LOG.md"})
     elif (repository / "scripts/windows/Monitor-Common.ps1").exists():
         # Later launchers share this dependency. Historic diagnostics generation must
         # not create a launcher that refers to a missing helper.
@@ -88,7 +92,7 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
 
     destination.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
-    version = "0.1.0-core" if core else "0.1.0-diagnostics"
+    version = "0.1.0" if core else "0.1.0-diagnostics"
     name = "AirWaveAPMonitor-{}-{}-{}-{}".format(
         version, commit[:12], now.strftime("%Y%m%dT%H%M%SZ"), uuid.uuid4().hex[:6])
     with tempfile.TemporaryDirectory(prefix=".bundle-", dir=destination) as temporary:
@@ -96,16 +100,26 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
         payload = staging / "payload"
         shutil.copytree(published, payload / "app")
         for source, target in guides.items():
-            shutil.copyfile(repository / source, payload / target)
+            if source.endswith(".md"):
+                # Guides are flat in the portable bundle. Rewrite links only to other
+                # included files; repository documents remain unchanged, anchors survive.
+                content = (repository / source).read_text(encoding="utf-8")
+                for linked_source, linked_target in guides.items():
+                    relative = posixpath.relpath(linked_source, posixpath.dirname(source) or ".")
+                    pattern = r"(\]\()" + re.escape(relative) + r"(?=[)#])"
+                    content = re.sub(pattern, lambda match: match.group(1) + linked_target, content)
+                (payload / target).write_text(content, encoding="utf-8")
+            else:
+                shutil.copyfile(repository / source, payload / target)
         metadata = {
             "version": version, "stage": stage, "rid": "win-x64",
             "source_commit": commit, "working_tree_dirty": bool(dirty),
             "created_at_utc": now.isoformat(), "onsite_verified": False,
-            "scope": ("AP 자동 감시·장애/복구·불변 회차/CSV·운영 이력·수동 대장/CSV 등록·설치 지점/작업·백업/복원·Windows 서비스/예약 작업."
+            "scope": ("AP 자동 감시·장애/복구·불변 회차/CSV·운영 이력·수동 대장/CSV 등록·설치 지점/작업·조건부 연결/전력 구조(Demo 검증, Live 미검증·비활성)·백업/복원·Windows 서비스/예약 작업."
                       if core else "초기 연결 진단 반입 범위. 최신 코드 기능 범위는 개발 기록을 확인하세요."),
-            "remaining_scope": (["조건부 연결·LLDP·PoE", "최종 통합 인수"]
+            "remaining_scope": ([]
                                 if core else ["핵심 감시 반입·전체 승인 범위의 검증은 별도 패키지/기록 참조"]),
-            "verification": "이 패키지의 Windows CI 결과와 사내 확인 여부는 별도 작업 기록을 참조하세요.",
+            "verification": "포함 기능의 구현 범위이며 검증 완료 표시가 아닙니다. 이 소스의 Windows CI 결과와 사내 확인 여부는 개발 검증 기록을 참조하세요.",
         }
         (payload / "VERSION.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         checksums = [sha256(item) + "  " + item.relative_to(payload).as_posix()

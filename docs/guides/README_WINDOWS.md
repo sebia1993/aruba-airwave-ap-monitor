@@ -1,6 +1,8 @@
 # Windows 핵심 감시 운영
 
-이 안내는 AP 현황·장애/복구 이력·자동 수집·Windows 실행·백업을 위한 핵심 패키지의 운영 절차다. 패키지의 `VERSION.json`과 개발 검증 기록으로 실제 포함 범위를 확인한다. 운영 이력·수동 대장·CSV 등록은 `OPERATIONS.md`를 따른다. 조건부 LLDP/PoE와 최종 통합 검증의 완료 상태는 개발 기록에서 따로 확인한다.
+이 안내는 AP 현황·장애/복구 이력·자동 수집·Windows 실행·백업을 위한 핵심 패키지의 운영 절차다. 패키지의 `VERSION.json`과 개발 검증 기록으로 실제 포함 범위를 확인한다. 운영 이력·수동 대장·CSV 등록은 `OPERATIONS.md`를 따른다. 조건부 연결·전력 화면과 Demo 검증 절차는 [ENRICHMENT.md](ENRICHMENT.md)를 따른다. Live LLDP/PoE 어댑터는 미구현·미검증이며 비활성이다. [개발 검증 기록](../DEVELOPMENT_STATUS.md)에서 실제 Windows 검사 결과와 완료 범위를 확인한다.
+
+[A01–A20 인수 근거표](../ACCEPTANCE_EVIDENCE.md)는 자동 검사가 확인한 동작과 현장에 남은 확인을 연결한다.
 
 ## 실행 전
 

@@ -66,4 +66,5 @@ public sealed record EnrichmentBatch(CollectionKind Kind, RunOutcome Outcome,
     ObservationCompleteness Completeness, DateTimeOffset CollectedAtUtc, ImmutableArray<CollectionError> Errors)
 {
     public int SchemaVersion => 1;
+    public EnrichmentPayload? Detail { get; init; }
 }

@@ -23,6 +23,7 @@ public sealed partial class SqliteCollectionStore
         foreach (var item in events)
         {
             ct.ThrowIfCancellationRequested();
+            ConsumeEnrichmentRestoreEvent(connection, transaction, item.Id, item.BackupAt, item.RestoredAt, ct);
             long? restorationRun = null;
             var latest = Scalar(connection, transaction, "SELECT MAX(run_id) FROM runs WHERE kind=0") as long?;
             if (latest is { } last)

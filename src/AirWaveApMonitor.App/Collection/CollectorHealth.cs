@@ -16,6 +16,13 @@ public sealed class CollectorHealth(TimeProvider clock)
             firstAttempt ??= state.LastAttemptAtUtc;
         }
     }
+    internal void UpdateKind(CollectionKind kind, Func<EnrichmentKindHealthSnapshot, EnrichmentKindHealthSnapshot> update)
+        => Update(current =>
+        {
+            var kinds = current.EnrichmentKinds ?? [];
+            var previous = kinds.FirstOrDefault(k => k.Kind == kind) ?? new(kind);
+            return current with { EnrichmentKinds = [.. kinds.Where(k => k.Kind != kind), update(previous)] };
+        });
     public CollectorHealthSnapshot GetSnapshot()
     {
         lock (gate)

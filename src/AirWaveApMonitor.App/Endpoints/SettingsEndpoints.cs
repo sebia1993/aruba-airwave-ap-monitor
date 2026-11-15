@@ -33,6 +33,17 @@ public static class SettingsEndpoints
             await profiles.UpdateAsync(origin, request.ApIntervalMinutes, proxy, request.ExpectedConfigurationVersion, context.RequestAborted);
             return Results.Ok(await View(profiles, credentials, runtime, session, context.RequestAborted));
         }));
+        app.MapPost("/api/enrichment/settings", async (HttpContext context, ProfileStore profiles, ICredentialStore credentials, RuntimeOptions runtime, AirWaveSession session) => await Guard(profiles, context, async () =>
+        {
+            var request = await context.Request.ReadFromJsonAsync<EnrichmentSettingsInput>(context.RequestAborted) ?? throw new ArgumentException();
+            if (request.ConnectionCollectionEnabled is null || request.PowerCollectionEnabled is null || request.EnrichmentIntervalMinutes is < 1 or > 60)
+                return Results.BadRequest(new { message = "연결·전력 선택과 상세 주기 1~60분을 모두 지정하세요." });
+            if (runtime.Mode != AppMode.Demo && (request.ConnectionCollectionEnabled.Value || request.PowerCollectionEnabled.Value))
+                return Results.BadRequest(new { message = "실서버 연결·전력 데이터 계약은 미검증입니다. 자동 수집은 비활성 상태를 유지합니다." });
+            await profiles.UpdateEnrichmentAsync(request.EnrichmentIntervalMinutes, request.ConnectionCollectionEnabled.Value,
+                request.PowerCollectionEnabled.Value, request.ExpectedConfigurationVersion, context.RequestAborted);
+            return Results.Ok(await View(profiles, credentials, runtime, session, context.RequestAborted));
+        }));
         app.MapPost("/api/credentials", async (HttpContext context, ProfileStore profiles, ICredentialStore credentials, RuntimeOptions runtime, AirWaveSession session, CredentialRegistration registration) => await Guard(profiles, context, async () =>
         {
             if (runtime.Mode == AppMode.Demo)
@@ -109,5 +120,6 @@ public static class SettingsEndpoints
             diagnosticScope = "connection-and-single-read-only"
         };
     }
+    public sealed record EnrichmentSettingsInput(long ExpectedConfigurationVersion, int EnrichmentIntervalMinutes, bool? ConnectionCollectionEnabled, bool? PowerCollectionEnabled);
     public sealed record SettingsInput(string Origin, int ApIntervalMinutes, string ProxyMode, string? ProxyAddress, long ExpectedConfigurationVersion);
 }

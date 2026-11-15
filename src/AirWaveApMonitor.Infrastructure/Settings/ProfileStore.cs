@@ -42,8 +42,20 @@ public sealed class ProfileStore
             throw new ArgumentException("Demo 모드는 가상 출처만 사용합니다.");
         if (Current is not null && origin != Current.Origin)
             throw new ProfileConflictException("서버 출처 변경은 새 데이터셋이 필요합니다. 새 전용 데이터 폴더로 시작하세요.");
-        var next = new ProfileSnapshot(Current?.InstanceId ?? Guid.NewGuid(), location.DatasetId, origin, (Current?.ConfigurationVersion ?? 0) + 1, Current?.ScopeVersion ?? 1, Current?.ExpectedTargets ?? [], Current?.BaselineStatus ?? BaselineStatus.Unverified, new(interval)) { Proxy = proxy, CredentialsVersion = Current?.CredentialsVersion ?? 1 };
+        var next = new ProfileSnapshot(Current?.InstanceId ?? Guid.NewGuid(), location.DatasetId, origin, (Current?.ConfigurationVersion ?? 0) + 1, Current?.ScopeVersion ?? 1, Current?.ExpectedTargets ?? [], Current?.BaselineStatus ?? BaselineStatus.Unverified, new(interval, Current?.Settings.EnrichmentIntervalMinutes ?? 15, Current?.Settings.ConnectionCollectionEnabled ?? false, Current?.Settings.PowerCollectionEnabled ?? false)) { Proxy = proxy, CredentialsVersion = Current?.CredentialsVersion ?? 1 };
         await SaveAsync(next, ct);
+    }
+    public Task UpdateEnrichmentAsync(int interval, bool connectionEnabled, bool powerEnabled, long expectedVersion, CancellationToken ct)
+    {
+        var current = Current ?? throw new ArgumentException("서버 설정을 먼저 저장하세요.");
+        if (current.ConfigurationVersion != expectedVersion)
+            throw new ProfileConflictException("설정이 변경되었습니다. 현재 설정을 다시 읽으세요.");
+        if (location.Mode != AppMode.Demo && (connectionEnabled || powerEnabled))
+            throw new ArgumentException("실서버 연결·전력 데이터 계약이 미검증이므로 자동 수집을 활성화할 수 없습니다.");
+        return SaveAsync(new(current.InstanceId, current.DatasetId, current.Origin,
+            current.ConfigurationVersion + 1, current.ScopeVersion, current.ExpectedTargets, current.BaselineStatus,
+            new(current.Settings.ApIntervalMinutes, interval, connectionEnabled, powerEnabled))
+        { Proxy = current.Proxy, CredentialsVersion = current.CredentialsVersion }, ct);
     }
     public Task CredentialsChangedAsync(CancellationToken ct)
     {

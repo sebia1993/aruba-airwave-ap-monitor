@@ -8,14 +8,15 @@ using static AirWaveApMonitor.Infrastructure.Storage.StorageDatabase;
 
 namespace AirWaveApMonitor.Infrastructure.Storage;
 
-public enum StorageTransactionBoundary { BeforeFinalCommit, AfterFinalCommit }
+public enum StorageTransactionBoundary { BeforeFinalCommit, AfterFinalCommit, BeforeBeginCommit, AfterBeginCommit }
 
 /// <summary>
 /// File-backed SQLite. The shared gate serializes short writes with authentication storage.
 /// Network collection occurs between BeginRun and Apply; neither retains a connection or transaction.
 /// SQLite I/O is synchronous; cancellation is checked at operation/AP/commit boundaries and busy waits are bounded.
 /// </summary>
-public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceCheckpointStore
+public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceCheckpointStore,
+    IEnrichmentTargetStore, IEnrichmentHealthStore, IEnrichmentInterruptionStore, IEnrichmentReadStore
 {
     private readonly StorageLocation location;
     private readonly SemaphoreSlim writeGate;
@@ -37,10 +38,7 @@ public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceChe
     public async Task<CollectionContext> BeginRunAsync(ProfileSnapshot profile, CollectionKind kind, RunTrigger trigger, CancellationToken ct)
     {
         ValidateDataset(profile.DatasetId);
-        if (kind != CollectionKind.ApStatus)
-        {
-            throw new NotSupportedException("부가 수집 저장은 아직 지원하지 않습니다.");
-        }
+        if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
         await writeGate.WaitAsync(ct);
         try
         {
@@ -48,9 +46,9 @@ public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceChe
             Initialize(connection, ct);
             using var transaction = connection.BeginTransaction();
             if (Convert.ToInt64(Scalar(connection, transaction,
-                "SELECT COUNT(*) FROM runs WHERE dataset_id=$dataset AND kind=0 AND lifecycle=0", ("$dataset", location.DatasetId))) != 0)
+                "SELECT COUNT(*) FROM runs WHERE dataset_id=$dataset AND kind=$kind AND lifecycle=0", ("$dataset", location.DatasetId), ("$kind", kind))) != 0)
             {
-                throw new InvalidOperationException("AP 수집 회차가 이미 진행 중입니다.");
+                throw new InvalidOperationException("같은 종류의 수집 회차가 이미 진행 중입니다.");
             }
             var rawProfile = Encode(profile);
             var existingProfile = Scalar(connection, transaction,
@@ -123,8 +121,11 @@ public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceChe
             var context = new CollectionContext(runId, frozenProfile, kind, trigger, now, now + profile.Settings.RunTimeout);
             Execute(connection, transaction, "UPDATE runs SET context_json=$json WHERE run_id=$run", ("$json", Encode(context)), ("$run", runId));
             FreezeOperationBindings(connection, transaction, context);
+            if (kind != CollectionKind.ApStatus) FreezeEnrichmentBindings(connection, transaction, context);
             ct.ThrowIfCancellationRequested();
+            transactionObserver?.Invoke(StorageTransactionBoundary.BeforeBeginCommit);
             transaction.Commit();
+            transactionObserver?.Invoke(StorageTransactionBoundary.AfterBeginCommit);
             return context;
         }
         finally
@@ -169,8 +170,6 @@ public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceChe
         }
     }
 
-    public Task<EnrichmentCommitReceipt> ApplyEnrichmentBatchAsync(CollectionContext context, EnrichmentBatch batch, CancellationToken ct)
-        => throw new NotSupportedException("연결·이웃·전력 저장은 Task 9에서 구현합니다. AP 상태를 변경하지 않았습니다.");
 
     private SqliteConnection Open()
     {
@@ -221,6 +220,11 @@ public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceChe
         {
             var context = ReadContext(connection, transaction, runId);
             ValidateDataset(context.Profile.DatasetId);
+            if (IsEnrichmentKind(context.Kind))
+            {
+                FinalizeEnrichment(connection, transaction, context, InterruptedEnrichment(context, recoveryObservedAt), RunLifecycle.Interrupted, ct);
+                continue;
+            }
             FinalizeAp(connection, transaction, context, new(RunOutcome.Failed, [], [], recoveryObservedAt,
                 ObservationCompleteness.Unknown, [new(CollectionErrorCategory.Interrupted, 1, "이전 실행이 최종 저장 전에 중단되었습니다.")]),
                 RunLifecycle.Interrupted, ct);
@@ -241,7 +245,7 @@ public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceChe
             throw new KeyNotFoundException("저장된 실행이 없습니다.");
         }
         var context = Decode<CollectionContext>(reader.GetString(0));
-        if (context.RunId != runId || context.Kind != CollectionKind.ApStatus ||
+        if (context.RunId != runId || !Enum.IsDefined(context.Kind) ||
             context.Profile.DatasetId.ToString("D") != reader.GetString(1) ||
             context.Profile.ScopeVersion != reader.GetInt64(2) || (int)context.Kind != reader.GetInt32(3))
         {

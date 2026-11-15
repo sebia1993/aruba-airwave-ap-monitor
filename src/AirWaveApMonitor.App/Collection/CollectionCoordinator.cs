@@ -30,9 +30,11 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
     private bool configurationWake;
     private DateTimeOffset nextAp, nextEnrichment, lastTick;
 
-    private sealed class ActiveRun(CollectionKind kind, RunTrigger trigger)
+    private sealed class ActiveRun(CollectionKind kind, RunTrigger trigger, CollectionKind[]? following = null, long? plannedVersion = null)
     {
         public CollectionKind Kind { get; } = kind;
+        public CollectionKind[] Following { get; set; } = following ?? [];
+        public long? PlannedVersion { get; } = plannedVersion;
         public RunTrigger Trigger { get; } = trigger;
         public Guid QueueId { get; } = Guid.NewGuid();
         public CollectionContext? Context { get; set; }
@@ -60,7 +62,10 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
         await RequestAsync(CollectionKind.ApStatus, RunTrigger.Startup, ct);
     }
 
-    public async Task<RunRequestReceipt> RequestAsync(CollectionKind kind, RunTrigger trigger, CancellationToken ct)
+    public Task<RunRequestReceipt> RequestAsync(CollectionKind kind, RunTrigger trigger, CancellationToken ct)
+        => RequestCoreAsync(kind, trigger, [], null, ct);
+
+    private async Task<RunRequestReceipt> RequestCoreAsync(CollectionKind kind, RunTrigger trigger, CollectionKind[] following, long? plannedVersion, CancellationToken ct)
     {
         if (!Enum.IsDefined(kind) || !Enum.IsDefined(trigger)) throw new ArgumentException("수집 종류와 시작 사유를 확인하세요.");
         ct.ThrowIfCancellationRequested();
@@ -69,7 +74,7 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
         {
             if (stopping) return Receipt(RunRequestStatus.Stopping);
             if (paused) return Receipt(RunRequestStatus.Paused);
-            if (kind != CollectionKind.ApStatus && enrichment?.Supports(kind) != true) return Receipt(RunRequestStatus.Unsupported);
+            if (kind != CollectionKind.ApStatus && (profiles.Current is not { } currentProfile || enrichment?.Supports(currentProfile, kind) != true)) return Receipt(RunRequestStatus.Unsupported);
             if (active is { } current)
             {
                 if (kind == CollectionKind.ApStatus && current.Kind != CollectionKind.ApStatus)
@@ -84,7 +89,7 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
                 }
                 return Receipt(RunRequestStatus.AlreadyRunning, current.Context?.RunId ?? current.ReportedRunId, current.QueueId);
             }
-            active = run = new(kind, trigger);
+            active = run = new(kind, trigger, following, plannedVersion);
             health.Update(s => s with { Phase = CollectorPhase.Preparing, ActiveKind = kind, ActiveRunId = null });
         }
         return await AdmitAsync(run, ct);
@@ -116,10 +121,20 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
                 await ReflectCommitAsync(unfinished, recovered, admission.Token);
                 recovery = null;
             }
+            if (enrichment?.RecoveryPending == true && !await enrichment.RecoverAsync(admission.Token))
+            {
+                MarkStorageFailure(null);
+                return Receipt(RunRequestStatus.StorageBlocked);
+            }
             var profile = profiles.Current;
             if (profile is null) return Unconfigured("server-not-configured");
+            if (run.PlannedVersion is { } version && version != profile.ConfigurationVersion)
+                return Receipt(RunRequestStatus.Unsupported);
+            if (kind != CollectionKind.ApStatus && enrichment?.Supports(profile, kind) != true)
+                return Receipt(RunRequestStatus.Unsupported);
             health.SetInterval(TimeSpan.FromMinutes(profile.Settings.ApIntervalMinutes));
             await profiles.EnsureInitializedAsync(admission.Token);
+            if (enrichment is not null) await enrichment.RefreshHealthAsync(profile, admission.Token);
             var success = await store.GetSuccessTimesAsync(profile.DatasetId, profile.ScopeVersion, admission.Token);
             health.Update(s => s with
             {
@@ -177,7 +192,7 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
                 _ = Task.Run(() => ExecuteApAsync(run, context), CancellationToken.None);
                 return Receipt(RunRequestStatus.Accepted, context.RunId);
             }
-            health.Update(s => s with { Phase = CollectorPhase.Collecting });
+            health.Update(s => s with { Phase = CollectorPhase.Preparing });
             launched = true;
             _ = Task.Run(() => ExecuteEnrichmentAsync(run, profile), CancellationToken.None);
             return Receipt(RunRequestStatus.Queued, queue: run.QueueId);
@@ -194,6 +209,7 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
         {
             if (!launched)
             {
+                run.Following = [];
                 if (ownsOperation) profiles.OperationGate.Release();
                 Finish(run);
             }
@@ -275,14 +291,21 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
     {
         try
         {
-            using var budget = new CancellationTokenSource(profile.Settings.RunTimeout, clock);
-            using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, budget.Token);
-            await enrichment!.ExecuteAsync(profile, run.Kind, () => { lock (gate) return pendingAp is not null || paused || stopping; },
-                id => { lock (gate) run.ReportedRunId = id; health.Update(s => s with { ActiveRunId = id }); }, request.Token);
+            await enrichment!.ExecuteAsync(profile, run.Kind, run.Trigger,
+                () => { lock (gate) return pendingAp is not null || paused || stopping; },
+                id => { lock (gate) run.ReportedRunId = id; health.Update(s => s with { ActiveRunId = id, Phase = CollectorPhase.Collecting }); }, lifetime.Token);
+            if (enrichment.RecoveryPending) MarkStorageFailure(null);
+            health.Update(s => s with
+            {
+                AuthenticationBlocked = session.AuthenticationBlocked,
+                AuthenticationStop = session.AuthenticationStop,
+                BlockedReason = session.AuthenticationBlocked ? "authentication-rejected" : s.BlockedReason
+            });
         }
         catch (OperationCanceledException) { }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
+            if (enrichment?.RecoveryPending == true) MarkStorageFailure(null);
             if (!diagnostics.Record(CollectionErrorCategory.Transport, run.ReportedRunId))
                 health.Update(s => s with { LastDiagnosticFileError = "diagnostic-file-unavailable" });
         }
@@ -345,6 +368,11 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
             if (ReferenceEquals(active, run)) active = null;
             if (pendingAp is not null && !paused && !stopping)
                 active = next = new(CollectionKind.ApStatus, pendingTrigger);
+            else if (!paused && !stopping && !storageUnavailable && !session.AuthenticationBlocked &&
+                run.Following.Length > 0 && profiles.Current is { } profile && run.PlannedVersion == profile.ConfigurationVersion &&
+                enrichment?.Supports(profile, run.Following[0]) == true)
+                active = next = new(run.Following[0], RunTrigger.Scheduled, run.Following.Skip(1).ToArray(), run.PlannedVersion);
+            // A pending AP preempts and discards the rest of this one scheduled enrichment cycle.
             pendingAp = null;
             health.Update(s => s with
             {
@@ -356,8 +384,8 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
             });
         }
         run.Completion.TrySetResult();
-        // Reserve AP under the same state lock that releases enrichment. A competing
-        // enrichment request cannot take the slot between yielding and AP admission.
+        // Reserve the AP or next item of this bounded cycle while releasing the old slot.
+        // No competing request can interleave between priority selection and admission.
         if (next is not null) _ = RunPendingAsync(next);
     }
 
@@ -375,7 +403,7 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
         {
             resume = paused && !value;
             paused = value;
-            if (value) pendingAp = null;
+            if (value) { pendingAp = null; if (active is not null) active.Following = []; }
             if (resume) ResetSchedule(clock.GetUtcNow());
             health.Update(s => s with { Paused = value, PendingApQueueId = pendingAp });
         }
@@ -384,8 +412,10 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
 
     public async Task TickAsync(CancellationToken ct)
     {
-        bool apDue, connectionDue, powerDue;
+        bool apDue;
+        CollectionKind[] cycle;
         RunTrigger trigger;
+        long? plannedVersion;
         lock (gate)
         {
             if (stopping) return;
@@ -396,6 +426,7 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
             }
             lastTick = now;
             var profile = profiles.Current;
+            plannedVersion = profile?.ConfigurationVersion;
             if ((profile?.ConfigurationVersion ?? 0) != configurationVersion)
             {
                 configurationVersion = profile?.ConfigurationVersion ?? 0;
@@ -412,18 +443,21 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
             trigger = configurationWake ? RunTrigger.Startup : retryCleared ? RunTrigger.Resume : RunTrigger.Scheduled;
             if (now >= nextAp) nextAp = now + TimeSpan.FromMinutes(profile?.Settings.ApIntervalMinutes ?? 5);
             var enrichmentDue = now >= nextEnrichment;
-            connectionDue = enrichmentDue && profile?.Settings.ConnectionCollectionEnabled == true;
-            powerDue = enrichmentDue && profile?.Settings.PowerCollectionEnabled == true;
+            cycle = enrichmentDue && profile is not null
+                ? new[] { CollectionKind.ConnectionNeighbor, CollectionKind.Power }.Where(kind => KindEnabled(profile, kind) && enrichment?.Supports(profile, kind) == true).ToArray() : [];
             if (enrichmentDue) nextEnrichment = now + TimeSpan.FromMinutes(profile?.Settings.EnrichmentIntervalMinutes ?? 15);
-            health.Update(s => s with { NextApAtUtc = nextAp, NextEnrichmentAtUtc = nextEnrichment });
+            PublishSchedule(profile);
         }
         if (apDue)
         {
-            var receipt = await RequestAsync(CollectionKind.ApStatus, trigger, ct);
+            // Same-tick AP has priority, then at most one Connection/Power cycle. This avoids
+            // permanent starvation when the 5-minute AP and 15-minute enrichment clocks coincide.
+            var receipt = await RequestCoreAsync(CollectionKind.ApStatus, trigger, cycle, plannedVersion, ct);
             if (receipt.Status != RunRequestStatus.AlreadyRunning) { lock (gate) configurationWake = false; }
+            if (receipt.Status is not RunRequestStatus.Accepted && cycle.Length > 0) { lock (gate) foreach (var kind in cycle) CountSkip(kind); }
         }
-        if (connectionDue) await RequestAsync(CollectionKind.ConnectionNeighbor, RunTrigger.Scheduled, ct);
-        if (powerDue) await RequestAsync(CollectionKind.Power, RunTrigger.Scheduled, ct);
+        else if (cycle.Length > 0)
+            await RequestCoreAsync(cycle[0], RunTrigger.Scheduled, cycle.Skip(1).ToArray(), plannedVersion, ct);
     }
 
     public async Task StopAsync(CancellationToken ct)
@@ -431,7 +465,7 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
         Task? pending;
         lock (gate)
         {
-            stopping = true; pendingAp = null; pending = active?.Completion.Task;
+            stopping = true; pendingAp = null; if (active is not null) active.Following = []; pending = active?.Completion.Task;
             health.Update(s => s with { Phase = CollectorPhase.Stopping, PendingApQueueId = null });
         }
         try { lifetime.Cancel(); }
@@ -453,8 +487,17 @@ public sealed class CollectionCoordinator : ICollectorControl, IAsyncDisposable
         nextAp = now + TimeSpan.FromMinutes(settings.ApIntervalMinutes);
         nextEnrichment = now + TimeSpan.FromMinutes(settings.EnrichmentIntervalMinutes);
         health.SetInterval(TimeSpan.FromMinutes(settings.ApIntervalMinutes));
-        health.Update(s => s with { NextApAtUtc = nextAp, NextEnrichmentAtUtc = nextEnrichment });
+        PublishSchedule(profiles.Current);
     }
+    private void PublishSchedule(ProfileSnapshot? profile)
+    {
+        var runnable = profile is not null && new[] { CollectionKind.ConnectionNeighbor, CollectionKind.Power }
+            .Any(kind => KindEnabled(profile, kind) && enrichment?.Supports(profile, kind) == true);
+        health.Update(s => s with { NextApAtUtc = nextAp, NextEnrichmentAtUtc = runnable ? nextEnrichment : null });
+        enrichment?.UpdateSchedule(profile, nextEnrichment);
+    }
+    private static bool KindEnabled(ProfileSnapshot profile, CollectionKind kind)
+        => kind == CollectionKind.ConnectionNeighbor ? profile.Settings.ConnectionCollectionEnabled : profile.Settings.PowerCollectionEnabled;
     private RunRequestReceipt Unconfigured(string reason)
     {
         health.Update(s => s with { Configured = false, BlockedReason = reason });

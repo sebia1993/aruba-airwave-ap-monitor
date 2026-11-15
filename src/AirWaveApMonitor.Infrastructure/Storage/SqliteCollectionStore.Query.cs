@@ -26,6 +26,7 @@ public sealed partial class SqliteCollectionStore
     public async Task<CommitReceipt> InterruptRunAsync(CollectionContext context, CancellationToken ct)
     {
         ValidateDataset(context.Profile.DatasetId);
+        if (context.Kind != CollectionKind.ApStatus) throw new ArgumentException("AP 상태 회차가 필요합니다.", nameof(context));
         await writeGate.WaitAsync(ct);
         try
         {
@@ -166,7 +167,9 @@ public sealed partial class SqliteCollectionStore
                     Guid.Parse(reader.GetString(3)), metadata.Identity, metadata.Device, metadata.Location, metadata.Controller,
                     facts.CurrentState, facts.LastValidState, facts.LastValidObservedAtUtc, facts.FirstDownAtUtc,
                     facts.OpenIncidentId, facts.Classification, facts.Fields, metadata.SourceManagement, metadata.ManualManagement,
-                    upstream, facts.UnknownReason, facts.TimeNeedsReview, facts.LastValidRunId, facts.SourceAtUtc, facts.LastContactedAtUtc, metadata.RawSourceValues, metadata.ManualInventory));
+                    upstream, facts.UnknownReason, facts.TimeNeedsReview, facts.LastValidRunId, facts.SourceAtUtc, facts.LastContactedAtUtc, metadata.RawSourceValues, metadata.ManualInventory)
+                { EnrichmentDetail = facts.EnrichmentReferenceId is { } enrichmentId
+                    ? ReadReferencedEnrichment(connection, transaction, enrichmentId, runId, facts.EnrichmentCommitSequence, facts.EnrichmentCapturedAtUtc!.Value, ct) : null });
             }
         }
         return rows;

@@ -101,14 +101,15 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
         {
             ct.ThrowIfCancellationRequested();
             var context = ReadStored<CollectionContext>(reader.GetString(1));
-            var receipt = reader.IsDBNull(4) ? null : ReadStored<CommitReceipt>(reader.GetString(4));
+            var receipt = reader.IsDBNull(4) || context.Kind != CollectionKind.ApStatus ? null : ReadStored<CommitReceipt>(reader.GetString(4));
+            var enrichment = reader.IsDBNull(4) || context.Kind == CollectionKind.ApStatus ? null : ReadStored<EnrichmentCommitReceipt>(reader.GetString(4));
             if (context.RunId != reader.GetInt64(0) || context.Profile.DatasetId != datasetId ||
                 (receipt is not null && receipt.RunId != context.RunId)) throw new InvalidDataException("수집 회차 참조가 일치하지 않습니다.");
             rows.Add(new(context.RunId, context.Profile.ScopeVersion, context.Kind, context.Trigger, (RunLifecycle)reader.GetInt32(2),
-                context.StartedAtUtc, Time(reader, 3), receipt?.Outcome, receipt?.Summary,
+                context.StartedAtUtc, Time(reader, 3), receipt?.Outcome ?? enrichment?.Outcome, receipt?.Summary,
                 reader.IsDBNull(5) ? null : (ObservationCompleteness)reader.GetInt32(5),
                 reader.IsDBNull(6) ? [] : ReadStored<ImmutableArray<CollectionError>>(reader.GetString(6)),
-                reader.IsDBNull(7) ? null : ReadStored<ApRunSourceEvidence>(reader.GetString(7))));
+                reader.IsDBNull(7) || context.Kind != CollectionKind.ApStatus ? null : ReadStored<ApRunSourceEvidence>(reader.GetString(7))));
         }
         return rows;
     }

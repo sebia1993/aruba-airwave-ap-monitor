@@ -317,11 +317,11 @@ public sealed partial class SqliteCollectionStoreTests
     }
 
     [Fact]
-    public async Task EnrichmentUnsupported_DoesNotClaimApplicationOrChangeApRun()
+    public async Task EnrichmentWithoutDurableBegin_DoesNotClaimApplicationOrChangeApRun()
     {
         var receipt = await Apply(Observation("100", ApState.Up), Observation("200", ApState.Up));
         var context = new CollectionContext(100, Profile(), CollectionKind.Power, RunTrigger.Manual, clock.GetUtcNow(), clock.GetUtcNow().AddMinutes(2));
-        await Assert.ThrowsAsync<NotSupportedException>(() => store.ApplyEnrichmentBatchAsync(context,
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => store.ApplyEnrichmentBatchAsync(context,
             new(CollectionKind.Power, RunOutcome.Succeeded, [], [], ObservationCompleteness.Complete, clock.GetUtcNow(), []), default));
         Assert.Equal(receipt.RunId, (await Dashboard()).RunId);
         Assert.Equal(1, Count("run_results"));

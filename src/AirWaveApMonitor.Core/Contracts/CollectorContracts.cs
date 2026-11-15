@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace AirWaveApMonitor.Core.Contracts;
 
 public sealed record SourceCheckpoint(string Source, int Position);
@@ -17,4 +19,8 @@ public sealed record CollectorHealthSnapshot(DateTimeOffset RecordedAtUtc, Colle
     DateTimeOffset? NextApAtUtc = null, DateTimeOffset? NextEnrichmentAtUtc = null,
     bool UpdateDelayed = false, bool ClockNeedsReview = false, string? LastStorageError = null,
     string? LastDiagnosticFileError = null, string BackupStatus = "not-implemented",
-    long? LastFinalRunId = null, RunOutcome? LastOutcome = null, CollectionErrorCategory? LastCollectionError = null);
+    long? LastFinalRunId = null, RunOutcome? LastOutcome = null, CollectionErrorCategory? LastCollectionError = null)
+{
+    /// <summary>Null for legacy snapshots; AP clocks retain their original independent meaning.</summary>
+    public ImmutableArray<EnrichmentKindHealthSnapshot>? EnrichmentKinds { get; init; }
+}

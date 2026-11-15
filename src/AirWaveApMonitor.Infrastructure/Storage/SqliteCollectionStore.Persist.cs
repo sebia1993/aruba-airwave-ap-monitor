@@ -37,6 +37,8 @@ public sealed partial class SqliteCollectionStore
             }
         }
         view = AttachFrozenRegistration(connection, transaction, context, view);
+        var enrichment = CaptureEnrichment(connection, transaction, context, view, next.LastProcessedAtUtc ?? context.StartedAtUtc);
+        view = view with { EnrichmentDetail = enrichment.Snapshot };
         RecordAutomaticChanges(connection, transaction, context, previous?.View, view, decision.Identity?.Change ?? IdentityChange.Unchanged,
             next.LastProcessedAtUtc ?? context.StartedAtUtc, previous?.Tracking.OpenGap is not null || decision.ClosedGap is not null, next.TimeNeedsReview);
         var measurements = new MetadataMeasurements(view.Metadata.Device.Uptime, view.Metadata.Device.RebootedAtUtc,
@@ -116,7 +118,8 @@ public sealed partial class SqliteCollectionStore
                 .FirstOrDefault(mutation => mutation.Kind == IncidentMutationKind.Recovered)?.Incident.FirstDownAtUtc;
             var facts = new RowFacts(decision.CurrentState, next.LastValidState, next.LastValidRunId,
                 next.LastValidObservedAtUtc, firstDown, next.OpenIncident?.IncidentId, decision.Classification,
-                view.Fields, decision.UnknownReason, next.TimeNeedsReview, view.SourceAtUtc, view.LastContactedAtUtc, measurements);
+                view.Fields, decision.UnknownReason, next.TimeNeedsReview, view.SourceAtUtc, view.LastContactedAtUtc, measurements)
+            { EnrichmentReferenceId = enrichment.ReferenceId, EnrichmentCommitSequence = enrichment.CommitSequence, EnrichmentCapturedAtUtc = enrichment.At };
             Execute(connection, transaction, "INSERT INTO run_rows VALUES($run,$ap,$generation,$interval,$metadata,$json)",
                 ("$run", context.RunId), ("$ap", apId), ("$generation", view.DeviceGenerationId),
                 ("$interval", view.MonitoringIntervalId), ("$metadata", metadataId), ("$json", Encode(facts)));

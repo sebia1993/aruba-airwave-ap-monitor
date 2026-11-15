@@ -44,6 +44,7 @@ public sealed class SettingsEndpointTests
     }
     [Theory]
     [InlineData("/api/settings")]
+    [InlineData("/api/enrichment/settings")]
     [InlineData("/api/credentials")]
     [InlineData("/api/authentication/retry")]
     [InlineData("/api/diagnostics")]

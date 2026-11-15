@@ -11,7 +11,7 @@ public sealed class RetentionService(StorageLocation location, SemaphoreSlim wri
     {
         await store.InitializeAsync(ct);
         await writeGate.WaitAsync(ct);
-        int details, gaps, logs;
+        int details, gaps, logs, power;
         try
         {
             using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
@@ -34,10 +34,11 @@ public sealed class RetentionService(StorageLocation location, SemaphoreSlim wri
                     AND json_extract(c.tracking_json,'$.OpenGap.FirstRunId')=g.first_run_id)
                 """, ("$cutoff", detailCutoff));
             logs = Execute(connection, transaction, "DELETE FROM operational_logs WHERE recorded_at_utc < $cutoff", ("$cutoff", logCutoff));
+            power = SqliteCollectionStore.PruneEnrichment(connection, transaction, now.ToUniversalTime(), ct);
             ct.ThrowIfCancellationRequested(); transaction.Commit();
         }
         finally { writeGate.Release(); }
         var fileLines = new OperationalLog(location, TimeProvider.System).Prune(now.ToUniversalTime() - TimeSpan.FromDays(30));
-        return new(details, gaps, logs, fileLines);
+        return new(details, gaps, logs, fileLines, true, power);
     }
 }

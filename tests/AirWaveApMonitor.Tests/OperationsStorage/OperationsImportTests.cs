@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -111,8 +112,9 @@ public sealed partial class SqliteCollectionStoreTests
     public async Task SchemaThreeUpgrade_BackfillsOnlySavedEvidenceAndKeepsOldSnapshotsImmutable()
     {
         await SeedOperations(); await Apply(Observation("100", ApState.Up, name: "Renamed"), Observation("200", ApState.Up));
-        var before = JsonSerializer.Serialize(await Dashboard(1)); var automatic = await store.GetTimelineAsync(new(PageSize: 500), default);
-        // Remove exactly migration 004 objects to construct the preceding real SQLite schema and source rows.
+        var legacy = await Dashboard(1);
+        var before = JsonSerializer.Serialize(legacy with { Rows = legacy.Rows.Select(r => r with { EnrichmentDetail = null }).ToImmutableArray() }); var automatic = await store.GetTimelineAsync(new(PageSize: 500), default);
+        // Remove post-v3 objects and their additive row-fact references to construct a real preceding schema.
         var assembly = typeof(SchemaMigrator).Assembly;
         using var stream = assembly.GetManifestResourceStream(assembly.GetManifestResourceNames().Single(n => n.EndsWith("004_operations.sql")))!;
         using var read = new StreamReader(stream); var sql = await read.ReadToEndAsync();
@@ -120,13 +122,21 @@ public sealed partial class SqliteCollectionStoreTests
         using (var command = connection.CreateCommand())
         {
             command.CommandText = "PRAGMA foreign_keys=OFF"; command.ExecuteNonQuery();
+            using var fifthStream = assembly.GetManifestResourceStream(assembly.GetManifestResourceNames().Single(n => n.EndsWith("005_enrichment.sql")))!;
+            using var fifthReader = new StreamReader(fifthStream); var fifth = await fifthReader.ReadToEndAsync();
+            command.CommandText = "SELECT sql FROM sqlite_master WHERE name='run_rows_are_immutable'"; var trigger = (string)command.ExecuteScalar()!;
+            command.CommandText = "DROP TRIGGER run_rows_are_immutable; UPDATE run_rows SET facts_json=json_remove(facts_json,'$.EnrichmentReferenceId','$.EnrichmentCommitSequence','$.EnrichmentCapturedAtUtc')"; command.ExecuteNonQuery();
+            command.CommandText = trigger; command.ExecuteNonQuery();
+            foreach (Match match in Regex.Matches(fifth, @"CREATE TABLE (\w+)"))
+            { command.CommandText = $"DROP TABLE {match.Groups[1].Value}"; command.ExecuteNonQuery(); }
+            command.CommandText = "DROP INDEX one_running_enrichment_kind"; command.ExecuteNonQuery();
             foreach (Match match in Regex.Matches(sql, @"CREATE TABLE (\w+)"))
             { command.CommandText = $"DROP TABLE {match.Groups[1].Value}"; command.ExecuteNonQuery(); }
-            command.CommandText = "DROP INDEX run_rows_ap_run; DELETE FROM schema_migrations WHERE version=4; UPDATE dataset SET schema_version=3; PRAGMA user_version=3";
+            command.CommandText = "DROP INDEX run_rows_ap_run; DELETE FROM schema_migrations WHERE version>=4; UPDATE dataset SET schema_version=3; PRAGMA user_version=3";
             command.ExecuteNonQuery();
         }
         var migrated = NewStore(); await migrated.InitializeAsync(default);
-        Assert.Equal(4, Scalar("PRAGMA user_version")); Assert.Equal(before, JsonSerializer.Serialize(await Dashboard(1, target: migrated)));
+        Assert.Equal(SchemaMigrator.CurrentVersion, Scalar("PRAGMA user_version")); Assert.Equal(before, JsonSerializer.Serialize(await Dashboard(1, target: migrated)));
         var backfill = await migrated.GetTimelineAsync(new(PageSize: 500), default);
         Assert.Equal(automatic.TotalRows, backfill.TotalRows);
         var name = Assert.Single(backfill.Rows.Where(e => e.Field == "name" && e.Action == "ValueChanged"));

@@ -45,6 +45,8 @@ public static class AppBootstrap
         {
             builder.Services.AddSingleton<IApSource, ScenarioApSource>();
             builder.Services.AddSingleton<DemoPrehistoryInitializer>();
+            builder.Services.AddSingleton<DemoEnrichmentSource>();
+            builder.Services.AddSingleton<IBoundedEnrichmentSource>(sp => sp.GetRequiredService<DemoEnrichmentSource>());
         }
 
         builder.Services.AddAntiforgery(o => { o.HeaderName = "X-CSRF-TOKEN"; o.Cookie.Name = "AirWave-CSRF"; o.Cookie.HttpOnly = true; o.Cookie.SameSite = SameSiteMode.Strict; });
@@ -55,6 +57,10 @@ public static class AppBootstrap
         builder.Services.AddSingleton<ICollectionStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
         builder.Services.AddSingleton<IMonitoringReadStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
         builder.Services.AddSingleton<IOperationsStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
+        builder.Services.AddSingleton<IEnrichmentReadStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
+        builder.Services.AddSingleton<IEnrichmentTargetStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
+        builder.Services.AddSingleton<IEnrichmentInterruptionStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
+        builder.Services.AddSingleton<IEnrichmentHealthStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
         builder.Services.AddSingleton<ISourceCheckpointStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
         builder.Services.AddHostedService<StorageInitialization>();
         builder.Services.AddSingleton<IAuthenticationStateStore>(sp => options.Mode == AppMode.Live
@@ -65,8 +71,12 @@ public static class AppBootstrap
         builder.Services.AddSingleton<CredentialRegistration>();
         builder.Services.AddSingleton(sp => new ConnectionDiagnostics(options.Mode, sp.GetRequiredService<AirWaveClient>(), sp.GetRequiredService<TimeProvider>()));
         if (options.Mode == AppMode.Live)
+        {
             builder.Services.AddSingleton<IApSource>(sp => sp.GetRequiredService<AirWaveClient>());
+            builder.Services.AddSingleton<IBoundedEnrichmentSource, EnrichmentSource>();
+        }
         builder.Services.AddSingleton<CollectorHealth>();
+        builder.Services.AddSingleton<IEnrichmentRunner, EnrichmentRunner>();
         builder.Services.AddSingleton<CollectionCoordinator>();
         builder.Services.AddSingleton<ICollectorControl>(sp => sp.GetRequiredService<CollectionCoordinator>());
         builder.Services.AddSingleton(sp => new BackgroundFailurePolicy(
@@ -143,6 +153,7 @@ public static class AppBootstrap
         app.MapMonitoring();
         app.MapExport();
         app.MapOperations();
+        app.MapEnrichment();
         return app;
     }
 

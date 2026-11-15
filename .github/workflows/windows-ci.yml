@@ -51,9 +51,12 @@ jobs:
           node --check src/AirWaveApMonitor.App/wwwroot/app.js
           node --check src/AirWaveApMonitor.App/wwwroot/ui-state.js
           node --check src/AirWaveApMonitor.App/wwwroot/operations.js
+          node --check src/AirWaveApMonitor.App/wwwroot/enrichment.js
           node tests/Frontend/ui-state.test.mjs
           node tests/Frontend/operations.test.mjs
           node tests/Frontend/operations-dom.test.mjs
+          node tests/Frontend/enrichment.test.mjs
+          node tests/Frontend/enrichment-dom.test.mjs
       - name: Restore
         run: dotnet restore AirWaveApMonitor.slnx
       - name: Build

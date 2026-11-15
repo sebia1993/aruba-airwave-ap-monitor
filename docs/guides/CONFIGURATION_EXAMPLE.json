@@ -1,0 +1,6 @@
+{
+  "apIntervalMinutes": 5,
+  "enrichmentIntervalMinutes": 15,
+  "connectionCollectionEnabled": false,
+  "powerCollectionEnabled": false
+}
