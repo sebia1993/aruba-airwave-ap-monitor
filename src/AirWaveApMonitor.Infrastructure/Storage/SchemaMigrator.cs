@@ -1,0 +1,154 @@
+using AirWaveApMonitor.Infrastructure.Maintenance;
+using AirWaveApMonitor.Infrastructure.Security;
+using System.Text.RegularExpressions;
+using Microsoft.Data.Sqlite;
+using static AirWaveApMonitor.Infrastructure.Storage.StorageDatabase;
+
+namespace AirWaveApMonitor.Infrastructure.Storage;
+
+public sealed class SchemaMigrator
+{
+    public const int CurrentVersion = 1;
+    private static readonly Lazy<Dictionary<string, string>> ExpectedDefinitions = new(BuildExpectedDefinitions);
+
+    public void Migrate(SqliteConnection connection, StorageLocation location, DateTimeOffset now)
+    {
+        var version = Convert.ToInt32(Scalar(connection, null, "PRAGMA user_version"));
+        if (version is < 0 or > CurrentVersion)
+        {
+            throw new InvalidOperationException("지원하지 않는 DB 스키마 버전입니다. 기존 파일을 보존합니다.");
+        }
+        if (!Equals(Scalar(connection, null, "PRAGMA quick_check"), "ok"))
+        {
+            throw new InvalidOperationException("SQLite 무결성 검사에 실패했습니다. 기존 파일을 보존합니다.");
+        }
+        var tables = Tables(connection);
+        if (version == 0 && tables.Any(name => name != "authentication_state"))
+        {
+            throw new InvalidOperationException("알 수 없는 기존 DB를 자동 마이그레이션하지 않습니다.");
+        }
+        if (tables.Contains("authentication_state"))
+        {
+            ValidateAuthenticationSchema(connection, location);
+        }
+        if (version == CurrentVersion)
+        {
+            ValidateCoreSchema(connection, location);
+        }
+        Execute(connection, null, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;");
+        if (version == CurrentVersion)
+        {
+            return;
+        }
+        using var transaction = connection.BeginTransaction();
+        using var stream = typeof(SchemaMigrator).Assembly.GetManifestResourceStream(
+            "AirWaveApMonitor.Infrastructure.Storage.Migrations.001_core.sql") ?? throw new InvalidOperationException("마이그레이션 리소스가 없습니다.");
+        using var reader = new StreamReader(stream);
+        Execute(connection, transaction, reader.ReadToEnd());
+        SqliteAuthenticationStateStore.EnsureSchema(connection, transaction);
+        Execute(connection, transaction, "INSERT INTO dataset VALUES($dataset,$mode,1)",
+            ("$dataset", location.DatasetId), ("$mode", location.Mode));
+        Execute(connection, transaction, "INSERT INTO schema_migrations VALUES(1,$at)", ("$at", now));
+        Execute(connection, transaction, "PRAGMA user_version=1");
+        transaction.Commit();
+    }
+
+    private static HashSet<string> Tables(SqliteConnection connection)
+    {
+        using var command = Command(connection, null, "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'");
+        using var reader = command.ExecuteReader();
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        while (reader.Read())
+        {
+            names.Add(reader.GetString(0));
+        }
+        return names;
+    }
+
+    private static void ValidateAuthenticationSchema(SqliteConnection connection, StorageLocation location)
+    {
+        var definitions = ReadDefinitions(connection);
+        if (!definitions.TryGetValue("table:authentication_state", out var definition) ||
+            definition != ExpectedDefinitions.Value["table:authentication_state"])
+        {
+            throw new InvalidOperationException("기존 인증 상태 DB 스키마를 확인할 수 없습니다.");
+        }
+        using var command = Command(connection, null, "PRAGMA table_info(authentication_state)");
+        using var reader = command.ExecuteReader();
+        var columns = new List<string>();
+        while (reader.Read())
+        {
+            columns.Add(reader.GetString(1));
+        }
+        reader.Close();
+        string[] expected = ["dataset_id", "normalized_origin", "credential_version", "blocked_reason", "blocked_at_utc", "credential_registration_pending"];
+        if (!columns.SequenceEqual(expected) || Convert.ToInt64(Scalar(connection, null,
+            "SELECT COUNT(*) FROM authentication_state WHERE dataset_id != $dataset", ("$dataset", location.DatasetId))) != 0)
+        {
+            throw new InvalidOperationException("기존 인증 상태 DB 형식 또는 데이터셋을 확인할 수 없습니다.");
+        }
+    }
+
+    private static void ValidateCoreSchema(SqliteConnection connection, StorageLocation location)
+    {
+        try
+        {
+            if (Convert.ToInt64(Scalar(connection, null, "SELECT COUNT(*) FROM dataset")) != 1 ||
+                Convert.ToInt64(Scalar(connection, null,
+                    "SELECT COUNT(*) FROM dataset WHERE dataset_id=$dataset AND mode=$mode AND schema_version=1",
+                    ("$dataset", location.DatasetId), ("$mode", location.Mode))) != 1)
+            {
+                throw new InvalidOperationException("DB와 데이터 폴더의 데이터셋/모드가 일치하지 않습니다.");
+            }
+            var actualDefinitions = ReadDefinitions(connection);
+            if (ExpectedDefinitions.Value.Any(pair => !actualDefinitions.TryGetValue(pair.Key, out var actual) || actual != pair.Value))
+            {
+                throw new InvalidOperationException("필수 DB 열 또는 무결성 제약이 변경되었습니다.");
+            }
+            string[] required = ["schema_migrations", "profiles", "scopes", "expected_targets", "runs", "run_results", "aps",
+                "generations", "monitoring_intervals", "metadata_versions", "ap_current", "incidents", "incident_snapshots",
+                "observation_gaps", "run_rows", "run_transitions", "metadata_changes", "monitoring_changes", "success_times"];
+            if (!Tables(connection).IsSupersetOf(required) ||
+                Convert.ToInt64(Scalar(connection, null, "SELECT COUNT(*) FROM sqlite_schema WHERE type='index' AND name IN ('one_running_ap_run','one_open_incident_per_generation')")) != 2)
+            {
+                throw new InvalidOperationException("필수 DB 스키마 또는 제약이 없습니다.");
+            }
+            using var command = Command(connection, null, "PRAGMA foreign_key_check");
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
+            {
+                throw new InvalidOperationException("DB 참조 무결성 검사에 실패했습니다.");
+            }
+        }
+        catch (SqliteException error)
+        {
+            throw new InvalidOperationException("DB 스키마를 확인할 수 없습니다. 기존 파일을 보존합니다.", error);
+        }
+    }
+    private static Dictionary<string, string> BuildExpectedDefinitions()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        using var stream = typeof(SchemaMigrator).Assembly.GetManifestResourceStream(
+            "AirWaveApMonitor.Infrastructure.Storage.Migrations.001_core.sql") ?? throw new InvalidOperationException("마이그레이션 리소스가 없습니다.");
+        using var reader = new StreamReader(stream);
+        Execute(connection, null, reader.ReadToEnd());
+        SqliteAuthenticationStateStore.EnsureSchema(connection);
+        return ReadDefinitions(connection);
+    }
+
+    private static Dictionary<string, string> ReadDefinitions(SqliteConnection connection)
+    {
+        using var command = Command(connection, null,
+            "SELECT type,name,sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'");
+        using var reader = command.ExecuteReader();
+        var definitions = new Dictionary<string, string>(StringComparer.Ordinal);
+        while (reader.Read())
+        {
+            definitions.Add(reader.GetString(0) + ":" + reader.GetString(1),
+                Regex.Replace(reader.GetString(2), @"\s+", " ").Trim());
+        }
+        return definitions;
+    }
+
+}

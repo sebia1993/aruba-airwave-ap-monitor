@@ -20,6 +20,7 @@ public static class SettingsEndpoints
             {
                 return Results.Ok(await View(profiles, credentials, runtime, session, context.RequestAborted));
             }
+            catch (AuthenticationStateStoreException) { return Results.Problem(statusCode: 503, title: "인증 중단 상태를 확인하지 못했습니다. 데이터 폴더 권한과 저장 공간을 확인하세요."); }
             finally { profiles.OperationGate.Release(); }
         });
         app.MapPost("/api/settings", async (HttpContext context, ProfileStore profiles, ICredentialStore credentials, RuntimeOptions runtime, AirWaveSession session) => await Guard(profiles, context, async () =>
@@ -48,7 +49,12 @@ public static class SettingsEndpoints
             await registration.RegisterAsync(new(username, password), context.RequestAborted);
             return Results.Ok(await View(profiles, credentials, runtime, session, context.RequestAborted));
         }));
-        app.MapPost("/api/authentication/retry", async (HttpContext context, ProfileStore profiles, AirWaveSession session) => await Guard(profiles, context, async () => { await session.RetryAuthenticationAsync(context.RequestAborted); return Results.Ok(new { authenticationBlocked = false, message = "명시적 재시도 허용. 연결 진단을 실행하세요." }); }));
+        app.MapPost("/api/authentication/retry", async (HttpContext context, ProfileStore profiles, AirWaveSession session) => await Guard(profiles, context, async () =>
+        {
+            var profile = profiles.Current ?? throw new ArgumentException();
+            await session.RetryAuthenticationAsync(profile, context.RequestAborted);
+            return Results.Ok(new { authenticationBlocked = false, message = "명시적 재시도 허용. 연결 진단을 실행하세요." });
+        }));
         app.MapPost("/api/diagnostics", async (HttpContext context, ProfileStore profiles, ConnectionDiagnostics diagnostics) => await Guard(profiles, context, async () =>
         {
             context.Response.Headers.CacheControl = "no-store";
@@ -69,6 +75,7 @@ public static class SettingsEndpoints
         }
         catch (ProfileConflictException error) { return Results.Conflict(new { message = error.Message }); }
         catch (PlatformNotSupportedException) { return Results.Problem(statusCode: 501, title: SafeMessages.For(CollectionErrorCategory.Unsupported)); }
+        catch (AuthenticationStateStoreException) { return Results.Problem(statusCode: 503, title: "인증 중단 상태를 저장하거나 확인하지 못했습니다. 데이터 폴더 권한과 저장 공간을 확인하세요."); }
         catch (CredentialUnavailableException) { return Results.Problem(statusCode: 409, title: SafeMessages.For(CollectionErrorCategory.CredentialUnavailable)); }
         catch (Exception error) when (error is ArgumentException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException) { return Results.BadRequest(new { message = "입력값 또는 서버 설정을 확인하세요. HTTPS 출처와 고정 프록시 서버 주소만 허용하며 PAC URL은 지원하지 않습니다." }); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException) { return Results.Problem(statusCode: 503, title: "실행 계정의 설정·자격 증명 저장에 실패했습니다. 재등록과 데이터 폴더 권한 확인이 필요합니다."); }
@@ -76,6 +83,8 @@ public static class SettingsEndpoints
     }
     private static async Task<object> View(ProfileStore profiles, ICredentialStore credentials, RuntimeOptions runtime, AirWaveSession session, CancellationToken ct)
     {
+        if (profiles.Current is { } current)
+            await session.RestoreAuthenticationStateAsync(current, ct);
         var status = runtime.Mode == AppMode.Demo ? "synthetic-memory" : !OperatingSystem.IsWindows() ? "unsupported-platform" : "missing";
         if (runtime.Mode == AppMode.Live && OperatingSystem.IsWindows() && profiles.Current is { } profile)
         {
@@ -85,6 +94,8 @@ public static class SettingsEndpoints
             }
             catch (CredentialUnavailableException) { status = "reregistration-required"; }
         }
+        if (session.CredentialRegistrationPending)
+            status = "reregistration-required";
         return new
         {
             mode = runtime.Mode.ToString().ToLowerInvariant(),
@@ -92,6 +103,8 @@ public static class SettingsEndpoints
             executionAccount = ExecutionIdentity.Current,
             credentialStatus = status,
             authenticationBlocked = session.AuthenticationBlocked,
+            authenticationStop = session.AuthenticationStop,
+            credentialRegistrationPending = session.CredentialRegistrationPending,
             persistence = "not-implemented",
             diagnosticScope = "connection-and-single-read-only"
         };

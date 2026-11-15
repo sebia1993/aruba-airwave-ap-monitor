@@ -4,13 +4,14 @@ using System.Net.Sockets;
 using System.Text.Json;
 using AirWaveApMonitor.App.Runtime;
 using AirWaveApMonitor.Tests.Support;
+using Microsoft.Data.Sqlite;
 namespace AirWaveApMonitor.Tests.Settings;
 
 [Collection("Host environment")]
 public sealed class SettingsEndpointTests
 {
     [Fact]
-    public async Task DemoDiagnostic_IsARealParserReadWithoutOperationalRunOrDatabase()
+    public async Task DemoDiagnostic_IsARealParserReadWithoutCreatingOperationalRun()
     {
         using var temp = new TemporaryDirectory();
         var port = Port();
@@ -26,7 +27,14 @@ public sealed class SettingsEndpointTests
         Assert.Equal("not-applicable-demo", report.GetProperty("tlsResult").GetString());
         Assert.Equal(0, report.GetProperty("loginRequests").GetInt32());
         Assert.False(report.TryGetProperty("runId", out _));
-        Assert.Empty(Directory.GetFiles(temp.Path, "*.db"));
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.Combine(temp.Path, "monitor.db"), Pooling = false, Mode = SqliteOpenMode.ReadOnly
+        }.ToString());
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM runs";
+        Assert.Equal(0L, command.ExecuteScalar());
     }
     [Theory]
     [InlineData("/api/settings")]

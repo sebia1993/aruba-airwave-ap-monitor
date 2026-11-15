@@ -36,9 +36,12 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
         {
             await session.Gate.WaitAsync(total.Token);
             acquired = true;
-            session.Bind(profile);
+            await session.BindAsync(profile, total.Token);
+            await session.PersistPendingStopAsync(total.Token);
             if (session.AuthenticationBlocked)
                 throw new ReadFailure(CollectionErrorCategory.AuthenticationBlocked);
+            if (session.CredentialRegistrationPending)
+                throw new ReadFailure(CollectionErrorCategory.CredentialUnavailable);
             var secret = await credentials.ReadAsync(profile.DatasetId, profile.Origin, total.Token);
             if (secret is null)
                 throw new ReadFailure(CollectionErrorCategory.Configuration);
@@ -51,13 +54,10 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
                     loginRequests++;
                     using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(profile.Origin, "/LOGIN"));
                     request.Content = new FormUrlEncodedContent(new Dictionary<string, string> { { "destination", "/index.html" }, { "credential_0", secret.GetUsername() }, { "credential_1", secret.GetPassword() } });
-                    var response = await SendAsync(request, total.Token);
+                    var response = await SendAsync(request, total.Token, isLogin: true);
                     var loginStatus = response.Status;
                     if (loginStatus is 401 or 403)
-                    {
-                        session.AuthenticationBlocked = true;
                         throw new ReadFailure(CollectionErrorCategory.AuthenticationRejected);
-                    }
                     var safeLocation = response.Location is null || SameOrigin(profile.Origin, response.Location);
                     var acceptedStatus = loginStatus is >= 200 and < 300 || loginStatus is 302 or 303;
                     if (!acceptedStatus || !safeLocation || string.IsNullOrWhiteSpace(response.Token) || session.Cookies.GetCookies(new Uri(profile.Origin, "/ap_list.xml")).Count == 0)
@@ -72,8 +72,8 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
                 apRequests++;
                 using var get = new HttpRequestMessage(HttpMethod.Get, new Uri(profile.Origin, "/ap_list.xml"));
                 get.Headers.TryAddWithoutValidation("X-BISCOTTI", session.Token);
-                var ap = await SendAsync(get, total.Token);
-                var expired = ap.Status == 401 || ap.Status is 301 or 302 or 303 or 307 or 308 && ap.Location is not null && SameOrigin(profile.Origin, ap.Location) && ap.Location.AbsolutePath == "/LOGIN";
+                var ap = await SendAsync(get, total.Token, stopOnExpiry: attempt > 0);
+                var expired = IsExpired(ap.Status, ap.Location);
                 if (expired)
                 {
                     session.Token = null;
@@ -81,7 +81,6 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
                     stages.Add(new(stage, "expired", status, elapsed.ElapsedMilliseconds, "확인된 세션 만료"));
                     if (attempt == 0)
                         continue;
-                    session.AuthenticationBlocked = true;
                     throw new ReadFailure(CollectionErrorCategory.SessionExpired);
                 }
                 if (ap.Status == 403)
@@ -103,6 +102,7 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
         catch (PlatformNotSupportedException) { batch = Fail(CollectionErrorCategory.Unsupported); }
         catch (ResponseLimitException) { batch = Fail(CollectionErrorCategory.ResponseTooLarge); }
         catch (HttpRequestException error) { var category = error.HttpRequestError == HttpRequestError.SecureConnectionError || error.InnerException is AuthenticationException ? CollectionErrorCategory.Tls : CollectionErrorCategory.Transport; if (category == CollectionErrorCategory.Tls) tls = "failed"; batch = Fail(category); }
+        catch (AuthenticationStateStoreException) { batch = Fail(CollectionErrorCategory.Storage); }
         catch (IOException) { batch = Fail(CollectionErrorCategory.Transport); }
         catch (CookieException) { batch = Fail(CollectionErrorCategory.InvalidResponse); }
         finally { if (acquired) { authenticationBlocked = session.AuthenticationBlocked; session.Gate.Release(); } }
@@ -114,7 +114,12 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
             stages.Add(new(stage, "failed", status, elapsed.ElapsedMilliseconds, SafeMessages.For(category)));
             return ApListParser.Failure(category, clock.GetUtcNow());
         }
-        async Task<WireResponse> SendAsync(HttpRequestMessage request, CancellationToken cancellation)
+        bool IsExpired(int responseStatus, Uri? location) => responseStatus == 401 ||
+            responseStatus is 301 or 302 or 303 or 307 or 308 && location is not null &&
+            SameOrigin(profile.Origin, location) && location.AbsolutePath == "/LOGIN";
+
+        async Task<WireResponse> SendAsync(HttpRequestMessage request, CancellationToken cancellation,
+            bool isLogin = false, bool stopOnExpiry = false)
         {
             status = null;
             using var requestBudget = new CancellationTokenSource(profile.Settings.RequestTimeout, clock);
@@ -125,6 +130,15 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
             using var response = await session.Client!.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, requestToken.Token);
             status = (int)response.StatusCode;
             tls = "validated";
+            // A confirmed rejection belongs to the received headers. Body IO, timeout,
+            // size failure, or caller cancellation must not erase that durable evidence.
+            if (isLogin && status is 401 or 403)
+                await session.StopAuthenticationAsync(AuthenticationStopReason.LoginRejected, clock.GetUtcNow());
+            var location = response.Headers.Location;
+            if (location is not null && !location.IsAbsoluteUri)
+                location = new Uri(profile.Origin, location);
+            if (stopOnExpiry && IsExpired(status.Value, location))
+                await session.StopAuthenticationAsync(AuthenticationStopReason.RepeatedSessionExpiry, clock.GetUtcNow());
             // All bodies, including failed login/error responses, share the decompressed byte and read-time budget.
             await using var body = await response.Content.ReadAsStreamAsync(requestToken.Token);
             using var output = new MemoryStream();
@@ -149,9 +163,6 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
                 if (values.Length == 1 && values[0].Length <= 8192)
                     token = values[0];
             }
-            var location = response.Headers.Location;
-            if (location is not null && !location.IsAbsoluteUri)
-                location = new Uri(profile.Origin, location);
             return new(status.Value, output.ToArray(), token, location);
         }
     }

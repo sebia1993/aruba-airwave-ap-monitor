@@ -28,6 +28,13 @@ try {
     }
     if ($null -eq $health) { throw 'Loopback health did not respond.' }
     if ($health.mode -ne 'demo') { throw 'Demo mode not reported.' }
+    if ($health.persistence -ne 'sqlite-ready') { throw 'Native SQLite storage was not initialized before serving HTTP.' }
+    $databasePath = Join-Path $demoData 'monitor.db'
+    if (-not (Test-Path -LiteralPath $databasePath)) { throw 'Initialized SQLite database is missing.' }
+    $databaseHeader = [System.IO.File]::ReadAllBytes($databasePath)
+    if ($databaseHeader.Length -lt 16 -or [System.Text.Encoding]::ASCII.GetString($databaseHeader, 0, 16) -ne "SQLite format 3`0") {
+        throw 'Initialized database does not have the SQLite file header.'
+    }
     $page = Invoke-WebRequest -Uri 'http://127.0.0.1:18765/' -UseBasicParsing -TimeoutSec 5
     if ($page.StatusCode -ne 200 -or $page.Content -notmatch 'AirWave') { throw 'Local page did not load.' }
     $settings = Invoke-RestMethod -Uri 'http://127.0.0.1:18765/api/settings' -TimeoutSec 5
@@ -56,7 +63,7 @@ try {
     if (@($listeners | Where-Object { $_.LocalAddress -notin @('127.0.0.1', '::1') }).Count -gt 0) {
         throw 'Application bound a non-loopback address.'
     }
-    Write-Host 'PASS: self-contained Windows executable, Korean/space path, loopback-only listener, guarded mutation and parsed 2048-record Demo diagnostic.'
+    Write-Host 'PASS: self-contained Windows executable, native SQLite initialization, Korean/space path, loopback-only listener, guarded mutation and parsed 2048-record Demo diagnostic.'
 } catch {
     Get-Content (Join-Path $testRoot 'stdout.log') -ErrorAction SilentlyContinue
     Get-Content (Join-Path $testRoot 'stderr.log') -ErrorAction SilentlyContinue

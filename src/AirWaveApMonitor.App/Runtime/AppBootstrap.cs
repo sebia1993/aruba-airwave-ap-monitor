@@ -7,6 +7,7 @@ using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Infrastructure.Demo;
 using AirWaveApMonitor.Infrastructure.Maintenance;
 using AirWaveApMonitor.Infrastructure.Security;
+using AirWaveApMonitor.Infrastructure.Storage;
 
 namespace AirWaveApMonitor.App.Runtime;
 
@@ -42,7 +43,14 @@ public static class AppBootstrap
 
         builder.Services.AddAntiforgery(o => { o.HeaderName = "X-CSRF-TOKEN"; o.Cookie.Name = "AirWave-CSRF"; o.Cookie.HttpOnly = true; o.Cookie.SameSite = SameSiteMode.Strict; });
         builder.Services.AddSingleton<ProfileStore>();
-        builder.Services.AddSingleton<AirWaveSession>();
+        builder.Services.AddSingleton(_ => new SemaphoreSlim(1, 1));
+        builder.Services.AddSingleton<SqliteCollectionStore>();
+        builder.Services.AddSingleton<ICollectionStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
+        builder.Services.AddHostedService<StorageInitialization>();
+        builder.Services.AddSingleton<IAuthenticationStateStore>(sp => options.Mode == AppMode.Live
+            ? new SqliteAuthenticationStateStore(location, sp.GetRequiredService<SemaphoreSlim>())
+            : new MemoryAuthenticationStateStore());
+        builder.Services.AddSingleton(sp => new AirWaveSession(authenticationStates: sp.GetRequiredService<IAuthenticationStateStore>()));
         builder.Services.AddSingleton<AirWaveClient>();
         builder.Services.AddSingleton<CredentialRegistration>();
         builder.Services.AddSingleton(sp => new ConnectionDiagnostics(options.Mode, sp.GetRequiredService<AirWaveClient>(), sp.GetRequiredService<TimeProvider>()));
@@ -100,14 +108,14 @@ public static class AppBootstrap
                 mode = options.Mode.ToString().ToLowerInvariant(),
                 status = "connection-diagnostics",
                 collection = "not-implemented",
-                persistence = "not-implemented",
+                persistence = "sqlite-ready",
                 fixtureApCount = options.Mode == AppMode.Demo ? (int?)ScenarioApSource.DeviceCount : null,
                 liveConfigured = configured,
                 serverConfigured = profiles.Current is not null
             };
         });
         app.MapGet("/api/dashboard", () => Results.Problem(statusCode: 503,
-            title: "저장된 AP 현황이 아직 없습니다.", detail: "초기 연결·단일 읽기 진단은 제공하며 자동 수집·상태 반영·이력 SQLite 저장은 아직 구현되지 않았습니다."));
+            title: "AP 현황 화면을 아직 제공하지 않습니다.", detail: "SQLite 저장과 재시작 복원은 준비되었습니다. 자동 수집과 현황 화면은 후속 구현 단계입니다."));
         app.MapGet("/api/capabilities/windows", () => new
         {
             supported = OperatingSystem.IsWindows(),

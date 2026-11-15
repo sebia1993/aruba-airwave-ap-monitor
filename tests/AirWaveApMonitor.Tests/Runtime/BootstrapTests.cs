@@ -4,6 +4,7 @@ using System.Text.Json;
 using AirWaveApMonitor.App.Runtime;
 using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Infrastructure.AirWave;
+using AirWaveApMonitor.Infrastructure.Maintenance;
 using AirWaveApMonitor.Tests.Support;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -30,7 +31,7 @@ public sealed class BootstrapTests
     [Theory]
     [InlineData("demo")]
     [InlineData("live")]
-    public async Task HttpHealth_ReportsBootstrapWithoutFakeCollection(string mode)
+    public async Task HttpHealth_ReportsInitializedStorageWithoutFakeCollection(string mode)
     {
         using var temp = new TemporaryDirectory();
         var port = FindAvailablePort();
@@ -40,7 +41,10 @@ public sealed class BootstrapTests
         var health = JsonDocument.Parse(await client.GetStringAsync("/api/health")).RootElement;
         Assert.Equal(mode, health.GetProperty("mode").GetString());
         Assert.Equal("not-implemented", health.GetProperty("collection").GetString());
-        Assert.Equal("not-implemented", health.GetProperty("persistence").GetString());
+        Assert.Equal("sqlite-ready", health.GetProperty("persistence").GetString());
+        Assert.NotNull(app.Services.GetService<ICollectionStore>());
+        var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(temp.Path, "monitor.db"));
+        Assert.Equal("SQLite format 3\0", System.Text.Encoding.ASCII.GetString(databaseBytes, 0, 16));
         Assert.False(health.GetProperty("liveConfigured").GetBoolean());
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/api/dashboard")).StatusCode);
         Assert.Contains("AirWave AP Monitor", await client.GetStringAsync("/"));
@@ -54,6 +58,22 @@ public sealed class BootstrapTests
             Assert.NotNull(app.Services.GetService<IApSource>());
             Assert.Equal(2048, health.GetProperty("fixtureApCount").GetInt32());
         }
+    }
+
+    [Fact]
+    public async Task Startup_WithUnreadableDatabase_PreservesFileAndRejectsServing()
+    {
+        using var temp = new TemporaryDirectory();
+        var location = StoragePaths.Open(AppMode.Demo, temp.Path);
+        var databasePath = Path.Combine(location.DataDirectory, "monitor.db");
+        var original = System.Text.Encoding.UTF8.GetBytes("Existing unreadable database must not be replaced.");
+        await File.WriteAllBytesAsync(databasePath, original);
+        await using var app = AppBootstrap.Build(["--mode", "demo", "--data-dir", temp.Path,
+            "--port", FindAvailablePort().ToString()]);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => app.StartAsync());
+        Assert.Contains("기존 파일을 보존", error.Message);
+        Assert.Equal(original, await File.ReadAllBytesAsync(databasePath));
+        Assert.Empty(app.Urls);
     }
 
     // Removing explicit binding or accepting Kestrel environment endpoints exposes the app externally.

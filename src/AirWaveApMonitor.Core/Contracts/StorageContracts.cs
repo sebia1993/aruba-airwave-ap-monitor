@@ -6,6 +6,7 @@ public interface ICollectionStore
 {
     Task<CollectionContext> BeginRunAsync(ProfileSnapshot profile, CollectionKind kind, RunTrigger trigger, CancellationToken ct);
     Task<CommitReceipt> ApplyApBatchAsync(CollectionContext context, ApCollectionBatch batch, CancellationToken ct);
+    Task<CommitReceipt> InterruptRunAsync(CollectionContext context, CancellationToken ct);
     Task<EnrichmentCommitReceipt> ApplyEnrichmentBatchAsync(CollectionContext context, EnrichmentBatch batch, CancellationToken ct);
     Task<DashboardSnapshot> GetDashboardAsync(DashboardQuery query, CancellationToken ct);
 }
@@ -36,11 +37,14 @@ public sealed record ApSnapshotRow(Guid ApId, string SourceApId, Guid DeviceGene
     ApState? CurrentState, ApState? LastValidState, DateTimeOffset? LastValidObservedAtUtc,
     DateTimeOffset? FirstDownAtUtc, Guid? OpenIncidentId, ObservationClassification Classification,
     ImmutableDictionary<string, FieldEvidence> Fields, SourceManagementDetails? SourceManagement = null,
-    ManualManagementDetails? ManualManagement = null, SourceUpstreamReference? Upstream = null);
+    ManualManagementDetails? ManualManagement = null, SourceUpstreamReference? Upstream = null,
+    MissingObservationReason? UnknownReason = null, bool TimeNeedsReview = false, long? LastValidRunId = null,
+    DateTimeOffset? SourceAtUtc = null, DateTimeOffset? LastContactedAtUtc = null,
+    ImmutableDictionary<string, string>? RawSourceValues = null);
 public sealed record DashboardSnapshot(Guid DatasetId, long ScopeVersion, long RunId,
     DateTimeOffset StartedAtUtc, DateTimeOffset FinalizedAtUtc, RunLifecycle Lifecycle, RunOutcome? Outcome,
     RunSummary Summary, ImmutableArray<ApSnapshotRow> Rows, int TotalRows, ObservationCompleteness Completeness,
-    ImmutableArray<CollectionError> Errors)
+    ImmutableArray<CollectionError> Errors, ApRunSourceEvidence? SourceEvidence = null)
 {
     public int SchemaVersion => 1;
 }
