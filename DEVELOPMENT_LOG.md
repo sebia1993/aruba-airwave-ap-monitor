@@ -1,5 +1,9 @@
 # Development Log
 
+## 2026-11-16 Windows Demo 초기 관측 대기 진단
+
+Windows43769015284는 공통885통과/1실패/4플랫폼제외였다. FailedSeed 재시도 후 Idle10초 대기 실패의 당시상태가 없어 원인을 단정하지 않는다. 제품/대기시간변경 없이 요청receipt·단계별Stopwatch·정리전health/sourceCalls를 기록했다. Mac관련12/12 통과. Windows전용/패키지/native는 미실행, 다음은 새전체Windows실행, 확정66% 유지.
+
 ## 2026-11-16 Windows Frontend 줄바꿈 회귀
 
 `8ef2650`의 Windows43768748800은 Frontend에서 실패했다. 새 UI fixture의 LF경계가 CRLF에서 앱 시작 코드를 포함한 것이 실제CRLF복사본에서도 동일오류로 재현됐다. 테스트 읽기텍스트만 정규화하여23개×LF/CRLF×3시간대 통과. 제품변경없음. 백엔드/패키지/native는 미실행이며 진행률66% 유지, 다음은 새 전체 Windows 실행이다.

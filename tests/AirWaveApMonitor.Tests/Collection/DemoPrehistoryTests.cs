@@ -215,16 +215,46 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
     {
         CountingScenario source = null!;
         await using var f = await DemoFixture.Create(decorateSource: inner => source = new(inner) { FailFirst = true });
+        var timer = Stopwatch.StartNew();
         var first = await f.Coordinator.RequestAsync(CollectionKind.ApStatus, RunTrigger.Startup, default);
+        output.WriteLine($"failed-seed admission: {timer.Elapsed.TotalMilliseconds:F3} ms; receipt={first.Status}/{first.RunId}; {HealthText()}");
         Assert.Equal(RunRequestStatus.Accepted, first.Status);
         Assert.Equal(1, source.Calls);
         Assert.Equal(1, f.RunCount());
         Assert.Null(await f.Checkpoint());
         Assert.Equal(RunOutcome.Failed, (await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1, first.RunId), default)).Outcome);
-        await f.Coordinator.RequestAsync(CollectionKind.ApStatus, RunTrigger.Manual, default);
-        await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle);
+        timer.Restart();
+        var retry = await f.Coordinator.RequestAsync(CollectionKind.ApStatus, RunTrigger.Manual, default);
+        output.WriteLine($"retry admission: {timer.Elapsed.TotalMilliseconds:F3} ms; receipt={retry.Status}/{retry.RunId}; {HealthText()}");
+        Assert.Equal(RunRequestStatus.Accepted, retry.Status);
+        timer.Restart();
+        var idleObserved = false;
+        try
+        {
+            await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle,
+                () => $"retry Idle wait after {timer.Elapsed.TotalMilliseconds:F3} ms; acceptedRun={retry.RunId}; {HealthText()}");
+            idleObserved = true;
+        }
+        finally
+        {
+            // Capture the failure state before fixture disposal cancels the active run.
+            output.WriteLine($"retry Idle wait: {timer.Elapsed.TotalMilliseconds:F3} ms; passed={idleObserved}; acceptedRun={retry.RunId}; {HealthText()}");
+        }
         Assert.Equal(4, source.Calls);
         AssertNormal((await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1), default)).Summary);
+
+        string HealthText()
+        {
+            var health = f.Health.GetSnapshot();
+            return JsonSerializer.Serialize(new
+            {
+                sourceCalls = Volatile.Read(ref source.Calls), phase = health.Phase.ToString(),
+                activeKind = health.ActiveKind?.ToString(), health.ActiveRunId,
+                health.LastAttemptRunId, health.LastFinalRunId, lastOutcome = health.LastOutcome?.ToString(),
+                health.StorageRecoveryPending, health.LastStorageError,
+                lastCollectionError = health.LastCollectionError?.ToString(), health.BlockedReason, health.Paused
+            });
+        }
     }
 
     [Fact]

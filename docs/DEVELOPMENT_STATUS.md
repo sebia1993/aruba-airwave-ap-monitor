@@ -23,6 +23,14 @@
 
 아래 Task별 결과는 각 단계 당시의 소스·패키지·검증 기록이다. 각 절의 진행률·다음 작업·당시 미구현 설명은 그 시점의 기록이며 현재 요약은 위 표와 최신 Task 결과를 따른다.
 
+## Windows 재실행 — Demo 초기 관측 대기 진단
+
+소스 `447f2ae`의 [Windows run 43769015284](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43769015284)는 Frontend/Restore/Build 성공 후 공통 **885 통과·1 실패·Mac/Unix 4 제외**로 실패했다. 실패는 `FailedSeed_StopsCurrentAdmissionWithoutBusyLoop`의 재시도 후 Idle 10초 대기이며 전체 테스트 시간22.559초에는 요청·대기·정리가 포함된다. Windows전용/Python/publish/native/ZIP은 미실행이며 최종 ZIP은 없다.
+
+같은 실행의 정상 Demo 재시작 검사는 Idle 대기7.024/6.911초로 통과했다. 실패 건은 당시 Phase·요청 결과가 없어 지연과 저장 복구 상태를 구별하지 못한다. 120초 수집 예산은 이 fixture의 수동 시계로, 결과 반영/복구5초 예산은 실제 시계로 동작하므로 단순 총시간으로 원인을 단정하지 않는다.
+
+제품과10초 대기 제한은 변경하지 않았다. 해당 검사에 요청 receipt·Stopwatch·정리 전 health/sourceCalls 진단을 추가하고 재시도 Accepted를 확인한다. Mac DemoPrehistory **12/12 통과**; 실패 seed는1회만 호출됐고 재시도 Accepted/회차4, 정상 Idle0.725초/sourceCalls4/저장 오류없음이었다. 다음은 진단을 포함한 새 전체 Windows 실행이다. 최초 원인은 미확정이며 확정66%를 유지한다.
+
 ## 최종 Windows 첫 실행 — 테스트 줄바꿈 보완
 
 소스 `8ef2650`의 [Windows run 43768748800](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43768748800)는 Frontend 단계에서 실패했다. 새 요구사항 UI 검사가 LF 경계로 앱 시작 부분을 제외하도록 작성되어 Windows CRLF 체크아웃에서는 앱 시작 코드까지 fixture에서 실행했다. 실제 로그의 `enrichment?.renderHealth is not a function`을 제품 파일을 바꾸지 않은 CRLF 임시 복사본에서 동일하게 재현했다.
