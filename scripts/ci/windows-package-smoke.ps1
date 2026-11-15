@@ -13,7 +13,7 @@ $expanded = Join-Path ([System.IO.Path]::GetTempPath()) ('반입 ZIP 검증 ' + 
 try {
     Expand-Archive -LiteralPath $archivePath -DestinationPath $expanded
     $version = Get-Content -LiteralPath (Join-Path $expanded 'VERSION.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($version.rid -ne 'win-x64' -or $version.stage -ne 'initial-diagnostics' -or $version.onsite_verified -ne $false) {
+    if ($version.rid -ne 'win-x64' -or $version.stage -ne 'core-monitoring' -or $version.onsite_verified -ne $false) {
         throw 'Package scope metadata is invalid.'
     }
     $fileCount = 0
@@ -32,12 +32,14 @@ try {
     }
     $actualFileCount = @(Get-ChildItem -LiteralPath $expanded -Recurse -File).Count
     if ($fileCount -ne $actualFileCount - 1) { throw 'Package checksum manifest is incomplete.' }
-    $parseTokens = $null
-    $parseErrors = $null
-    [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $expanded 'Start-Monitor.ps1'), [ref]$parseTokens, [ref]$parseErrors) | Out-Null
-    if ($parseErrors.Count -ne 0) { throw 'Windows PowerShell could not parse the launcher.' }
+    foreach ($script in Get-ChildItem -LiteralPath $expanded -Filter '*.ps1' -File) {
+        $parseTokens = $null; $parseErrors = $null
+        [System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$parseTokens, [ref]$parseErrors) | Out-Null
+        if ($parseErrors.Count -ne 0) { throw ('Windows PowerShell could not parse: ' + $script.Name) }
+    }
     & (Join-Path $PSScriptRoot 'windows-smoke.ps1') -AppDirectory (Join-Path $expanded 'app')
-    Write-Host ('PASS: extracted initial ZIP, ' + $fileCount + ' file hashes, scope metadata and Windows PowerShell launcher syntax.')
+    & (Join-Path $PSScriptRoot 'windows-operations-smoke.ps1') -PackageDirectory $expanded
+    Write-Host ('PASS: extracted core ZIP, ' + $fileCount + ' file hashes, scope metadata and Windows PowerShell launcher syntax.')
 } finally {
     if (Test-Path -LiteralPath $expanded) { Remove-Item -LiteralPath $expanded -Recurse -Force }
 }

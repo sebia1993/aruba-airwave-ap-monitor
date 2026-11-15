@@ -9,7 +9,7 @@ public enum CollectionKind
 }
 public enum RunTrigger
 {
-    Scheduled, Manual, Startup, Resume
+    Scheduled, Manual, Startup, Resume, DatabaseRestore
 }
 public enum RunOutcome
 {

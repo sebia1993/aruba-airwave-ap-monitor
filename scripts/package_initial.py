@@ -51,9 +51,16 @@ def validate_publish(published):
             raise ValueError("운영 자료·비밀·로그 또는 잘못된 파일명이 게시 폴더에 있습니다.")
 
 
-def create_package(published, destination, repository, commit, dirty):
+def create_package(published, destination, repository, commit, dirty, stage="initial-diagnostics"):
     published, destination, repository = map(Path, (published, destination, repository))
+    if stage not in {"initial-diagnostics", "core-monitoring"}:
+        raise ValueError("지원하지 않는 패키지 범위입니다.")
     validate_publish(published)
+    core = stage == "core-monitoring"
+    if core:
+        for required in ("e_sqlite3.dll", "wwwroot/app.css", "wwwroot/ui-state.js"):
+            if not (published / required).is_file():
+                raise ValueError("핵심 감시 패키지의 필수 자원이 누락되었습니다: " + required)
     if not re.fullmatch(r"[0-9a-f]{40,64}", commit):
         raise ValueError("유효한 소스 커밋 식별자가 필요합니다.")
     if published.resolve() == destination.resolve() or published.resolve() in destination.resolve().parents:
@@ -63,14 +70,27 @@ def create_package(published, destination, repository, commit, dirty):
         "docs/guides/INITIAL_DIAGNOSTICS.md": "README_WINDOWS.md",
         "docs/guides/ONSITE_INITIAL_CHECKLIST.md": "ONSITE_INITIAL_CHECKLIST.md",
     }
+    if core:
+        scripts = ("Start-Monitor.ps1", "Monitor-Common.ps1", "Monitor-ServiceRecovery.ps1", "Install-Service.ps1",
+                   "Remove-Service.ps1", "Install-ScheduledTask.ps1",
+                   "Remove-ScheduledTask.ps1", "Backup-Restore.ps1")
+        documents = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "ONSITE_VALIDATION.md")
+        guides = {"scripts/windows/" + name: name for name in scripts}
+        guides.update({"docs/guides/" + name: name for name in documents})
+    elif (repository / "scripts/windows/Monitor-Common.ps1").exists():
+        # Later launchers share this dependency. Historic diagnostics generation must
+        # not create a launcher that refers to a missing helper.
+        guides["scripts/windows/Monitor-Common.ps1"] = "Monitor-Common.ps1"
+        guides["scripts/windows/Monitor-ServiceRecovery.ps1"] = "Monitor-ServiceRecovery.ps1"
     for source in guides:
         if not (repository / source).is_file() or (repository / source).is_symlink():
             raise ValueError("실행 안내 또는 스크립트가 누락되었습니다: " + source)
 
     destination.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
-    name = "AirWaveAPMonitor-0.1.0-diagnostics-{}-{}-{}".format(
-        commit[:12], now.strftime("%Y%m%dT%H%M%SZ"), uuid.uuid4().hex[:6])
+    version = "0.1.0-core" if core else "0.1.0-diagnostics"
+    name = "AirWaveAPMonitor-{}-{}-{}-{}".format(
+        version, commit[:12], now.strftime("%Y%m%dT%H%M%SZ"), uuid.uuid4().hex[:6])
     with tempfile.TemporaryDirectory(prefix=".bundle-", dir=destination) as temporary:
         staging = Path(temporary)
         payload = staging / "payload"
@@ -78,10 +98,13 @@ def create_package(published, destination, repository, commit, dirty):
         for source, target in guides.items():
             shutil.copyfile(repository / source, payload / target)
         metadata = {
-            "version": "0.1.0-diagnostics", "stage": "initial-diagnostics", "rid": "win-x64",
+            "version": version, "stage": stage, "rid": "win-x64",
             "source_commit": commit, "working_tree_dirty": bool(dirty),
             "created_at_utc": now.isoformat(), "onsite_verified": False,
-            "scope": "연결 진단·단일 조회. 자동 감시·SQLite 이력·서비스 설치는 아직 미구현.",
+            "scope": ("AP 자동 감시·장애/복구·불변 회차/CSV·백업/복원·Windows 서비스/예약 작업."
+                      if core else "초기 연결 진단 반입 범위. 최신 코드 기능 범위는 개발 기록을 확인하세요."),
+            "remaining_scope": (["운영 이력 편집", "수동 정보 CSV 가져오기", "조건부 연결·LLDP·PoE", "최종 통합 인수"]
+                                if core else ["핵심 감시 반입·전체 승인 범위의 검증은 별도 패키지/기록 참조"]),
             "verification": "이 패키지의 Windows CI 결과와 사내 확인 여부는 별도 작업 기록을 참조하세요.",
         }
         (payload / "VERSION.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

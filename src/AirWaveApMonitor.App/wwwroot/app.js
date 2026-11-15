@@ -4,16 +4,18 @@ import { countText, createRequestGate, dashboardQuery, observationStatus, incide
 const byId = id => document.getElementById(id);
 const labels = { dashboard: "다운 AP 현황", incidents: "장애·복구 이력", runs: "수집 기록", settings: "연결 설정", detail: "상세 이력" };
 const statusLabels = { NewDown: "신규 Down", InitialDown: "최초 확인 Down · 실제 시작 미상", ExistingDown: "기존 Down", Recovered: "이번 복구 확인", Up: "Up 확인", Unknown: "이번 미확인" };
-const reasonLabels = { MissingRecord: "응답 목록 누락", UnknownState: "유효 상태 미제공", DuplicateIdentity: "중복 식별 제외", CollectionFailed: "수집 실패", Interrupted: "수집 중단", ScopeExcluded: "범위 일시 제외", TrackingEnded: "추적 종료" };
+const reasonLabels = { MissingRecord: "응답 목록 누락", UnknownState: "유효 상태 미제공", DuplicateIdentity: "중복 식별 제외", CollectionFailed: "수집 실패", Interrupted: "수집 중단", ScopeExcluded: "범위 일시 제외", TrackingEnded: "추적 종료", DatabaseRestored: "백업 복원으로 관측 공백" };
 const managementLabels = { Operating: "운영", PlannedWork: "계획 작업", Decommissioned: "철거", MonitoringExcluded: "감시 제외" };
 const incidentLabels = { Open: "미복구", Recovered: "복구 확인", TrackingEnded: "추적 종료" };
+const triggerLabels = { Scheduled:"예약",Manual:"수동",Startup:"시작",Resume:"재개",DatabaseRestore:"백업 복원 · 관측 공백" };
+const kindLabels = { ApStatus:"AP 상태",ConnectionNeighbor:"연결·이웃",Power:"전력" };
 const sourceLabels = { AirWave: "AirWave", Demo: "가상 자료", Manual: "직접 입력", Import: "가져오기" };
 const state = {
   view: "dashboard", backView: "dashboard", historical: false, selection: null, snapshot: null,
   filters: { search: "", filter: "OpenIncidents", sort: "FirstDownAt", descending: true, managementStatus: "", hidePlanned: false, page: 1, pageSize: 50 },
   incident: { status: "", search: "", page: 1, pageSize: 50 },
   runs: { scopeVersion: "", page: 1, pageSize: 50, throughRunId: null },
-  health: null, settings: null, mode: null, mutationBusy: false, settingsDirty: false, draftRevision: 0,
+  health: null, maintenance: null, settings: null, mode: null, mutationBusy: false, settingsDirty: false, draftRevision: 0,
   token: null, tokenPromise: null, diagnosticIdentity: null, lastDashboardRead: null
 };
 const gates = { dashboard: createRequestGate(), incidents: createRequestGate(), runs: createRequestGate(), detail: createRequestGate(), settings: createRequestGate(), health: createRequestGate() };
@@ -229,7 +231,7 @@ async function loadRuns() {
     else buildTable(container,["회차 / 범위","시작 / 확정 시각","종류 / 결과","확인 대수","오류·검증 메모"],result.rows,(tr,row) => {
       const canOpen = row.kind === "ApStatus" && row.lifecycle !== "Running";
       const link = button(`회차 ${row.runId}`,() => selectRun(row,result.datasetId),"ap-link"); link.disabled = !canOpen;
-      cell(tr,"회차 / 범위",link,`범위 ${row.scopeVersion} · ${row.trigger}`);
+      cell(tr,"회차 / 범위",link,`범위 ${row.scopeVersion} · ${triggerLabels[row.trigger] || row.trigger}`);
       cell(tr,"시작 / 확정 시각",dateText(row.startedAtUtc),row.finalizedAtUtc ? `확정 ${dateText(row.finalizedAtUtc)}` : "확정 전");
       const outcome = outcomeLabel(row); cell(tr,"종류 / 결과",badge(outcome.label,outcome.tone),row.kind === "ApStatus" ? "AP 상태" : `${row.kind} · 상세 현황 없음`);
       cell(tr,"확인 대수",row.summary ? `Up ${countText(row.summary.confirmedUp)} · Down ${countText(row.summary.confirmedDown)}` : "확정 대수 없음",row.summary ? `미확인 ${countText(row.summary.unknown)} · 미복구 ${countText(row.summary.openIncidents)}` : "진행 중 수치로 판정하지 않음");
@@ -337,7 +339,7 @@ async function loadHealth() {
     const health = await api("/api/health");
     if (!gates.health.isCurrent(ticket)) return;
     const previousAuth = [state.health?.authenticationBlocked,state.health?.blockedReason === "credential-reregistration-required"];
-    state.health = health.collector || null; state.mode = health.mode; renderMode(); renderHealth(state.health);
+    state.health = health.collector || null; state.maintenance = health.maintenance || null; state.mode = health.mode; renderMode(); renderHealth(state.health);
     const authChanged = previousAuth[0] !== state.health?.authenticationBlocked || previousAuth[1] !== (state.health?.blockedReason === "credential-reregistration-required");
     if (authChanged && state.settings) void loadSettings(false);
     if (shouldFollowLatest({ view:state.view,historical:state.historical,loading:state.dashboardLoading,runId:state.selection?.runId },state.health)) await loadDashboard(true);
@@ -358,14 +360,16 @@ function renderHealth(health) {
   const blocked = health.authenticationBlocked || health.storageRecoveryPending || !health.configured;
   const label = health.storageRecoveryPending ? "저장 복구 대기" : health.authenticationBlocked ? "인증 중단" : health.paused ? "일시정지" : !health.configured ? "연결 설정 필요" : phases[health.phase] || "상태 미확인";
   byId("collector-status").textContent = label; byId("collector-status").className = `collector-badge ${blocked || health.updateDelayed || health.clockNeedsReview ? "amber" : ""}`;
-  const notes = [health.blockedReason,health.lastStorageError,health.lastDiagnosticFileError].filter(Boolean);
+  const maintenance = state.maintenance;
+  const maintenanceErrors = [maintenance?.lastBackupError,maintenance?.lastRetentionError,maintenance?.lastBackupPruneError,maintenance?.lastLogError].filter(Boolean);
+  const notes = [health.blockedReason,health.lastStorageError,health.lastDiagnosticFileError,...maintenanceErrors].filter(Boolean);
   if (health.updateDelayed) notes.push("최근 유효 수집 갱신 지연");
   if (health.clockNeedsReview) notes.push("시계 역행 또는 UTC 시각 검토 필요");
   if (health.lastOutcome === "Failed") notes.push(`최근 확정 수집 실패${health.lastCollectionError ? ` · ${health.lastCollectionError}` : ""}`);
   if (health.pendingApQueueId) notes.push("AP 수집 1건 대기 중");
-  notice(byId("health-notice"),label,notes.join(" · ") || "수집은 서버에서 관리합니다. 브라우저의 새로고침은 저장된 결과만 조회합니다.",blocked || health.updateDelayed || health.clockNeedsReview || health.lastOutcome === "Failed" ? "warning" : "");
+  notice(byId("health-notice"),label,notes.join(" · ") || "수집은 서버에서 관리합니다. 브라우저의 새로고침은 저장된 결과만 조회합니다.",blocked || health.updateDelayed || health.clockNeedsReview || health.lastOutcome === "Failed" || maintenanceErrors.length ? "warning" : "");
   byId("health-read-time").textContent = `· ${dateText(health.recordedAtUtc)}`;
-  const details = pairs([["진행 회차",health.activeRunId ? `회차 ${health.activeRunId} · ${health.activeKind}` : "없음"],["마지막 시도",`${dateText(health.lastAttemptAtUtc)}${health.lastAttemptRunId ? ` · 회차 ${health.lastAttemptRunId}` : ""}`],["마지막 유효 확정",dateText(health.lastValidCommittedAtUtc)],["마지막 완전 확정",dateText(health.lastCompleteCommittedAtUtc)],["다음 AP 수집",health.paused ? "일시정지" : dateText(health.nextApAtUtc)],["다음 상세 수집",health.nextEnrichmentAtUtc ? dateText(health.nextEnrichmentAtUtc) : "예정 없음"],["건너뛴 자동 시각",`AP ${countText(health.skippedApTicks)} · 상세 ${countText(health.skippedEnrichmentTicks)}`],["백업 상태",health.backupStatus === "not-implemented" ? "자동 백업 기능 미제공" : valueText(health.backupStatus)]]);
+  const details = pairs([["진행 회차",health.activeRunId ? `회차 ${health.activeRunId} · ${kindLabels[health.activeKind] || health.activeKind}` : "없음"],["마지막 시도",`${dateText(health.lastAttemptAtUtc)}${health.lastAttemptRunId ? ` · 회차 ${health.lastAttemptRunId}` : ""}`],["마지막 유효 확정",dateText(health.lastValidCommittedAtUtc)],["마지막 완전 확정",dateText(health.lastCompleteCommittedAtUtc)],["다음 AP 수집",health.paused ? "일시정지" : dateText(health.nextApAtUtc)],["다음 상세 수집",health.nextEnrichmentAtUtc ? dateText(health.nextEnrichmentAtUtc) : "예정 없음"],["건너뛴 자동 시각",`AP ${countText(health.skippedApTicks)} · 상세 ${countText(health.skippedEnrichmentTicks)}`],["백업 상태",({initializing:"확인 중","not-yet-created":"첫 백업 대기",running:"백업 중",ready:"검증 완료",failed:"백업 실패"})[maintenance?.backupStatus] || "미확인"],["마지막 백업",dateText(maintenance?.lastBackupAtUtc)],["보존 처리",maintenance?.lastRetentionError || dateText(maintenance?.lastRetentionAtUtc)],["마지막 DB 복원",dateText(maintenance?.lastRestoreAtUtc)]]);
   const groups = [];
   while (details.firstChild) { const group = el("div"); group.append(details.firstChild); if (details.firstChild) group.append(details.firstChild); groups.push(group); }
   byId("health-details").replaceChildren(...groups);

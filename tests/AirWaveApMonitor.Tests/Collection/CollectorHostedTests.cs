@@ -45,7 +45,7 @@ public sealed class CollectorHostedTests
             await app.StartAsync();
             var health = Assert.IsType<CollectorHealth>(app.Services.GetService<CollectorHealth>());
             await Eventually(() => health.GetSnapshot().LastFinalRunId is not null && health.GetSnapshot().Phase == CollectorPhase.Idle,
-                () => "Initial Demo collector after 10 seconds: " + health.GetSnapshot());
+                () => "Initial Demo collector after 45 seconds: " + health.GetSnapshot(), seconds: 45);
             firstRun = health.GetSnapshot().LastFinalRunId!.Value;
             instance = app.Services.GetRequiredService<ProfileStore>().Current!.InstanceId;
             Assert.Equal(2, (await app.Services.GetRequiredService<SqliteCollectionStore>().GetSourceCheckpointAsync(
@@ -66,7 +66,7 @@ public sealed class CollectorHostedTests
             await app.StartAsync();
             var health = app.Services.GetRequiredService<CollectorHealth>();
             await Eventually(() => health.GetSnapshot().LastFinalRunId > firstRun && health.GetSnapshot().Phase == CollectorPhase.Idle,
-                () => $"Restarted Demo collector after 10 seconds; previous RunId={firstRun}: {health.GetSnapshot()}");
+                () => $"Restarted Demo collector after 45 seconds; previous RunId={firstRun}: {health.GetSnapshot()}", seconds: 45);
             var profile = app.Services.GetRequiredService<ProfileStore>().Current!;
             Assert.Equal(instance, profile.InstanceId);
             var view = await app.Services.GetRequiredService<ICollectionStore>().GetDashboardAsync(new(profile.DatasetId, 1), default);

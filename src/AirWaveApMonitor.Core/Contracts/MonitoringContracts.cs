@@ -13,7 +13,7 @@ public static class MonitoringFieldNames
 public enum IdentityChange { Unchanged, Enriched, FirstGeneration, Replaced, Unattributable }
 public enum MonitoringStatus { Active, Paused, Ended }
 public enum MonitoringDirective { Observe, TemporarilyExclude, EndTracking }
-public enum MissingObservationReason { MissingRecord, UnknownState, DuplicateIdentity, CollectionFailed, Interrupted, ScopeExcluded, TrackingEnded }
+public enum MissingObservationReason { MissingRecord, UnknownState, DuplicateIdentity, CollectionFailed, Interrupted, ScopeExcluded, TrackingEnded, DatabaseRestored }
 public enum IncidentMutationKind { Created, Updated, Recovered, TrackingEnded }
 
 /// <summary>Only values with Provided/Valid evidence participate in identity comparison.</summary>

@@ -86,6 +86,6 @@ public sealed class DemoCheckpointTests
         Assert.NotNull((await auth.ReadAsync(binding, default)).Stop);
         using var verify = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.Combine(directory.Path, "monitor.db"), Pooling = false }.ToString());
         verify.Open(); using var check = verify.CreateCommand(); check.CommandText = "PRAGMA user_version";
-        Assert.Equal(2L, check.ExecuteScalar());
+        Assert.Equal((long)SchemaMigrator.CurrentVersion, check.ExecuteScalar());
     }
 }

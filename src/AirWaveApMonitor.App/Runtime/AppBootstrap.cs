@@ -1,5 +1,6 @@
 using System.Net;
 using AirWaveApMonitor.App.Collection;
+using AirWaveApMonitor.App.Maintenance;
 using AirWaveApMonitor.App.Endpoints;
 using AirWaveApMonitor.Infrastructure.AirWave;
 using AirWaveApMonitor.Infrastructure.Settings;
@@ -34,6 +35,7 @@ public static class AppBootstrap
             server.Listen(IPAddress.Loopback, options.Port);
             server.Limits.MaxRequestBodySize = 32 * 1024;
         });
+        builder.Services.AddAirWaveWindowsService(options.ServiceName);
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton(location);
         builder.Services.AddSingleton(TimeProvider.System);
@@ -66,7 +68,16 @@ public static class AppBootstrap
         builder.Services.AddSingleton<CollectorHealth>();
         builder.Services.AddSingleton<CollectionCoordinator>();
         builder.Services.AddSingleton<ICollectorControl>(sp => sp.GetRequiredService<CollectionCoordinator>());
+        builder.Services.AddSingleton(sp => new BackgroundFailurePolicy(
+            sp.GetRequiredService<CollectionCoordinator>().StopAsync,
+            Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService(),
+            code => Environment.ExitCode = code, Environment.Exit));
         builder.Services.AddHostedService<CollectionWorker>();
+        builder.Services.AddSingleton<BackupService>();
+        builder.Services.AddSingleton<RetentionService>();
+        builder.Services.AddSingleton<MaintenanceHealth>();
+        builder.Services.AddSingleton<MaintenanceCoordinator>();
+        builder.Services.AddHostedService<MaintenanceWorker>();
         var app = builder.Build();
         app.Use(async (context, next) =>
         {
@@ -103,7 +114,7 @@ public static class AppBootstrap
         });
         app.UseDefaultFiles();
         app.UseStaticFiles();
-        app.MapGet("/api/health", (ProfileStore profiles, CollectorHealth health) =>
+        app.MapGet("/api/health", (ProfileStore profiles, CollectorHealth health, MaintenanceHealth maintenanceHealth) =>
         {
             var collector = health.GetSnapshot();
             return Results.Json(new
@@ -115,7 +126,8 @@ public static class AppBootstrap
                 fixtureApCount = options.Mode == AppMode.Demo ? (int?)ScenarioApSource.DeviceCount : null,
                 liveConfigured = options.Mode == AppMode.Live && collector.Configured,
                 serverConfigured = profiles.Current is not null,
-                collector
+                collector,
+                maintenance = maintenanceHealth.GetSnapshot()
             }, CollectorEndpoints.Json);
         });
         app.MapGet("/api/capabilities/windows", () => new
@@ -123,7 +135,7 @@ public static class AppBootstrap
             supported = OperatingSystem.IsWindows(),
             implemented = OperatingSystem.IsWindows(),
             status = OperatingSystem.IsWindows() ? "dpapi-available" : "unsupported-platform",
-            message = OperatingSystem.IsWindows() ? "현재 실행 계정의 DPAPI 사용 가능. 서비스·예약 작업은 아직 구현되지 않았습니다." : "Windows DPAPI·서비스·예약 작업은 이 OS에서 지원하지 않습니다."
+            message = OperatingSystem.IsWindows() ? "현재 실행 계정의 DPAPI 사용 가능. 서비스·예약 작업 등록은 패키지의 Windows 운영 스크립트를 사용하세요." : "Windows DPAPI·서비스·예약 작업은 이 OS에서 지원하지 않습니다."
         });
         app.MapSettings();
         app.MapCollector();

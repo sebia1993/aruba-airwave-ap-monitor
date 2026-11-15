@@ -19,4 +19,4 @@ trap 'rm -rf -- "$staging"' EXIT
   -c Release -r win-x64 --self-contained true \
   -p:PublishAot=false -p:PublishReadyToRun=false -p:PublishTrimmed=false -p:PublishSingleFile=false \
   -o "$staging/app"
-python3 "$repo_root/scripts/package_initial.py" "$staging/app" "$artifact_root"
+python3 "$repo_root/scripts/package_core.py" "$staging/app" "$artifact_root"

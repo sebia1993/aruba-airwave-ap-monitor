@@ -212,14 +212,18 @@ public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceChe
                 interrupted.Add(reader.GetInt64(0));
             }
         }
+        // A backup can contain a Running run. Its recovery must not open a gap at
+        // restoration time and thereby hide the earlier loss since the backup.
+        var recoveryObservedAt = PendingRestoreBoundary(connection, transaction) ?? timeProvider.GetUtcNow();
         foreach (var runId in interrupted)
         {
             var context = ReadContext(connection, transaction, runId);
             ValidateDataset(context.Profile.DatasetId);
-            FinalizeAp(connection, transaction, context, new(RunOutcome.Failed, [], [], timeProvider.GetUtcNow(),
+            FinalizeAp(connection, transaction, context, new(RunOutcome.Failed, [], [], recoveryObservedAt,
                 ObservationCompleteness.Unknown, [new(CollectionErrorCategory.Interrupted, 1, "이전 실행이 최종 저장 전에 중단되었습니다.")]),
                 RunLifecycle.Interrupted, ct);
         }
+        ConsumeRestoreEvents(connection, transaction, ct);
         ct.ThrowIfCancellationRequested();
         transaction.Commit();
         initialized = true;

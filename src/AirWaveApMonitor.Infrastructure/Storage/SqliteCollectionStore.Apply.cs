@@ -81,7 +81,8 @@ public sealed partial class SqliteCollectionStore
             }
             else
             {
-                var reason = lifecycle == RunLifecycle.Interrupted ? MissingObservationReason.Interrupted
+                var reason = context.Trigger == RunTrigger.DatabaseRestore ? MissingObservationReason.DatabaseRestored
+                    : lifecycle == RunLifecycle.Interrupted ? MissingObservationReason.Interrupted
                     : failed ? MissingObservationReason.CollectionFailed
                     : duplicateIds.Contains(sourceId) ? MissingObservationReason.DuplicateIdentity
                     : MissingObservationReason.MissingRecord;
@@ -146,6 +147,7 @@ public sealed partial class SqliteCollectionStore
                 ("$completeAt", outcome == RunOutcome.Succeeded ? finalized : null));
         }
         PersistCheckpoint(connection, transaction, context, batch, lifecycle);
+        PersistExecutionDetails(connection, transaction, context, batch, finalized, failed ? 0 : validCount);
         return receipt;
     }
 

@@ -130,6 +130,18 @@ const cases = [
     assert.match(value.textContent,/제공됨.*유효.*가상 자료/);
     assert.match(value.textContent,/최신성 미확인/);
   }],
+  ["DOM stub: backup and retention health remain separate from successful collection", async () => {
+    const app = appStub(); app.state.view = "settings";
+    app.context.fetch = async () => ({ok:true,json:async () => ({mode:"demo",collector:{phase:"Idle",configured:true,lastOutcome:"Succeeded"},
+      maintenance:{backupStatus:"ready",lastBackupAtUtc:"2026-11-15T01:00:00Z",lastRetentionError:"retention-unavailable",lastLogError:"maintenance-log-unavailable"}})});
+    await app.loadHealth();
+    const details = app.document.getElementById("health-details").textContent;
+    assert.match(details,/백업 상태.*검증 완료/);
+    assert.match(details,/마지막 백업.*2026/);
+    assert.match(details,/보존 처리.*retention-unavailable/);
+    assert.match(app.document.getElementById("health-notice").textContent,/maintenance-log-unavailable/);
+    assert.equal(app.document.getElementById("collector-status").textContent,"수집 대기");
+  }],
   ["A changed credential or configuration invalidates old diagnostic identity", () => {
     const profile = { datasetId: "data", origin: "https://demo.invalid/", configurationVersion: 2, scopeVersion: 1, credentialsVersion: 1 };
     assert.notEqual(ui.settingsIdentity(profile), ui.settingsIdentity({ ...profile, credentialsVersion: 2 }));
