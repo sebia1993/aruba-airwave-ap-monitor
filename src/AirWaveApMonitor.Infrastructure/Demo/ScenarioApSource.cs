@@ -13,12 +13,18 @@ public sealed record DemoScenarioFrame(string Name, bool IsPrehistory, DateTimeO
 public sealed class ScenarioApSource : IApSource
 {
     public const int DeviceCount = 2048;
+    public const string CheckpointSource = "demo-ap-v1";
     public static readonly Uri DemoOrigin = new("https://demo.example.invalid/");
     private readonly TimeProvider timeProvider;
+    private readonly ISourceCheckpointStore? checkpoints;
     private readonly object gate = new();
     private int nextFrame;
 
-    public ScenarioApSource(TimeProvider timeProvider) => this.timeProvider = timeProvider;
+    public ScenarioApSource(TimeProvider timeProvider, ISourceCheckpointStore? checkpoints = null)
+    {
+        this.timeProvider = timeProvider;
+        this.checkpoints = checkpoints;
+    }
 
     // Two prehistory runs precede the five visible scenarios. They are observations, not UI totals.
     public static ImmutableArray<DemoScenarioFrame> Frames
@@ -35,22 +41,33 @@ public sealed class ScenarioApSource : IApSource
         Frame("일부 누락", false, 85, RunOutcome.Partial, [1, 5, 6, 7, 8, 11, 12], [3, 20, 21])
     ];
 
-    public Task<ApCollectionBatch> CollectAsync(CollectionContext context, CancellationToken ct)
+    public async Task<ApCollectionBatch> CollectAsync(CollectionContext context, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         if (context.Profile.Origin != DemoOrigin || context.Kind != CollectionKind.ApStatus)
             throw new InvalidOperationException("Demo AP 공급자는 가상 HTTPS 출처의 AP 상태 수집에만 사용할 수 있습니다.");
-        DemoScenarioFrame frame;
-        lock (gate)
+        int frameIndex;
+        if (checkpoints is not null)
         {
-            frame = Frames[Math.Min(nextFrame, Frames.Length - 1)];
-            if (nextFrame < Frames.Length - 1)
-                nextFrame++;
+            var committed = await checkpoints.GetSourceCheckpointAsync(context.Profile.DatasetId, CheckpointSource, ct);
+            frameIndex = Math.Min((committed?.Position ?? -1) + 1, Frames.Length - 1);
         }
+        else
+        {
+            // Standalone parser fixtures have no store. Runtime DI always supplies the committed checkpoint store.
+            lock (gate)
+            {
+                frameIndex = Math.Min(nextFrame, Frames.Length - 1);
+                if (nextFrame < Frames.Length - 1) nextFrame++;
+            }
+        }
+        var frame = Frames[frameIndex];
+        var checkpoint = new SourceCheckpoint(CheckpointSource, frameIndex);
         var collectedAt = timeProvider.GetUtcNow();
         if (frame.Outcome == RunOutcome.Failed)
-            return Task.FromResult(new ApCollectionBatch(RunOutcome.Failed, [], [], collectedAt,
-                ObservationCompleteness.Unknown, [new(CollectionErrorCategory.Timeout, 1, "가상 전체 수집 시간 초과")]));
+            return new ApCollectionBatch(RunOutcome.Failed, [], [], collectedAt,
+                ObservationCompleteness.Unknown, [new(CollectionErrorCategory.Timeout, 1, "가상 전체 수집 시간 초과")])
+            { Checkpoint = checkpoint };
 
         var parsed = new ApListParser(EvidenceSource.Demo).Parse(new MemoryStream(Encoding.UTF8.GetBytes(CreateXml(frame))), collectedAt, ct);
         var observations = parsed.Observations;
@@ -61,9 +78,10 @@ public sealed class ScenarioApSource : IApSource
             errors.Add(new(CollectionErrorCategory.MissingRecord, exclusions.Length, "일부 기대 대상 누락"));
         if (frame.UnknownStateIds.Count > 0)
             errors.Add(new(CollectionErrorCategory.InvalidField, frame.UnknownStateIds.Count, "상태 미제공"));
-        return Task.FromResult(new ApCollectionBatch(frame.Outcome, observations, exclusions, collectedAt,
+        return new ApCollectionBatch(frame.Outcome, observations, exclusions, collectedAt,
             frame.Outcome == RunOutcome.Succeeded ? ObservationCompleteness.Complete : ObservationCompleteness.Partial,
-            errors.ToImmutable()));
+            errors.ToImmutable())
+        { Checkpoint = checkpoint };
     }
 
     /// <summary>Synthetic fixture for the later XML parser. This does not establish real AirWave compatibility.</summary>

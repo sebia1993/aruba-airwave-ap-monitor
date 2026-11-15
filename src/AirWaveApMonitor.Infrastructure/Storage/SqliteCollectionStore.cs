@@ -15,7 +15,7 @@ public enum StorageTransactionBoundary { BeforeFinalCommit, AfterFinalCommit }
 /// Network collection occurs between BeginRun and Apply; neither retains a connection or transaction.
 /// SQLite I/O is synchronous; cancellation is checked at operation/AP/commit boundaries and busy waits are bounded.
 /// </summary>
-public sealed partial class SqliteCollectionStore : ICollectionStore
+public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceCheckpointStore
 {
     private readonly StorageLocation location;
     private readonly SemaphoreSlim writeGate;

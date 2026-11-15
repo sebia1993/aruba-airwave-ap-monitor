@@ -27,6 +27,8 @@ public sealed class AuthenticationStateEndpointTests
             new DateTimeOffset(2026, 11, 16, 3, 0, 0, TimeSpan.Zero)), default);
         var port = SettingsEndpointTests.Port();
         await using var app = AppBootstrap.Build(["--mode", "live", "--data-dir", directory.Path, "--port", port.ToString()]);
+        // These tests isolate configuration/diagnostics from independent automatic runs.
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
         await app.StartAsync();
         Assert.IsType<SqliteAuthenticationStateStore>(app.Services.GetRequiredService<IAuthenticationStateStore>());
         using var client = SettingsEndpointTests.Client(port);
@@ -58,6 +60,8 @@ public sealed class AuthenticationStateEndpointTests
         }
         var port = SettingsEndpointTests.Port();
         await using var app = AppBootstrap.Build(["--mode", "live", "--data-dir", directory.Path, "--port", port.ToString()]);
+        // These tests isolate configuration/diagnostics from independent automatic runs.
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
         await app.StartAsync();
         using var client = SettingsEndpointTests.Client(port);
         await SettingsEndpointTests.Token(client);
@@ -77,6 +81,8 @@ public sealed class AuthenticationStateEndpointTests
         await AuthenticationPersistenceTests.Profiles(directory.Path);
         var port = SettingsEndpointTests.Port();
         await using var app = AppBootstrap.Build(["--mode", "live", "--data-dir", directory.Path, "--port", port.ToString()]);
+        // These tests isolate configuration/diagnostics from independent automatic runs.
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
         await app.StartAsync();
         using var client = SettingsEndpointTests.Client(port);
         await SettingsEndpointTests.Token(client);
@@ -98,6 +104,8 @@ public sealed class AuthenticationStateEndpointTests
         var profile = (await AuthenticationPersistenceTests.Profiles(directory.Path)).Current!;
         var port = SettingsEndpointTests.Port();
         await using var app = AppBootstrap.Build(["--mode", "live", "--data-dir", directory.Path, "--port", port.ToString()]);
+        // These tests isolate configuration/diagnostics from independent automatic runs.
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
         await app.StartAsync();
         using var client = SettingsEndpointTests.Client(port);
         await SettingsEndpointTests.Token(client);
@@ -130,13 +138,17 @@ public sealed class AuthenticationStateEndpointTests
         using var directory = new TemporaryDirectory();
         var port = SettingsEndpointTests.Port();
         await using var app = AppBootstrap.Build(["--mode", "demo", "--data-dir", directory.Path, "--port", port.ToString()]);
+        // These tests isolate configuration/diagnostics from independent automatic runs.
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
         await app.StartAsync();
         Assert.IsType<MemoryAuthenticationStateStore>(app.Services.GetRequiredService<IAuthenticationStateStore>());
         using var client = SettingsEndpointTests.Client(port);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/settings")).StatusCode);
         using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            DataSource = Path.Combine(directory.Path, "monitor.db"), Pooling = false, Mode = SqliteOpenMode.ReadOnly
+            DataSource = Path.Combine(directory.Path, "monitor.db"),
+            Pooling = false,
+            Mode = SqliteOpenMode.ReadOnly
         }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();

@@ -1,4 +1,5 @@
 using System.Net;
+using AirWaveApMonitor.App.Collection;
 using AirWaveApMonitor.App.Endpoints;
 using AirWaveApMonitor.Infrastructure.AirWave;
 using AirWaveApMonitor.Infrastructure.Settings;
@@ -45,7 +46,9 @@ public static class AppBootstrap
         builder.Services.AddSingleton<ProfileStore>();
         builder.Services.AddSingleton(_ => new SemaphoreSlim(1, 1));
         builder.Services.AddSingleton<SqliteCollectionStore>();
+        builder.Services.AddSingleton<InstanceLock>();
         builder.Services.AddSingleton<ICollectionStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
+        builder.Services.AddSingleton<ISourceCheckpointStore>(sp => sp.GetRequiredService<SqliteCollectionStore>());
         builder.Services.AddHostedService<StorageInitialization>();
         builder.Services.AddSingleton<IAuthenticationStateStore>(sp => options.Mode == AppMode.Live
             ? new SqliteAuthenticationStateStore(location, sp.GetRequiredService<SemaphoreSlim>())
@@ -56,6 +59,10 @@ public static class AppBootstrap
         builder.Services.AddSingleton(sp => new ConnectionDiagnostics(options.Mode, sp.GetRequiredService<AirWaveClient>(), sp.GetRequiredService<TimeProvider>()));
         if (options.Mode == AppMode.Live)
             builder.Services.AddSingleton<IApSource>(sp => sp.GetRequiredService<AirWaveClient>());
+        builder.Services.AddSingleton<CollectorHealth>();
+        builder.Services.AddSingleton<CollectionCoordinator>();
+        builder.Services.AddSingleton<ICollectorControl>(sp => sp.GetRequiredService<CollectionCoordinator>());
+        builder.Services.AddHostedService<CollectionWorker>();
         var app = builder.Build();
         app.Use(async (context, next) =>
         {
@@ -92,30 +99,23 @@ public static class AppBootstrap
         });
         app.UseDefaultFiles();
         app.UseStaticFiles();
-        app.MapGet("/api/health", async (ProfileStore profiles, ICredentialStore credentials, CancellationToken ct) =>
+        app.MapGet("/api/health", (ProfileStore profiles, CollectorHealth health) =>
         {
-            var configured = false;
-            if (options.Mode == AppMode.Live && OperatingSystem.IsWindows() && profiles.Current is { } profile)
-            {
-                try
-                {
-                    configured = await credentials.ReadAsync(profile.DatasetId, profile.Origin, ct) is not null;
-                }
-                catch (CredentialUnavailableException) { /* Status remains unconfigured; settings explain re-registration. */ }
-            }
-            return new
+            var collector = health.GetSnapshot();
+            return Results.Json(new
             {
                 mode = options.Mode.ToString().ToLowerInvariant(),
-                status = "connection-diagnostics",
-                collection = "not-implemented",
+                status = collector.Paused ? "paused" : collector.BlockedReason ?? collector.Phase.ToString().ToLowerInvariant(),
+                collection = "automatic",
                 persistence = "sqlite-ready",
                 fixtureApCount = options.Mode == AppMode.Demo ? (int?)ScenarioApSource.DeviceCount : null,
-                liveConfigured = configured,
-                serverConfigured = profiles.Current is not null
-            };
+                liveConfigured = options.Mode == AppMode.Live && collector.Configured,
+                serverConfigured = profiles.Current is not null,
+                collector
+            }, CollectorEndpoints.Json);
         });
         app.MapGet("/api/dashboard", () => Results.Problem(statusCode: 503,
-            title: "AP 현황 화면을 아직 제공하지 않습니다.", detail: "SQLite 저장과 재시작 복원은 준비되었습니다. 자동 수집과 현황 화면은 후속 구현 단계입니다."));
+            title: "AP 현황 화면을 아직 제공하지 않습니다.", detail: "자동 수집과 저장은 실행 중이며 현황 화면은 후속 구현 단계입니다."));
         app.MapGet("/api/capabilities/windows", () => new
         {
             supported = OperatingSystem.IsWindows(),
@@ -124,6 +124,7 @@ public static class AppBootstrap
             message = OperatingSystem.IsWindows() ? "현재 실행 계정의 DPAPI 사용 가능. 서비스·예약 작업은 아직 구현되지 않았습니다." : "Windows DPAPI·서비스·예약 작업은 이 OS에서 지원하지 않습니다."
         });
         app.MapSettings();
+        app.MapCollector();
         return app;
     }
 

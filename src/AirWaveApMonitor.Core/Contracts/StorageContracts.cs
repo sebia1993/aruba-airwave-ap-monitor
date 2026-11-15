@@ -9,6 +9,7 @@ public interface ICollectionStore
     Task<CommitReceipt> InterruptRunAsync(CollectionContext context, CancellationToken ct);
     Task<EnrichmentCommitReceipt> ApplyEnrichmentBatchAsync(CollectionContext context, EnrichmentBatch batch, CancellationToken ct);
     Task<DashboardSnapshot> GetDashboardAsync(DashboardQuery query, CancellationToken ct);
+    Task<CollectionSuccessTimes> GetSuccessTimesAsync(Guid datasetId, long scopeVersion, CancellationToken ct);
 }
 
 /// <summary>For total failure, current Up/Down and change counts are null. Open incidents retain saved fact.</summary>

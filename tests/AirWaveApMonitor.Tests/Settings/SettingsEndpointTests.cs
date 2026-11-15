@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
+using AirWaveApMonitor.Core.Contracts;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
@@ -16,6 +18,8 @@ public sealed class SettingsEndpointTests
         using var temp = new TemporaryDirectory();
         var port = Port();
         await using var app = AppBootstrap.Build(["--mode", "demo", "--data-dir", temp.Path, "--port", port.ToString()]);
+        // These tests isolate configuration/diagnostics from independent automatic runs.
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
         await app.StartAsync();
         using var client = Client(port);
         await Token(client);
@@ -29,7 +33,9 @@ public sealed class SettingsEndpointTests
         Assert.False(report.TryGetProperty("runId", out _));
         using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            DataSource = Path.Combine(temp.Path, "monitor.db"), Pooling = false, Mode = SqliteOpenMode.ReadOnly
+            DataSource = Path.Combine(temp.Path, "monitor.db"),
+            Pooling = false,
+            Mode = SqliteOpenMode.ReadOnly
         }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();
@@ -46,6 +52,8 @@ public sealed class SettingsEndpointTests
         using var temp = new TemporaryDirectory();
         var port = Port();
         await using var app = AppBootstrap.Build(["--mode", "demo", "--data-dir", temp.Path, "--port", port.ToString()]);
+        // These tests isolate configuration/diagnostics from independent automatic runs.
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
         await app.StartAsync();
         using var client = Client(port);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(path, new
@@ -74,6 +82,8 @@ public sealed class SettingsEndpointTests
         var port = Port();
         await using (var app = AppBootstrap.Build(["--mode", "live", "--data-dir", temp.Path, "--port", port.ToString()]))
         {
+            // These tests isolate configuration/diagnostics from independent automatic runs.
+            await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
             await app.StartAsync();
             using var client = Client(port);
             await Token(client);
@@ -98,6 +108,8 @@ public sealed class SettingsEndpointTests
         }
         await using (var app = AppBootstrap.Build(["--mode", "live", "--data-dir", temp.Path, "--port", port.ToString()]))
         {
+            // These tests isolate configuration/diagnostics from independent automatic runs.
+            await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
             await app.StartAsync();
             using var client = Client(port);
             var body = JsonDocument.Parse(await client.GetStringAsync("/api/settings")).RootElement;
@@ -111,6 +123,8 @@ public sealed class SettingsEndpointTests
         using var temp = new TemporaryDirectory();
         var port = Port();
         await using var app = AppBootstrap.Build(["--mode", "demo", "--data-dir", temp.Path, "--port", port.ToString()]);
+        // These tests isolate configuration/diagnostics from independent automatic runs.
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
         await app.StartAsync();
         using var c = Client(port);
         await Token(c);

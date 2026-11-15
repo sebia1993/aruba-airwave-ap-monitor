@@ -25,7 +25,7 @@ public enum BaselineStatus
 }
 public enum RunRequestStatus
 {
-    Accepted, Queued, AlreadyRunning, ScheduleSkipped, AuthenticationBlocked, Paused, Unconfigured
+    Accepted, Queued, AlreadyRunning, ScheduleSkipped, AuthenticationBlocked, Paused, Unconfigured, Unsupported, StorageBlocked, Stopping
 }
 public enum CollectionErrorCategory
 {
@@ -167,6 +167,7 @@ public sealed record ApCollectionBatch(RunOutcome Outcome, ImmutableArray<ApObse
     ObservationCompleteness Completeness, ImmutableArray<CollectionError> Errors)
 {
     public int SchemaVersion => 1;
+    public SourceCheckpoint? Checkpoint { get; init; }
 }
 
 public sealed record RunRequestReceipt(RunRequestStatus Status, long? RunId, Guid? QueueId, string Message)
@@ -175,6 +176,6 @@ public sealed record RunRequestReceipt(RunRequestStatus Status, long? RunId, Gui
 }
 
 public sealed record CollectionRequest(CollectionKind Kind, RunTrigger Trigger);
-public sealed record PauseRequest(bool Paused);
+public sealed record PauseRequest([property: JsonRequired] bool Paused);
 public sealed record ProfileSettingsRequest(Uri Origin, int ApIntervalMinutes, ImmutableArray<string> SourceApIds,
     long ExpectedConfigurationVersion);

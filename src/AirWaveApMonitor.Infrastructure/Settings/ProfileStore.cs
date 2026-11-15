@@ -6,6 +6,10 @@ namespace AirWaveApMonitor.Infrastructure.Settings;
 
 public sealed class ProfileStore
 {
+    // Caller owns OperationGate. Persist a generated Demo identity before its first DB run.
+    public Task EnsureInitializedAsync(CancellationToken ct)
+        => Current is { } profile && !File.Exists(Path.Combine(location.DataDirectory, "profile.json"))
+            ? SaveAsync(profile, ct) : Task.CompletedTask;
     private readonly StorageLocation location;
     public ProfileSnapshot? Current
     {

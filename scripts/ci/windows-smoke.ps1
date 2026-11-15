@@ -8,6 +8,25 @@ $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('AirWave 한글 경로 
 $packageRoot = Join-Path $testRoot '앱 폴더'
 $demoData = Join-Path $testRoot '데모 데이터'
 $process = $null
+$duplicate = $null
+
+function Wait-CollectorReady {
+    param([System.Diagnostics.Process]$Monitor, [long]$AfterRunId = 0)
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($watch.Elapsed.TotalSeconds -lt 45) {
+        if ($Monitor.HasExited) { throw ('App exited with code ' + $Monitor.ExitCode) }
+        try {
+            $candidate = Invoke-RestMethod -Uri 'http://127.0.0.1:18765/api/health' -TimeoutSec 2
+            if ($candidate.collector.phase -eq 'Idle' -and
+                $null -ne $candidate.collector.lastValidCommittedAtUtc -and
+                [long]$candidate.collector.lastFinalRunId -gt $AfterRunId) {
+                return $candidate
+            }
+        } catch { }
+        Start-Sleep -Milliseconds 250
+    }
+    throw 'Automatic AP collection did not reach a committed idle state within 45 seconds.'
+}
 
 try {
     New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
@@ -16,18 +35,9 @@ try {
     if (-not (Test-Path $exe)) { throw 'Published Windows executable missing.' }
     $arguments = '--mode demo --data-dir "' + $demoData + '" --port 18765'
     $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $packageRoot -PassThru -RedirectStandardOutput (Join-Path $testRoot 'stdout.log') -RedirectStandardError (Join-Path $testRoot 'stderr.log')
-    $health = $null
-    for ($attempt = 0; $attempt -lt 40; $attempt++) {
-        if ($process.HasExited) { throw ('App exited with code ' + $process.ExitCode) }
-        try {
-            $health = Invoke-RestMethod -Uri 'http://127.0.0.1:18765/api/health' -TimeoutSec 2
-            break
-        } catch {
-            Start-Sleep -Milliseconds 250
-        }
-    }
-    if ($null -eq $health) { throw 'Loopback health did not respond.' }
+    $health = Wait-CollectorReady -Monitor $process
     if ($health.mode -ne 'demo') { throw 'Demo mode not reported.' }
+    if ($health.collection -ne 'automatic') { throw 'Automatic collector was not reported.' }
     if ($health.persistence -ne 'sqlite-ready') { throw 'Native SQLite storage was not initialized before serving HTTP.' }
     $databasePath = Join-Path $demoData 'monitor.db'
     if (-not (Test-Path -LiteralPath $databasePath)) { throw 'Initialized SQLite database is missing.' }
@@ -58,17 +68,41 @@ try {
     if ($diagnostic.connectionPath -ne 'synthetic-memory' -or $null -ne $diagnostic.httpStatus -or $null -ne $diagnostic.runId) {
         throw 'Diagnostic reported a live HTTP result or operational run identity.'
     }
+    $firstRunId = [long]$health.collector.lastFinalRunId
+    $profilePath = Join-Path $demoData 'profile.json'
+    $firstInstanceId = (Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8 | ConvertFrom-Json).InstanceId
+    if ([string]::IsNullOrWhiteSpace($firstInstanceId)) { throw 'Initial Demo profile identity was not persisted.' }
+    $duplicateArguments = '--mode demo --data-dir "' + $demoData + '" --port 18767'
+    $duplicate = Start-Process -FilePath $exe -ArgumentList $duplicateArguments -WorkingDirectory $packageRoot -PassThru -RedirectStandardOutput (Join-Path $testRoot 'duplicate-stdout.log') -RedirectStandardError (Join-Path $testRoot 'duplicate-stderr.log')
+    if (-not $duplicate.WaitForExit(10000)) { throw 'Second process sharing the data directory was not rejected.' }
+    if ($duplicate.ExitCode -eq 0) { throw 'Duplicate collector unexpectedly exited successfully.' }
+    $afterDuplicate = Invoke-RestMethod -Uri 'http://127.0.0.1:18765/api/health' -TimeoutSec 5
+    if ([long]$afterDuplicate.collector.lastFinalRunId -ne $firstRunId) {
+        throw 'Second startup changed the first collector committed run.'
+    }
+    Stop-Process -Id $process.Id -Force
+    $process.WaitForExit()
+    $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $packageRoot -PassThru -RedirectStandardOutput (Join-Path $testRoot 'restart-stdout.log') -RedirectStandardError (Join-Path $testRoot 'restart-stderr.log')
+    $health = Wait-CollectorReady -Monitor $process -AfterRunId $firstRunId
+    $restartedInstanceId = (Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8 | ConvertFrom-Json).InstanceId
+    if ($restartedInstanceId -ne $firstInstanceId) { throw 'Restart replaced the Demo physical instance identity.' }
     $listeners = @(Get-NetTCPConnection -State Listen -OwningProcess $process.Id)
     if ($listeners.Count -eq 0) { throw 'No listening socket found.' }
     if (@($listeners | Where-Object { $_.LocalAddress -notin @('127.0.0.1', '::1') }).Count -gt 0) {
         throw 'Application bound a non-loopback address.'
     }
-    Write-Host 'PASS: self-contained Windows executable, native SQLite initialization, Korean/space path, loopback-only listener, guarded mutation and parsed 2048-record Demo diagnostic.'
+    Write-Host 'PASS: self-contained Windows executable, automatic committed collection without browser, preserved run/profile after restart, duplicate process rejection, native SQLite, Korean/space path, loopback-only listener and guarded Demo diagnostic.'
 } catch {
     Get-Content (Join-Path $testRoot 'stdout.log') -ErrorAction SilentlyContinue
     Get-Content (Join-Path $testRoot 'stderr.log') -ErrorAction SilentlyContinue
+    Get-Content (Join-Path $testRoot 'restart-stderr.log') -ErrorAction SilentlyContinue
+    Get-Content (Join-Path $testRoot 'duplicate-stderr.log') -ErrorAction SilentlyContinue
     throw
 } finally {
+    if ($null -ne $duplicate -and -not $duplicate.HasExited) {
+        Stop-Process -Id $duplicate.Id -Force
+        $duplicate.WaitForExit()
+    }
     if ($null -ne $process -and -not $process.HasExited) {
         Stop-Process -Id $process.Id -Force
         $process.WaitForExit()

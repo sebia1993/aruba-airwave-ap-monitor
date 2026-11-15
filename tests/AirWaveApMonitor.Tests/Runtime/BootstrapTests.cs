@@ -36,11 +36,14 @@ public sealed class BootstrapTests
         using var temp = new TemporaryDirectory();
         var port = FindAvailablePort();
         await using var app = AppBootstrap.Build(["--mode", mode, "--data-dir", temp.Path, "--port", port.ToString()]);
+        // These tests isolate configuration/diagnostics from independent automatic runs.
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
         await app.StartAsync();
         using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
         var health = JsonDocument.Parse(await client.GetStringAsync("/api/health")).RootElement;
         Assert.Equal(mode, health.GetProperty("mode").GetString());
-        Assert.Equal("not-implemented", health.GetProperty("collection").GetString());
+        Assert.Equal("automatic", health.GetProperty("collection").GetString());
+        Assert.True(health.GetProperty("collector").GetProperty("paused").GetBoolean());
         Assert.Equal("sqlite-ready", health.GetProperty("persistence").GetString());
         Assert.NotNull(app.Services.GetService<ICollectionStore>());
         var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(temp.Path, "monitor.db"));
@@ -88,6 +91,8 @@ public sealed class BootstrapTests
             ["Kestrel__Endpoints__External__Url"] = "http://0.0.0.0:18444"
         });
         await using var app = AppBootstrap.Build(["--mode", "demo", "--data-dir", temp.Path, "--port", port.ToString()]);
+        // These tests isolate configuration/diagnostics from independent automatic runs.
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
         await app.StartAsync();
         Assert.Equal([$"http://127.0.0.1:{port}"], app.Urls);
     }
@@ -100,6 +105,8 @@ public sealed class BootstrapTests
         using var temp = new TemporaryDirectory();
         var port = FindAvailablePort();
         await using var app = AppBootstrap.Build(["--mode", "demo", "--data-dir", temp.Path, "--port", port.ToString()]);
+        // These tests isolate configuration/diagnostics from independent automatic runs.
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
         await app.StartAsync();
         using var client = new HttpClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{port}/api/health");
@@ -113,6 +120,8 @@ public sealed class BootstrapTests
         using var temp = new TemporaryDirectory();
         var port = FindAvailablePort();
         await using var app = AppBootstrap.Build(["--mode", "demo", "--data-dir", temp.Path, "--port", port.ToString()]);
+        // These tests isolate configuration/diagnostics from independent automatic runs.
+        await app.Services.GetRequiredService<ICollectorControl>().SetPausedAsync(true, default);
         await app.StartAsync();
         using var client = new HttpClient();
         var capabilities = JsonDocument.Parse(await client.GetStringAsync($"http://127.0.0.1:{port}/api/capabilities/windows")).RootElement;

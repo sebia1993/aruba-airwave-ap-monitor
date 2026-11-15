@@ -8,8 +8,9 @@ namespace AirWaveApMonitor.Infrastructure.Storage;
 
 public sealed class SchemaMigrator
 {
-    public const int CurrentVersion = 1;
-    private static readonly Lazy<Dictionary<string, string>> ExpectedDefinitions = new(BuildExpectedDefinitions);
+    public const int CurrentVersion = 2;
+    private static readonly Lazy<Dictionary<string, string>> VersionOneDefinitions = new(() => BuildExpectedDefinitions(1));
+    private static readonly Lazy<Dictionary<string, string>> VersionTwoDefinitions = new(() => BuildExpectedDefinitions(2));
 
     public void Migrate(SqliteConnection connection, StorageLocation location, DateTimeOffset now)
     {
@@ -31,9 +32,9 @@ public sealed class SchemaMigrator
         {
             ValidateAuthenticationSchema(connection, location);
         }
-        if (version == CurrentVersion)
+        if (version > 0)
         {
-            ValidateCoreSchema(connection, location);
+            ValidateCoreSchema(connection, location, version);
         }
         Execute(connection, null, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;");
         if (version == CurrentVersion)
@@ -41,15 +42,16 @@ public sealed class SchemaMigrator
             return;
         }
         using var transaction = connection.BeginTransaction();
-        using var stream = typeof(SchemaMigrator).Assembly.GetManifestResourceStream(
-            "AirWaveApMonitor.Infrastructure.Storage.Migrations.001_core.sql") ?? throw new InvalidOperationException("마이그레이션 리소스가 없습니다.");
-        using var reader = new StreamReader(stream);
-        Execute(connection, transaction, reader.ReadToEnd());
-        SqliteAuthenticationStateStore.EnsureSchema(connection, transaction);
-        Execute(connection, transaction, "INSERT INTO dataset VALUES($dataset,$mode,1)",
-            ("$dataset", location.DatasetId), ("$mode", location.Mode));
-        Execute(connection, transaction, "INSERT INTO schema_migrations VALUES(1,$at)", ("$at", now));
-        Execute(connection, transaction, "PRAGMA user_version=1");
+        if (version == 0)
+        {
+            Execute(connection, transaction, ReadMigration("001_core.sql"));
+            SqliteAuthenticationStateStore.EnsureSchema(connection, transaction);
+            Execute(connection, transaction, "INSERT INTO dataset VALUES($dataset,$mode,1)",
+                ("$dataset", location.DatasetId), ("$mode", location.Mode));
+            Execute(connection, transaction, "INSERT INTO schema_migrations VALUES(1,$at)", ("$at", now));
+        }
+        Execute(connection, transaction, ReadMigration("002_source_checkpoints.sql"));
+        Execute(connection, transaction, "UPDATE dataset SET schema_version=2; INSERT INTO schema_migrations VALUES(2,$at); PRAGMA user_version=2", ("$at", now));
         transaction.Commit();
     }
 
@@ -69,7 +71,7 @@ public sealed class SchemaMigrator
     {
         var definitions = ReadDefinitions(connection);
         if (!definitions.TryGetValue("table:authentication_state", out var definition) ||
-            definition != ExpectedDefinitions.Value["table:authentication_state"])
+            definition != VersionOneDefinitions.Value["table:authentication_state"])
         {
             throw new InvalidOperationException("기존 인증 상태 DB 스키마를 확인할 수 없습니다.");
         }
@@ -89,19 +91,20 @@ public sealed class SchemaMigrator
         }
     }
 
-    private static void ValidateCoreSchema(SqliteConnection connection, StorageLocation location)
+    private static void ValidateCoreSchema(SqliteConnection connection, StorageLocation location, int version)
     {
         try
         {
             if (Convert.ToInt64(Scalar(connection, null, "SELECT COUNT(*) FROM dataset")) != 1 ||
                 Convert.ToInt64(Scalar(connection, null,
-                    "SELECT COUNT(*) FROM dataset WHERE dataset_id=$dataset AND mode=$mode AND schema_version=1",
-                    ("$dataset", location.DatasetId), ("$mode", location.Mode))) != 1)
+                    "SELECT COUNT(*) FROM dataset WHERE dataset_id=$dataset AND mode=$mode AND schema_version=$version",
+                    ("$dataset", location.DatasetId), ("$mode", location.Mode), ("$version", version))) != 1)
             {
                 throw new InvalidOperationException("DB와 데이터 폴더의 데이터셋/모드가 일치하지 않습니다.");
             }
             var actualDefinitions = ReadDefinitions(connection);
-            if (ExpectedDefinitions.Value.Any(pair => !actualDefinitions.TryGetValue(pair.Key, out var actual) || actual != pair.Value))
+            var expected = version == 1 ? VersionOneDefinitions.Value : VersionTwoDefinitions.Value;
+            if (expected.Any(pair => !actualDefinitions.TryGetValue(pair.Key, out var actual) || actual != pair.Value))
             {
                 throw new InvalidOperationException("필수 DB 열 또는 무결성 제약이 변경되었습니다.");
             }
@@ -125,16 +128,22 @@ public sealed class SchemaMigrator
             throw new InvalidOperationException("DB 스키마를 확인할 수 없습니다. 기존 파일을 보존합니다.", error);
         }
     }
-    private static Dictionary<string, string> BuildExpectedDefinitions()
+    private static Dictionary<string, string> BuildExpectedDefinitions(int version)
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
         connection.Open();
-        using var stream = typeof(SchemaMigrator).Assembly.GetManifestResourceStream(
-            "AirWaveApMonitor.Infrastructure.Storage.Migrations.001_core.sql") ?? throw new InvalidOperationException("마이그레이션 리소스가 없습니다.");
-        using var reader = new StreamReader(stream);
-        Execute(connection, null, reader.ReadToEnd());
+        Execute(connection, null, ReadMigration("001_core.sql"));
+        if (version == 2) Execute(connection, null, ReadMigration("002_source_checkpoints.sql"));
         SqliteAuthenticationStateStore.EnsureSchema(connection);
         return ReadDefinitions(connection);
+    }
+
+    private static string ReadMigration(string file)
+    {
+        using var stream = typeof(SchemaMigrator).Assembly.GetManifestResourceStream(
+            "AirWaveApMonitor.Infrastructure.Storage.Migrations." + file) ?? throw new InvalidOperationException("마이그레이션 리소스가 없습니다.");
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 
     private static Dictionary<string, string> ReadDefinitions(SqliteConnection connection)

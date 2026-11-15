@@ -105,7 +105,7 @@ public static class SettingsEndpoints
             authenticationBlocked = session.AuthenticationBlocked,
             authenticationStop = session.AuthenticationStop,
             credentialRegistrationPending = session.CredentialRegistrationPending,
-            persistence = "not-implemented",
+            persistence = "sqlite-ready",
             diagnosticScope = "connection-and-single-read-only"
         };
     }

@@ -145,6 +145,7 @@ public sealed partial class SqliteCollectionStore
                 ("$at", finalized), ("$completeRun", outcome == RunOutcome.Succeeded ? context.RunId : null),
                 ("$completeAt", outcome == RunOutcome.Succeeded ? finalized : null));
         }
+        PersistCheckpoint(connection, transaction, context, batch, lifecycle);
         return receipt;
     }
 

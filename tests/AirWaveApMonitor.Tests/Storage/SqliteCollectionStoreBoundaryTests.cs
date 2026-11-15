@@ -31,7 +31,7 @@ public sealed partial class SqliteCollectionStoreTests
         await authentication.SaveStopAsync(stop, default);
         await store.InitializeAsync(default);
         Assert.Equal(stop, (await authentication.ReadAsync(binding, default)).Stop);
-        Assert.Equal(1, Scalar("PRAGMA user_version"));
+        Assert.Equal(2, Scalar("PRAGMA user_version"));
         Assert.Equal(0, Count("runs"));
     }
 
