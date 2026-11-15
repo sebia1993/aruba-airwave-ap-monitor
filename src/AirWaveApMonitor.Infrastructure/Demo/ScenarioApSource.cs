@@ -70,18 +70,25 @@ public sealed class ScenarioApSource : IApSource
             { Checkpoint = checkpoint };
 
         var parsed = new ApListParser(EvidenceSource.Demo).Parse(new MemoryStream(Encoding.UTF8.GetBytes(CreateXml(frame))), collectedAt, ct);
-        var observations = parsed.Observations;
-        var exclusions = frame.MissingIds.Order().Select(id => new ExcludedRecord(id, id.ToString(CultureInfo.InvariantCulture),
+        if (parsed.Outcome == RunOutcome.Failed)
+            return parsed with { Checkpoint = checkpoint };
+        var missing = frame.MissingIds.Order().Select(id => new ExcludedRecord(id, id.ToString(CultureInfo.InvariantCulture),
             CollectionErrorCategory.MissingRecord, "가상 응답에서 누락된 기대 대상")).ToImmutableArray();
-        var errors = ImmutableArray.CreateBuilder<CollectionError>();
-        if (exclusions.Length > 0)
-            errors.Add(new(CollectionErrorCategory.MissingRecord, exclusions.Length, "일부 기대 대상 누락"));
-        if (frame.UnknownStateIds.Count > 0)
-            errors.Add(new(CollectionErrorCategory.InvalidField, frame.UnknownStateIds.Count, "상태 미제공"));
-        return new ApCollectionBatch(frame.Outcome, observations, exclusions, collectedAt,
-            frame.Outcome == RunOutcome.Succeeded ? ObservationCompleteness.Complete : ObservationCompleteness.Partial,
-            errors.ToImmutable())
-        { Checkpoint = checkpoint };
+        var errors = parsed.Errors.ToBuilder();
+        foreach (var record in missing)
+            errors.Add(new(CollectionErrorCategory.MissingRecord, 1, "일부 기대 대상 누락") { SourceApId = record.SourceApId });
+        var partial = frame.Outcome == RunOutcome.Partial || parsed.Outcome == RunOutcome.Partial || errors.Count > 0;
+        return parsed with
+        {
+            Outcome = partial ? RunOutcome.Partial : RunOutcome.Succeeded,
+            ExcludedRecords = parsed.ExcludedRecords.AddRange(missing),
+            Completeness = parsed.Completeness == ObservationCompleteness.Unknown ? ObservationCompleteness.Unknown
+                : partial ? ObservationCompleteness.Partial : ObservationCompleteness.Complete,
+            Errors = errors.ToImmutable(),
+            Checkpoint = checkpoint,
+            RecordErrorAttributionComplete = parsed.RecordErrorAttributionComplete &&
+                (frame.Outcome != RunOutcome.Partial || errors.Count > 0)
+        };
     }
 
     /// <summary>Synthetic fixture for the later XML parser. This does not establish real AirWave compatibility.</summary>

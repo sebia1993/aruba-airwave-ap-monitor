@@ -1,10 +1,11 @@
 using System.Text.Json;
+using System.Collections.Immutable;
 using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Infrastructure.Demo;
 using AirWaveApMonitor.Infrastructure.Maintenance;
 namespace AirWaveApMonitor.Infrastructure.Settings;
 
-public sealed class ProfileStore
+public sealed partial class ProfileStore
 {
     // Caller owns OperationGate. Persist a generated Demo identity before its first DB run.
     public Task EnsureInitializedAsync(CancellationToken ct)
@@ -42,7 +43,10 @@ public sealed class ProfileStore
             throw new ArgumentException("Demo 모드는 가상 출처만 사용합니다.");
         if (Current is not null && origin != Current.Origin)
             throw new ProfileConflictException("서버 출처 변경은 새 데이터셋이 필요합니다. 새 전용 데이터 폴더로 시작하세요.");
-        var next = new ProfileSnapshot(Current?.InstanceId ?? Guid.NewGuid(), location.DatasetId, origin, (Current?.ConfigurationVersion ?? 0) + 1, Current?.ScopeVersion ?? 1, Current?.ExpectedTargets ?? [], Current?.BaselineStatus ?? BaselineStatus.Unverified, new(interval, Current?.Settings.EnrichmentIntervalMinutes ?? 15, Current?.Settings.ConnectionCollectionEnabled ?? false, Current?.Settings.PowerCollectionEnabled ?? false)) { Proxy = proxy, CredentialsVersion = Current?.CredentialsVersion ?? 1 };
+        var next = new ProfileSnapshot(Current?.InstanceId ?? Guid.NewGuid(), location.DatasetId, origin, (Current?.ConfigurationVersion ?? 0) + 1, Current?.ScopeVersion ?? 1, Current?.ExpectedTargets ?? [], Current?.BaselineStatus ?? BaselineStatus.Unverified, new(interval, Current?.Settings.EnrichmentIntervalMinutes ?? 15, Current?.Settings.ConnectionCollectionEnabled ?? false, Current?.Settings.PowerCollectionEnabled ?? false))
+        { Proxy = proxy, CredentialsVersion = Current?.CredentialsVersion ?? 1,
+            MonitoringScope = Current?.MonitoringScope, ScopeRevisions = Current?.ScopeRevisions,
+            BaselineConfirmedSourceApIds = Current?.BaselineConfirmedSourceApIds };
         await SaveAsync(next, ct);
     }
     public Task UpdateEnrichmentAsync(int interval, bool connectionEnabled, bool powerEnabled, long expectedVersion, CancellationToken ct)
@@ -55,7 +59,9 @@ public sealed class ProfileStore
         return SaveAsync(new(current.InstanceId, current.DatasetId, current.Origin,
             current.ConfigurationVersion + 1, current.ScopeVersion, current.ExpectedTargets, current.BaselineStatus,
             new(current.Settings.ApIntervalMinutes, interval, connectionEnabled, powerEnabled))
-        { Proxy = current.Proxy, CredentialsVersion = current.CredentialsVersion }, ct);
+        { Proxy = current.Proxy, CredentialsVersion = current.CredentialsVersion,
+            MonitoringScope = current.MonitoringScope, ScopeRevisions = current.ScopeRevisions,
+            BaselineConfirmedSourceApIds = current.BaselineConfirmedSourceApIds }, ct);
     }
     public Task CredentialsChangedAsync(CancellationToken ct)
     {
@@ -63,7 +69,8 @@ public sealed class ProfileStore
         return SaveAsync(new(current.InstanceId, current.DatasetId, current.Origin, current.ConfigurationVersion + 1, current.ScopeVersion + 1, current.ExpectedTargets, BaselineStatus.Unverified, current.Settings)
         {
             Proxy = current.Proxy,
-            CredentialsVersion = current.CredentialsVersion + 1
+            CredentialsVersion = current.CredentialsVersion + 1,
+            MonitoringScope = current.MonitoringScope, ScopeRevisions = current.ScopeRevisions
         }, ct);
     }
     private async Task SaveAsync(ProfileSnapshot next, CancellationToken ct)

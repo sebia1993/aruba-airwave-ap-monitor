@@ -9,11 +9,14 @@ using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Infrastructure.AirWave;
 using AirWaveApMonitor.Infrastructure.Maintenance;
 using AirWaveApMonitor.Infrastructure.Storage;
+using Microsoft.Data.Sqlite;
 
 // Standalone synthetic measurement tool; never contacts an AirWave server.
 // One fresh process and fresh folder per count make process memory scope explicit.
-if (args.Length != 2 || !int.TryParse(args[0], out var count) || count is < 1 or > 5000)
-    throw new ArgumentException("Usage: dotnet run --project tests/Performance -c Release -- <count:1..5000> <new-output-directory>");
+if (args.Length is < 2 or > 3 || !int.TryParse(args[0], out var count) || count is < 1 or > 5000 ||
+    (args.Length == 3 && args[2] is not ("cycles" or "steady-up")))
+    throw new ArgumentException("Usage: dotnet run --project tests/Performance -c Release -- <count:1..5000> <new-output-directory> [cycles|steady-up]");
+var scenario = args.Length == 3 ? args[2] : "cycles";
 var output = Path.GetFullPath(args[1]);
 if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any())
     throw new IOException("Measurement output directory must be empty; existing data is preserved.");
@@ -34,10 +37,13 @@ await store.InitializeAsync(default);
 initialization.Stop();
 var beforeBytes = DatabaseBytes(location);
 long? initialDownRun = null;
+long? firstRun = null;
 long lastRun = 0;
 int openIncidents = 0;
 // Missing is represented by every row omitting is_up, not by a numeric state or fake Down.
-var frames = new (string Name, bool? Up)[]
+var frames = scenario == "steady-up" ? Enumerable.Range(0, 10)
+    .Select(index => (Name: index == 0 ? "baseline-all-up" : "unchanged-up-" + index, Up: (bool?)true)).ToArray()
+    : new (string Name, bool? Up)[]
 {
     ("baseline-all-up", true), ("all-down", false), ("all-state-unknown", null),
     ("repeat-down-after-gap", false), ("all-recovered", true),
@@ -95,7 +101,15 @@ foreach (var (name, up) in frames)
         CheckRows(await store.GetDashboardAsync(new(location.DatasetId, 1, context.RunId, Page: page, PageSize: 500), default));
     Require(seen.Count == count, "complete distinct AP list");
     listVerification.Stop();
+    firstRun ??= context.RunId;
     lastRun = context.RunId;
+    var storageShape = Shape(location);
+    Require(storageShape.UpDetailedRows == 0, "normal AP facts are not repeated as detailed run rows");
+    if (scenario == "steady-up")
+    {
+        Require(storageShape.DetailedRows == 0 && storageShape.HistoryVersions == count && storageShape.HistorySets == 1 &&
+            storageShape.HistoryMembers == count && storageShape.Frames == records.Count + 1, "unchanged normal history reuses facts and membership");
+    }
     records.Add(new
     {
         name, context.RunId, xmlBytes = xml.Length, parseMilliseconds = parse.Elapsed.TotalMilliseconds,
@@ -104,7 +118,7 @@ foreach (var (name, up) in frames)
         allocatedBytes = frameAllocated, completeListVerificationMilliseconds = listVerification.Elapsed.TotalMilliseconds,
         verifiedListRows = seen.Count,
         databaseBytes = DatabaseBytes(location), databaseGrowthBytes = DatabaseBytes(location) - frameBytesBefore,
-        processMemory = Memory(), summary = view.Summary, outcome = receipt.Outcome.ToString()
+        processMemory = Memory(), storageShape, summary = view.Summary, outcome = receipt.Outcome.ToString()
     });
     clock.Now += TimeSpan.FromMinutes(5);
 
@@ -123,10 +137,12 @@ foreach (var (name, up) in frames)
 var reopened = new SqliteCollectionStore(location, writeGate, clock);
 var reopen = Stopwatch.StartNew();
 await reopened.InitializeAsync(default);
-var historical = await reopened.GetDashboardAsync(new(location.DatasetId, 1, initialDownRun), default);
+var historicalRun = initialDownRun ?? firstRun;
+var historical = await reopened.GetDashboardAsync(new(location.DatasetId, 1, historicalRun), default);
 var latest = await reopened.GetDashboardAsync(new(location.DatasetId, 1, lastRun), default);
 reopen.Stop();
-Require(historical.Summary.ConfirmedDown == count && historical.Summary.OpenIncidents == count, "historical all down immutable");
+Require(historical.Summary.ConfirmedDown == (scenario == "cycles" ? count : 0) &&
+    historical.Summary.OpenIncidents == (scenario == "cycles" ? count : 0), "historical run immutable");
 Require(latest.Summary.ConfirmedUp == count && latest.Summary.OpenIncidents == 0, "reopen latest unchanged");
 var backupTimer = Stopwatch.StartNew();
 var backup = await new BackupService(location, writeGate, clock).CreateAsync(BackupKind.PreUpdate, default);
@@ -134,12 +150,12 @@ backupTimer.Stop();
 var retentionTimer = Stopwatch.StartNew();
 var retention = await new RetentionService(location, writeGate, reopened).PruneAsync(clock.Now.AddDays(91), default);
 retentionTimer.Stop();
-var afterRetention = await reopened.GetDashboardAsync(new(location.DatasetId, 1, initialDownRun), default);
+var afterRetention = await reopened.GetDashboardAsync(new(location.DatasetId, 1, historicalRun), default);
 Require(afterRetention.Summary == historical.Summary, "retention preserves historical aggregates");
 total.Stop();
 var result = new
 {
-    kind = "synthetic-ap-parse-aggregate-storage", sourceCommit, count,
+    kind = "synthetic-ap-parse-aggregate-storage", sourceCommit, count, scenario,
     executedAssemblies = new[] { Assembly.GetExecutingAssembly(), typeof(SqliteCollectionStore).Assembly, typeof(ProfileSnapshot).Assembly }
         .Distinct().Select(assembly => new { file = Path.GetFileName(assembly.Location),
             sha256 = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(assembly.Location))) }).ToArray(),
@@ -150,7 +166,7 @@ var result = new
     initialDatabaseBytes = beforeBytes, finalDatabaseBytes = DatabaseBytes(location),
     databaseGrowthBytes = DatabaseBytes(location) - beforeBytes, backupMilliseconds = backupTimer.Elapsed.TotalMilliseconds,
     backupBytes = backup.Bytes, backup.Sha256, retentionMilliseconds = retentionTimer.Elapsed.TotalMilliseconds, retention,
-    totalMilliseconds = total.Elapsed.TotalMilliseconds, processMemory = Memory(), checksPassed = true,
+    totalMilliseconds = total.Elapsed.TotalMilliseconds, processMemory = Memory(), storageShape = Shape(location), checksPassed = true,
     limitations = new[] { "one process per size; process peak includes previous frames and backup", "synthetic local disk only",
         "parsing and transactional aggregation/storage measured separately; no HTTP latency", "first page query is up to 500 rows",
         "database bytes include main/WAL/SHM when present; no VACUUM", "no throughput or production SLA implied" }
@@ -165,6 +181,17 @@ static void Require(bool success, string description)
 }
 static long DatabaseBytes(StorageLocation location) => new[] { "monitor.db", "monitor.db-wal", "monitor.db-shm" }
     .Select(name => new FileInfo(Path.Combine(location.DataDirectory, name))).Where(file => file.Exists).Sum(file => file.Length);
+static HistoryStorageShape Shape(StorageLocation location)
+{
+    using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+    { DataSource = Path.Combine(location.DataDirectory, "monitor.db"), Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
+    connection.Open();
+    long Count(string sql) { using var command = connection.CreateCommand(); command.CommandText = sql; return Convert.ToInt64(command.ExecuteScalar()); }
+    return new(Count("SELECT COUNT(*) FROM run_rows"),
+        Count("SELECT COUNT(*) FROM run_rows WHERE json_extract(facts_json,'$.CurrentState')=0"),
+        Count("SELECT COUNT(*) FROM ap_history_versions"), Count("SELECT COUNT(*) FROM ap_history_sets"),
+        Count("SELECT COUNT(*) FROM ap_history_members"), Count("SELECT COUNT(*) FROM run_history_frames"));
+}
 static object Memory()
 {
     using var process = Process.GetCurrentProcess();
@@ -188,3 +215,4 @@ sealed class MeasurementClock : TimeProvider
     public DateTimeOffset Now { get; set; } = DateTimeOffset.Parse("2026-11-16T00:00:00Z", CultureInfo.InvariantCulture);
     public override DateTimeOffset GetUtcNow() => Now;
 }
+sealed record HistoryStorageShape(long DetailedRows, long UpDetailedRows, long HistoryVersions, long HistorySets, long HistoryMembers, long Frames);

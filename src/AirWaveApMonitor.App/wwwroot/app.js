@@ -1,5 +1,5 @@
 "use strict";
-import { countText, createRequestGate, dashboardQuery, observationStatus, incidentElapsed, settingsIdentity, shouldFollowLatest, authenticationUiState } from "./ui-state.js";
+import { countText, createRequestGate, dashboardQuery, observationStatus, incidentElapsed, settingsIdentity, shouldFollowLatest, authenticationUiState, kstDateText, kstPeriod, addHistoryFilters } from "./ui-state.js";
 
 import { createOperationsController } from "./operations.js";
 import { createEnrichmentController } from "./enrichment.js";
@@ -16,13 +16,14 @@ const kindLabels = { ApStatus:"AP 상태",ConnectionNeighbor:"연결·이웃",Po
 const sourceLabels = { AirWave: "AirWave", Demo: "가상 자료", Manual: "직접 입력", Import: "가져오기" };
 const state = {
   view: "dashboard", backView: "dashboard", historical: false, selection: null, snapshot: null,
-  filters: { search: "", filter: "OpenIncidents", sort: "FirstDownAt", descending: true, managementStatus: "", hidePlanned: false, page: 1, pageSize: 50 },
-  incident: { status: "", search: "", page: 1, pageSize: 50 },
-  runs: { scopeVersion: "", page: 1, pageSize: 50, throughRunId: null },
+  filters: { search: "", filter: "OpenIncidents", sort: "FirstDownAt", descending: true, managementStatus: "", hidePlanned: false, minimumOpenElapsedSeconds: "", page: 1, pageSize: 50 },
+  incident: { status: "", search: "", fromUtc: null, toUtc: null, minimumOpenElapsedSeconds: "", page: 1, pageSize: 50 },
+  runs: { scopeVersion: "", fromUtc: null, toUtc: null, page: 1, pageSize: 50, throughRunId: null },
   health: null, maintenance: null, settings: null, mode: null, mutationBusy: false, settingsDirty: false, draftRevision: 0,
+  scope: {data:null,dirty:false,revision:0,baseVersion:null,baselineDirty:false,baselineRevision:0,baselineBase:null},
   token: null, tokenPromise: null, diagnosticIdentity: null, lastDashboardRead: null
 };
-const gates = { dashboard: createRequestGate(), incidents: createRequestGate(), runs: createRequestGate(), detail: createRequestGate(), settings: createRequestGate(), health: createRequestGate() };
+const gates = { dashboard: createRequestGate(), incidents: createRequestGate(), runs: createRequestGate(), detail: createRequestGate(), settings: createRequestGate(), scope: createRequestGate(), health: createRequestGate() };
 let searchTimer, incidentSearchTimer;
 
 function el(tag, className, text) {
@@ -37,9 +38,7 @@ function button(text, handler, className = "") {
 function badge(text, tone = "") { return el("span", `badge ${tone}`, text); }
 function valueText(value) { return value == null || value === "" ? "미제공" : String(value); }
 function dateText(value) {
-  if (!value) return "미확인";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "시각 확인 필요" : new Intl.DateTimeFormat("ko-KR", { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false }).format(date);
+  return kstDateText(value);
 }
 function durationText(milliseconds) {
   if (milliseconds == null || !Number.isFinite(milliseconds) || milliseconds < 0) return "시간 확인 필요";
@@ -125,7 +124,7 @@ async function show(view) {
   if (view === "dashboard") await loadDashboard();
   else if (view === "incidents") await loadIncidents();
   else if (view === "runs") await loadRuns();
-  else if (view === "settings") await loadSettings(true);
+  else if (view === "settings") await Promise.all([loadSettings(true),loadScope()]);
   else if (view === "operations") await operations?.show();
   else if (view === "enrichment") await enrichment?.show();
 }
@@ -200,12 +199,14 @@ async function loadIncidents() {
     const query = new URLSearchParams({ asOfRunId:selection.runId, scopeVersion:selection.scopeVersion, page:state.incident.page, pageSize:state.incident.pageSize });
     if (state.incident.status) query.set("status",state.incident.status);
     if (state.incident.search.trim()) query.set("search",state.incident.search.trim());
+    addHistoryFilters(query,state.incident);
     const result = await api(`/api/incidents?${query}`);
     if (!gates.incidents.isCurrent(ticket) || state.view !== "incidents") return;
     const pages = Math.max(1,Math.ceil(result.totalRows / state.incident.pageSize));
     if (state.incident.page > pages) { state.incident.page = pages; await loadIncidents(); return; }
     notice(byId("incident-selection"),selectionText(result.selection),"이 회차의 대상 AP와 당시까지 저장된 사건·복구·관측 공백만 표시합니다.");
-    byId("incident-count").textContent = `· ${countText(result.totalRows)}건 / AP ${countText(result.distinctApCount)}대`;
+    byId("incident-count").textContent = `· 전체 사건 ${countText(result.totalRows)}건 · 고유 AP ${countText(result.distinctApCount)}대 · Up → Down ${countText(result.upToDownTransitionCount)}회 · 최초 확인 Down ${countText(result.initialDownCount)}건`;
+    byId("incident-period-applied").textContent = periodText(state.incident,"Down 최초 감지 시각");
     if (!result.rows.length) empty(container,"조건에 맞는 사건이 없습니다","사건 상태나 검색 조건을 바꿀 수 있습니다. 다른 범위는 수집 기록에서 회차를 선택하세요.");
     else buildTable(container,["AP / 감지 당시 IP","사건 상태","Down 감지","복구·추적 종료","관측 경과"],result.rows,(tr,item) => {
       const metadata = item.detection.device.metadata;
@@ -228,10 +229,12 @@ async function loadRuns() {
   const query = new URLSearchParams({ page:state.runs.page, pageSize:state.runs.pageSize });
   if (state.runs.scopeVersion) query.set("scopeVersion",state.runs.scopeVersion);
   if (state.runs.throughRunId) query.set("throughRunId",state.runs.throughRunId);
+  addHistoryFilters(query,state.runs);
   try {
     const result = await api(`/api/runs?${query}`);
     if (!gates.runs.isCurrent(ticket) || state.view !== "runs") return;
     state.runs.throughRunId = result.throughRunId;
+    byId("run-period-applied").textContent = periodText(state.runs,"수집 시작 시각");
     const scope = byId("run-scope"), options = [el("option","","모든 범위")]; options[0].value = "";
     result.availableScopes.forEach(number => { const option = el("option","",`범위 ${number}`); option.value = number; options.push(option); });
     scope.replaceChildren(...options); scope.value = state.runs.scopeVersion;
@@ -399,6 +402,7 @@ function updateControls() {
   byId("authentication-status").textContent = authentication.label;
   byId("run-diagnostics").disabled = state.mutationBusy || !state.settings?.profile || state.settingsDirty || state.credentialsDirty;
   byId("credentials-form").querySelector("button").disabled = state.mutationBusy || !state.settings?.profile;
+  updateScopeControls();
 }
 async function perform(action) {
   if (state.mutationBusy) return;
@@ -433,7 +437,10 @@ function invalidateDataForSettingsChange() {
 }
 function applySettings(value,{fill = false} = {}) {
   const oldIdentity = state.settings && settingsIdentity(state.settings.profile), newIdentity = settingsIdentity(value.profile);
-  if (oldIdentity && oldIdentity !== newIdentity) { invalidateDiagnostic("저장된 설정·자격 증명·범위가 변경되어 이전 진단은 유효하지 않습니다."); invalidateDataForSettingsChange(); }
+  if (oldIdentity && oldIdentity !== newIdentity) {
+    invalidateDiagnostic("저장된 설정·자격 증명·범위가 변경되어 이전 진단은 유효하지 않습니다.");
+    if (!state.historical || state.selection?.datasetId !== value.profile?.datasetId) invalidateDataForSettingsChange();
+  }
   state.settings = value; state.mode = value.mode; renderMode();
   const profile = value.profile;
   if (fill && !state.settingsDirty) {
@@ -466,6 +473,97 @@ async function saveSettings() {
     applySettings(value,{fill:true}); invalidateDiagnostic("설정을 저장했습니다. 이 설정으로 연결 진단을 다시 실행하세요.");
     if (state.settingsDirty) state.draftBaseVersion = value.profile.configurationVersion;
     setMessage(state.settingsDirty ? "요청한 설정을 저장했습니다. 요청 이후 수정한 입력은 아직 저장하지 않았습니다." : "연결 설정을 저장했습니다. 실제 연결 성공 여부는 수집·진단 결과를 확인하세요."); void loadHealth();
+    void loadScope();
+  });
+}
+function updateScopeControls() {
+  const unavailable = state.mutationBusy || !state.scope.data;
+  for (const id of ["scope-mode","scope-reason","scope-save","baseline-count","baseline-reason"])
+    byId(id).disabled = unavailable;
+  byId("scope-ids").disabled = unavailable || byId("scope-mode").value !== "SelectedApIds";
+  byId("baseline-confirm").disabled = unavailable || !state.scope.baselineBase?.eligible;
+  byId("scope-reload").disabled = byId("baseline-reload").disabled = state.mutationBusy;
+}
+function scopeDraftChanged(target) {
+  if (target === "scope") { state.scope.dirty = true; state.scope.revision++; }
+  else { state.scope.baselineDirty = true; state.scope.baselineRevision++; }
+  updateScopeControls();
+}
+function applyScope(value,{resetScope = false,resetBaseline = false} = {}) {
+  const saved = state.scope, profile = value.profile, run = value.comparisonRun;
+  saved.data = value;
+  if (resetScope) saved.dirty = false;
+  if (resetBaseline) saved.baselineDirty = false;
+  if (!saved.dirty) {
+    saved.baseVersion = profile.configurationVersion;
+    byId("scope-mode").value = profile.monitoringScope?.mode || "AllDiscovered";
+    byId("scope-ids").value = (profile.monitoringScope?.sourceApIds || []).join("\n"); byId("scope-reason").value = "";
+  }
+  const currentRun = run && run.configurationVersion === profile.configurationVersion && run.scopeVersion === profile.scopeVersion;
+  const allTargetsObserved = run && run.sourceApIds.length === run.targetCount;
+  const eligible = currentRun && run.outcome !== "Failed" && run.targetCount > 0 && allTargetsObserved;
+  if (!saved.baselineDirty) {
+    saved.baselineBase = run ? {configurationVersion:profile.configurationVersion,runId:run.runId,targetCount:run.targetCount,eligible:!!eligible} : null;
+    byId("baseline-count").value = ""; byId("baseline-reason").value = "";
+    byId("baseline-targets").value = (run?.sourceApIds || []).join("\n");
+  }
+  byId("scope-current").textContent = `현재 설정 ${profile.configurationVersion} · 범위 ${profile.scopeVersion} · ${profile.monitoringScope?.mode === "SelectedApIds" ? `선택 AP ${(profile.monitoringScope.sourceApIds || []).length}대` : "발견한 전체 AP"} · 입력 기준 설정 ${saved.baseVersion}${saved.dirty ? " (저장하지 않은 입력 유지)" : ""}`;
+  byId("scope-known-count").textContent = `유효 관측이 있었던 원천 AP ID ${countText(value.knownTargets.length)}개 보기`;
+  byId("scope-known").value = value.knownTargets.map(item=>`${item.sourceApId} | ${item.name || "이름 미제공"} | ${item.ipAddress || "IP 미제공"} | 마지막 유효 회차 ${item.lastValidRunId}`).join("\n");
+  byId("scope-baseline").textContent = !run ? "기준 대조용 확정 회차 없음 · 다음 수집 대기" : !currentRun ? "새 설정 관측 대기 · 이전 대조 기록을 현재 기준 확인으로 확장하지 않습니다." : `현재 범위 회차 ${run.runId} · ${run.targetCount}대 · ${run.baselineStatus === "Confirmed" ? "사용자 대조 기록 확인됨" : "잠정 기준 · 사용자 대조 미확인"} · ${run.outcome === "Failed" ? "수집 실패 · 대조 등록 불가" : !allTargetsObserved ? "미관측 대상 포함 · 대조 등록 불가" : "실제 API 권한·물리 재고 확인은 사용자 대조 필요"}`;
+  const base = saved.baselineBase;
+  byId("baseline-reference").textContent = base ? `이 입력의 대조 기준: 회차 ${base.runId} · 설정 ${base.configurationVersion} · 대상 ${base.targetCount}대${saved.baselineDirty ? " (작성 중인 대조 기준 유지)" : ""}` : "대조 기준 회차 없음";
+  byId("scope-history").value = [...(profile.scopeRevisions || [])].reverse().map(item=>`${dateText(item.changedAtUtc)} · ${item.action === "BaselineConfirmed" ? "사용자 기준 대조" : "범위 변경"} · 설정 ${item.configurationVersion} / 범위 ${item.scopeVersion} · ${item.definition.mode === "AllDiscovered" ? "발견 전체" : "선택 ID: " + item.definition.sourceApIds.join(", ")} · ${item.targetCount}대${item.comparedRunId ? ` · 대조 회차 ${item.comparedRunId}` : ""} · ${item.reason}`).join("\n") || "저장된 범위 변경·대조 기록 없음";
+  updateScopeControls();
+}
+async function loadScope(options = {}) {
+  const ticket = gates.scope.begin(), revision = state.scope.revision, baselineRevision = state.scope.baselineRevision;
+  try {
+    const value = await api("/api/scope");
+    if (gates.scope.isCurrent(ticket)) applyScope(value,{resetScope:options.resetScope && revision === state.scope.revision,resetBaseline:options.resetBaseline && baselineRevision === state.scope.baselineRevision});
+  }
+  catch (error) { if (gates.scope.isCurrent(ticket)) { byId("scope-current").textContent = `범위 조회 실패 · ${error.message}`; updateScopeControls(); } }
+}
+async function saveScope() {
+  if (state.mutationBusy || !state.scope.data) return;
+  let input;
+  try {
+    const mode = byId("scope-mode").value, sourceApIds = mode === "AllDiscovered" ? [] : byId("scope-ids").value.split(/\r?\n/).map(id=>id.trim()).filter(Boolean);
+    if (!["AllDiscovered","SelectedApIds"].includes(mode) || mode === "SelectedApIds" && !sourceApIds.length) throw new Error("감시 모드와 원천 AP ID를 선택하세요.");
+    if (new Set(sourceApIds).size !== sourceApIds.length) throw new Error("원천 AP ID가 중복되었습니다.");
+    const known = new Set(state.scope.data.knownTargets.map(item=>item.sourceApId));
+    if (sourceApIds.some(id=>!known.has(id))) throw new Error("유효 관측이 있었던 알려진 원천 AP ID만 선택할 수 있습니다.");
+    const reason = byId("scope-reason").value.trim(); if (!reason) throw new Error("범위 변경 사유를 입력하세요.");
+    input = {expectedConfigurationVersion:state.scope.baseVersion,mode,sourceApIds,reason};
+  } catch (error) { setMessage(error.message,true); return; }
+  const revision = state.scope.revision;
+  await perform(async()=>{
+    try {
+      const value = await api("/api/scope",{method:"POST",body:input}); gates.scope.invalidate();
+      if (revision === state.scope.revision) state.scope.dirty = false;
+      applyScope(value); void loadSettings(false);
+      setMessage("감시 범위를 저장했습니다. 다음 수집부터 적용하며 이전 회차는 보존됩니다. 새 기준은 사용자 대조 전까지 잠정입니다.");
+    } catch (error) { if (error.status === 409) throw new Error("범위 저장 충돌 또는 수집 작업 중입니다. 입력을 유지했습니다. 서버 범위를 다시 읽고 재검토하세요."); throw error; }
+  });
+}
+async function confirmBaseline() {
+  if (state.mutationBusy || !state.scope.data) return;
+  let input;
+  try {
+    const base = state.scope.baselineBase, rawCount = byId("baseline-count").value.trim(), count = Number(rawCount), reason = byId("baseline-reason").value.trim();
+    if (!base?.eligible) throw new Error("현재 설정의 유효한 대조 회차를 먼저 수집하세요.");
+    if (!rawCount || !Number.isSafeInteger(count) || count !== base.targetCount) throw new Error("직접 대조한 대상 대수를 입력하세요. 저장된 회차 대수와 일치해야 합니다.");
+    if (!reason) throw new Error("대조 방법과 확인 근거를 입력하세요.");
+    input = {expectedConfigurationVersion:base.configurationVersion,runId:base.runId,comparedTargetCount:count,reason};
+  } catch (error) { setMessage(error.message,true); return; }
+  const revision = state.scope.baselineRevision;
+  await perform(async()=>{
+    try {
+      const value = await api("/api/scope/confirm",{method:"POST",body:input}); gates.scope.invalidate();
+      if (revision === state.scope.baselineRevision) state.scope.baselineDirty = false;
+      applyScope(value); void loadSettings(false);
+      setMessage("사용자의 기준 대조 결과를 기록했습니다. 이전 회차의 기준 상태는 그대로 보존됩니다.");
+    } catch (error) { if (error.status === 409) throw new Error("대조 회차·설정이 변경되었거나 수집 작업 중입니다. 입력을 유지했습니다. 대조 기준을 다시 읽고 재검토하세요."); throw error; }
   });
 }
 async function saveCredentials() {
@@ -536,9 +634,24 @@ function restoreRowFocus(key,value) {
 function filterChanged(filter) {
   clearTimeout(searchTimer); state.filters.filter = filter; state.filters.page = 1; void loadDashboard();
 }
+function periodText(filters, label) {
+  return `적용 기간 · ${label}: ${filters.fromUtc ? dateText(filters.fromUtc) : "시작 제한 없음"} ~ ${filters.toUtc ? dateText(filters.toUtc) : "종료 제한 없음"} · 입력을 비우고 적용하면 기간 조건 해제`;
+}
+async function applyPeriod(target) {
+  try {
+    const period = kstPeriod(byId(`${target}-from`).value,byId(`${target}-to`).value);
+    setMessage("");
+    if (target === "incident") {
+      clearTimeout(incidentSearchTimer); Object.assign(state.incident,period,{page:1});
+      await loadIncidents();
+    } else {
+      Object.assign(state.runs,period,{page:1,throughRunId:null}); await loadRuns();
+    }
+  } catch (error) { setMessage(error.message,true); }
+}
 document.querySelectorAll("[data-view]").forEach(node => node.addEventListener("click",() => { clearTimeout(searchTimer); clearTimeout(incidentSearchTimer); setMessage(""); void show(node.dataset.view); }));
 operations = createOperationsController({api,onMessage:setMessage,navigate,dateText,isCurrentView:()=>state.view === "operations"});
-enrichment = createEnrichmentController({api,onMessage:setMessage,navigate,dateText,isCurrentView:()=>state.view === "enrichment",onHistory:selection=>operations?.show("timeline",{apId:selection.apId,deviceGenerationId:selection.deviceGenerationId,installationPointId:selection.installationPointId}),onSettingsSaved:()=>{void loadSettings(false);void loadHealth();}});
+enrichment = createEnrichmentController({api,onMessage:setMessage,navigate,dateText,isCurrentView:()=>state.view === "enrichment",onHistory:selection=>operations?.show("timeline",{apId:selection.apId,deviceGenerationId:selection.deviceGenerationId,installationPointId:selection.installationPointId}),onSettingsSaved:()=>{void loadSettings(false);void loadScope();void loadHealth();}});
 document.querySelectorAll("[data-action='current']").forEach(node => node.addEventListener("click",() => { clearTimeout(searchTimer); clearTimeout(incidentSearchTimer); setMessage(""); void currentDashboard(); }));
 document.querySelectorAll("[data-filter]").forEach(node => node.addEventListener("click",() => filterChanged(node.dataset.filter)));
 byId("status-filter").addEventListener("change",event => filterChanged(event.target.value));
@@ -552,11 +665,15 @@ byId("ap-sort").addEventListener("change",event => {
 });
 byId("management-filter").addEventListener("change",event => { state.filters.managementStatus = event.target.value; state.filters.page = 1; clearTimeout(searchTimer); void loadDashboard(); });
 byId("hide-planned").addEventListener("change",event => { state.filters.hidePlanned = event.target.checked; state.filters.page = 1; clearTimeout(searchTimer); void loadDashboard(); });
+byId("ap-minimum-elapsed").addEventListener("change",event => { state.filters.minimumOpenElapsedSeconds = event.target.value; state.filters.page = 1; clearTimeout(searchTimer); void loadDashboard(); });
 byId("refresh-dashboard").addEventListener("click",() => { clearTimeout(searchTimer); void loadDashboard(!state.historical); });
 byId("ap-prev").addEventListener("click",() => { state.filters.page = Math.max(1,state.filters.page - 1); void loadDashboard(); });
 byId("ap-next").addEventListener("click",() => { state.filters.page++; void loadDashboard(); });
 byId("incident-search").addEventListener("input",event => { state.incident.search = event.target.value; state.incident.page = 1; gates.incidents.invalidate(); clearTimeout(incidentSearchTimer); incidentSearchTimer = setTimeout(() => { if (state.view === "incidents") void loadIncidents(); },250); });
 byId("incident-status").addEventListener("change",event => { state.incident.status = event.target.value; state.incident.page = 1; clearTimeout(incidentSearchTimer); void loadIncidents(); });
+byId("incident-minimum-elapsed").addEventListener("change",event => { state.incident.minimumOpenElapsedSeconds = event.target.value; state.incident.page = 1; clearTimeout(incidentSearchTimer); void loadIncidents(); });
+byId("incident-period-form").addEventListener("submit",event => { event.preventDefault(); void applyPeriod("incident"); });
+byId("run-period-form").addEventListener("submit",event => { event.preventDefault(); void applyPeriod("run"); });
 byId("incident-prev").addEventListener("click",() => { state.incident.page = Math.max(1,state.incident.page - 1); void loadIncidents(); });
 byId("incident-next").addEventListener("click",() => { state.incident.page++; void loadIncidents(); });
 byId("refresh-runs").addEventListener("click",() => { state.runs.page = 1; state.runs.throughRunId = null; void loadRuns(); });
@@ -570,7 +687,14 @@ byId("proxy-mode").addEventListener("change",() => { byId("proxy-address").disab
 ["username","password"].forEach(id => byId(id).addEventListener("input",() => { state.draftRevision++; state.credentialsDirty = !!(byId("username").value || byId("password").value); invalidateDiagnostic("자격 증명 입력이 변경되었습니다. 등록을 마친 뒤 다시 진단하세요."); updateControls(); }));
 byId("settings-form").addEventListener("submit",event => { event.preventDefault(); void saveSettings(); });
 byId("credentials-form").addEventListener("submit",event => { event.preventDefault(); void saveCredentials(); });
-byId("refresh-settings").addEventListener("click",() => { void loadSettings(true); if (state.settingsDirty) setMessage("서버 설정을 다시 읽습니다. 저장하지 않은 입력은 유지합니다."); });
+byId("refresh-settings").addEventListener("click",() => { void loadSettings(true); void loadScope(); if (state.settingsDirty) setMessage("서버 설정을 다시 읽습니다. 저장하지 않은 입력은 유지합니다."); });
+["scope-mode","scope-ids","scope-reason"].forEach(id=>byId(id).addEventListener("input",()=>scopeDraftChanged("scope")));
+byId("scope-mode").addEventListener("change",()=>scopeDraftChanged("scope"));
+["baseline-count","baseline-reason"].forEach(id=>byId(id).addEventListener("input",()=>scopeDraftChanged("baseline")));
+byId("scope-form").addEventListener("submit",event=>{event.preventDefault();void saveScope();});
+byId("baseline-form").addEventListener("submit",event=>{event.preventDefault();void confirmBaseline();});
+byId("scope-reload").addEventListener("click",()=>{void loadScope({resetScope:true});});
+byId("baseline-reload").addEventListener("click",()=>{void loadScope({resetBaseline:true});});
 byId("retry-authentication").addEventListener("click",retryAuthentication); byId("run-diagnostics").addEventListener("click",runDiagnostics);
 document.addEventListener("visibilitychange",() => { if (!document.hidden) void loadHealth(); });
 

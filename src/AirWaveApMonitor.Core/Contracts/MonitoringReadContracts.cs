@@ -26,13 +26,15 @@ public sealed record RunPage(Guid DatasetId, ImmutableArray<RunListItem> Rows, i
 public enum IncidentStatus { Open, Recovered, TrackingEnded }
 public sealed record IncidentQuery(Guid DatasetId, long ScopeVersion, long AsOfRunId, Guid? ApId = null,
     IncidentStatus? Status = null, string? Search = null, DateTimeOffset? FromUtc = null,
-    DateTimeOffset? ToUtc = null, int Page = 1, int PageSize = 50, Guid? DeviceGenerationId = null);
+    DateTimeOffset? ToUtc = null, int Page = 1, int PageSize = 50, Guid? DeviceGenerationId = null,
+    long? MinimumOpenElapsedSeconds = null);
 public sealed record IncidentReadModel(Guid IncidentId, Guid ApId, string SourceApId, Guid DeviceGenerationId,
     Guid MonitoringIntervalId, IncidentStatus Status, IncidentTrackingSnapshot Tracking,
     IncidentSnapshot Detection, IncidentSnapshot? Recovery, ImmutableArray<ObservationGap> ObservationGaps,
     double? ObservedElapsedSeconds, bool MoreObservationGaps = false);
 public sealed record IncidentPage(RunSelection Selection, ImmutableArray<IncidentReadModel> Rows,
-    int TotalRows, int DistinctApCount, int Page, int PageSize);
+    int TotalRows, int DistinctApCount, int Page, int PageSize,
+    int UpToDownTransitionCount = 0, int InitialDownCount = 0);
 public sealed record ApDetailQuery(Guid DatasetId, long ScopeVersion, long RunId, Guid ApId, int HistoryLimit = 50);
 public sealed record ApObservationHistoryItem(long RunId, long ScopeVersion, DateTimeOffset StartedAtUtc,
     DateTimeOffset FinalizedAtUtc, RunLifecycle Lifecycle, RunOutcome Outcome, ApState? CurrentState,

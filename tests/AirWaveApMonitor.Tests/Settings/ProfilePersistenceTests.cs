@@ -20,5 +20,9 @@ public sealed class ProfilePersistenceTests
         Assert.Equal(4, restored.CredentialsVersion);
         Assert.Equal(ProxyMode.Direct, restored.Proxy.Mode);
         Assert.Equal(5, restored.Settings.ApIntervalMinutes);
+        var json = JsonSerializer.Serialize(p);
+        Assert.DoesNotContain("MonitoringScope", json);
+        Assert.DoesNotContain("ScopeRevisions", json);
+        Assert.DoesNotContain("BaselineConfirmedSourceApIds", json);
     }
 }

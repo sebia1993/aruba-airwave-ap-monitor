@@ -117,6 +117,13 @@ public sealed record ProfileSnapshot
     }
     public ProxySettings Proxy { get; init; } = new();
     public long CredentialsVersion { get; init; } = 1;
+    // Omitted defaults preserve the exact JSON shape of legacy immutable profiles.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MonitoringScopeDefinition? MonitoringScope { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<ProfileScopeRevision>? ScopeRevisions { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<string>? BaselineConfirmedSourceApIds { get; init; }
 
     [JsonConstructor]
     public ProfileSnapshot(Guid instanceId, Guid datasetId, Uri origin, long configurationVersion, long scopeVersion,
@@ -158,7 +165,11 @@ public sealed record CollectionContext(long RunId, ProfileSnapshot Profile, Coll
     public int SchemaVersion => 1;
 }
 
-public sealed record CollectionError(CollectionErrorCategory Category, int Count, string SafeMessage);
+public sealed record CollectionError(CollectionErrorCategory Category, int Count, string SafeMessage)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceApId { get; init; }
+}
 public sealed record ExcludedRecord(int RecordIndex, string? SourceApId, CollectionErrorCategory Reason, string SafeDetail);
 
 /// <summary>Failed with no observations means no valid result, never a confirmed empty AP inventory.</summary>
@@ -168,6 +179,9 @@ public sealed record ApCollectionBatch(RunOutcome Outcome, ImmutableArray<ApObse
 {
     public int SchemaVersion => 1;
     public SourceCheckpoint? Checkpoint { get; init; }
+    // True only when a complete response accounts for every record-level quality error.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool RecordErrorAttributionComplete { get; init; }
 }
 
 public sealed record RunRequestReceipt(RunRequestStatus Status, long? RunId, Guid? QueueId, string Message)

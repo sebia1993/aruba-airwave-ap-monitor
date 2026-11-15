@@ -22,6 +22,7 @@ internal sealed class ReadFixture : IDisposable
         Location = StoragePaths.Open(AppMode.Demo, directory.Path);
         Store = new(Location, gate, new Clock(this));
     }
+    public void AdvanceTime(TimeSpan duration) => Now += duration;
     public ProfileSnapshot Profile(long scope = 1, params string[] ids) => new(InstanceId, Location.DatasetId,
         new("https://demo.example.invalid/"), scope, scope,
         (ids.Length == 0 ? new[] { "100", "200" } : ids).Select(id => new ExpectedTarget(id)), BaselineStatus.Unverified, new());

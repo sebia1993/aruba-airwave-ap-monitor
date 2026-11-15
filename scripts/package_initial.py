@@ -82,7 +82,13 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
         guides.update({"docs/DEVELOPMENT_STATUS.md": "DEVELOPMENT_STATUS.md", "docs/ACCEPTANCE_EVIDENCE.md": "ACCEPTANCE_EVIDENCE.md",
                        "DEVELOPMENT_LOG.md": "DEVELOPMENT_LOG.md", "docs/PERFORMANCE_MEASUREMENTS.md": "PERFORMANCE_MEASUREMENTS.md",
                        "docs/measurements/2026-11-16-ap-2000.json": "2026-11-16-ap-2000.json",
-                       "docs/measurements/2026-11-16-ap-5000.json": "2026-11-16-ap-5000.json"})
+                       "docs/measurements/2026-11-16-ap-5000.json": "2026-11-16-ap-5000.json",
+                       "docs/measurements/2026-11-16-compact-cycles-2000.json": "2026-11-16-compact-cycles-2000.json",
+                       "docs/measurements/2026-11-16-compact-cycles-5000.json": "2026-11-16-compact-cycles-5000.json",
+                       "docs/measurements/2026-11-16-compact-steady-up-2000.json": "2026-11-16-compact-steady-up-2000.json",
+                       "docs/measurements/2026-11-16-compact-steady-up-5000.json": "2026-11-16-compact-steady-up-5000.json",
+                       "docs/measurements/2026-11-16-enrichment-storage.json": "2026-11-16-enrichment-storage.json",
+                       "docs/superpowers/plans/2026-11-16-compact-history-correction.md": "IMPLEMENTATION_CORRECTIONS.md"})
     elif (repository / "scripts/windows/Monitor-Common.ps1").exists():
         # Later launchers share this dependency. Historic diagnostics generation must
         # not create a launcher that refers to a missing helper.

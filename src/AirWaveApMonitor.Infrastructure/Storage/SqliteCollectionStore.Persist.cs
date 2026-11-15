@@ -8,7 +8,7 @@ namespace AirWaveApMonitor.Infrastructure.Storage;
 public sealed partial class SqliteCollectionStore
 {
     private void PersistDecision(SqliteConnection connection, SqliteTransaction transaction,
-        CollectionContext context, ApTransitionDecision decision, StoredAp? previous, bool includeRow)
+        CollectionContext context, ApTransitionDecision decision, StoredAp? previous, bool includeRow, HistoryCapture? history = null)
     {
         var next = decision.Next;
         if (next.Identity.DeviceGenerationId is null || next.MonitoringIntervalId is null ||
@@ -120,7 +120,9 @@ public sealed partial class SqliteCollectionStore
                 next.LastValidObservedAtUtc, firstDown, next.OpenIncident?.IncidentId, decision.Classification,
                 view.Fields, decision.UnknownReason, next.TimeNeedsReview, view.SourceAtUtc, view.LastContactedAtUtc, measurements)
             { EnrichmentReferenceId = enrichment.ReferenceId, EnrichmentCommitSequence = enrichment.CommitSequence, EnrichmentCapturedAtUtc = enrichment.At };
-            Execute(connection, transaction, "INSERT INTO run_rows VALUES($run,$ap,$generation,$interval,$metadata,$json)",
+            if (facts.CurrentState == ApState.Up)
+                CaptureNormalHistory(connection, transaction, history ?? throw new InvalidDataException("과거 관측 컨텍스트가 없습니다."), view, metadataId, facts);
+            else Execute(connection, transaction, "INSERT INTO run_rows VALUES($run,$ap,$generation,$interval,$metadata,$json)",
                 ("$run", context.RunId), ("$ap", apId), ("$generation", view.DeviceGenerationId),
                 ("$interval", view.MonitoringIntervalId), ("$metadata", metadataId), ("$json", Encode(facts)));
         }

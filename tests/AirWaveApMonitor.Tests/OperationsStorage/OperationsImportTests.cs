@@ -111,7 +111,7 @@ public sealed partial class SqliteCollectionStoreTests
     [Fact]
     public async Task SchemaThreeUpgrade_BackfillsOnlySavedEvidenceAndKeepsOldSnapshotsImmutable()
     {
-        await SeedOperations(); await Apply(Observation("100", ApState.Up, name: "Renamed"), Observation("200", ApState.Up));
+        LoadSchemaFiveHistory();
         var legacy = await Dashboard(1);
         var before = JsonSerializer.Serialize(legacy with { Rows = legacy.Rows.Select(r => r with { EnrichmentDetail = null }).ToImmutableArray() }); var automatic = await store.GetTimelineAsync(new(PageSize: 500), default);
         // Remove post-v3 objects and their additive row-fact references to construct a real preceding schema.
@@ -122,6 +122,7 @@ public sealed partial class SqliteCollectionStoreTests
         using (var command = connection.CreateCommand())
         {
             command.CommandText = "PRAGMA foreign_keys=OFF"; command.ExecuteNonQuery();
+            RemoveEmptyCompactSchema(connection);
             using var fifthStream = assembly.GetManifestResourceStream(assembly.GetManifestResourceNames().Single(n => n.EndsWith("005_enrichment.sql")))!;
             using var fifthReader = new StreamReader(fifthStream); var fifth = await fifthReader.ReadToEndAsync();
             command.CommandText = "SELECT sql FROM sqlite_master WHERE name='run_rows_are_immutable'"; var trigger = (string)command.ExecuteScalar()!;

@@ -42,10 +42,17 @@ class CorePackageTests(unittest.TestCase):
         (self.repository / "docs/ACCEPTANCE_EVIDENCE.md").write_text("Synthetic acceptance evidence", encoding="utf-8")
         (self.repository / "docs/PERFORMANCE_MEASUREMENTS.md").write_text("Synthetic measurement record", encoding="utf-8")
         (self.repository / "DEVELOPMENT_LOG.md").write_text("Synthetic log", encoding="utf-8")
-        for count in (2000, 5000):
-            measurement = self.repository / f"docs/measurements/2026-11-16-ap-{count}.json"
+        self.measurements = ("2026-11-16-ap-2000.json", "2026-11-16-ap-5000.json",
+                             "2026-11-16-compact-cycles-2000.json", "2026-11-16-compact-cycles-5000.json",
+                             "2026-11-16-compact-steady-up-2000.json", "2026-11-16-compact-steady-up-5000.json",
+                             "2026-11-16-enrichment-storage.json")
+        for name in self.measurements:
+            measurement = self.repository / "docs/measurements" / name
             measurement.parent.mkdir(parents=True, exist_ok=True)
             measurement.write_text("{}", encoding="utf-8")
+        self.corrections = self.repository / "docs/superpowers/plans/2026-11-16-compact-history-correction.md"
+        self.corrections.parent.mkdir(parents=True, exist_ok=True)
+        self.corrections.write_text("Synthetic implementation correction plan", encoding="utf-8")
 
     def build(self):
         return PACKAGE.create_package(self.publish, self.output, self.repository, "a" * 40, False,
@@ -62,6 +69,11 @@ class CorePackageTests(unittest.TestCase):
             self.assertIn("PERFORMANCE_MEASUREMENTS.md", names)
             self.assertIn("2026-11-16-ap-2000.json", names)
             self.assertIn("2026-11-16-ap-5000.json", names)
+            self.assertTrue(set(self.measurements).issubset(names))
+            self.assertIn("IMPLEMENTATION_CORRECTIONS.md", names)
+            self.assertNotIn("2026-11-16-compact-history-correction.md", names)
+            for name in self.measurements:
+                self.assertEqual(b"{}", bundle.read(name))
             self.assertIn("app/e_sqlite3.dll", names)
             self.assertIn("app/wwwroot/ui-state.js", names)
             version = json.loads(bundle.read("VERSION.json"))
@@ -111,12 +123,65 @@ class CorePackageTests(unittest.TestCase):
         guide = self.repository / "docs/guides/README_WINDOWS.md"
         original = "[status](../DEVELOPMENT_STATUS.md#task-8) [log](../../DEVELOPMENT_LOG.md)\n"
         guide.write_text(original, encoding="utf-8")
+        original_bytes = guide.read_bytes()
         with zipfile.ZipFile(self.build()) as bundle:
-            self.assertEqual("[operations](OPERATIONS.md)\n", bundle.read("DEVELOPMENT_STATUS.md").decode())
-            self.assertEqual("[status](DEVELOPMENT_STATUS.md#task-8) [log](DEVELOPMENT_LOG.md)\n", bundle.read("README_WINDOWS.md").decode())
-            self.assertIn("Synthetic verification record", bundle.read("DEVELOPMENT_LOG.md").decode())
-            self.assertEqual("[onsite](ONSITE_VALIDATION.md) [log](DEVELOPMENT_LOG.md)\n", bundle.read("ACCEPTANCE_EVIDENCE.md").decode())
+            # Text files use the publishing host's native newline. Link rewriting
+            # must preserve content on both Windows and Unix, independently of EOL.
+            def markdown(name):
+                return bundle.read(name).decode("utf-8").replace("\r\n", "\n")
+
+            self.assertEqual("[operations](OPERATIONS.md)\n", markdown("DEVELOPMENT_STATUS.md"))
+            self.assertEqual("[status](DEVELOPMENT_STATUS.md#task-8) [log](DEVELOPMENT_LOG.md)\n", markdown("README_WINDOWS.md"))
+            self.assertIn("Synthetic verification record", markdown("DEVELOPMENT_LOG.md"))
+            self.assertEqual("[onsite](ONSITE_VALIDATION.md) [log](DEVELOPMENT_LOG.md)\n", markdown("ACCEPTANCE_EVIDENCE.md"))
         self.assertEqual(original, guide.read_text(encoding="utf-8"))
+        self.assertEqual(original_bytes, guide.read_bytes())
+
+    def test_core_requires_final_measurements_and_corrections_without_replacing_previous_archives(self):
+        required = [self.repository / "docs/measurements" / name for name in self.measurements[2:]]
+        required.append(self.corrections)
+        for index, file in enumerate(required):
+            with self.subTest(path=str(file)):
+                self.output = self.root / f"missing-evidence-{index}"
+                self.output.mkdir()
+                previous = self.output / "previous.zip"
+                previous.write_bytes(b"preserve previously tested bundle")
+                data = file.read_bytes()
+                file.unlink()
+                try:
+                    with self.assertRaises(ValueError):
+                        self.build()
+                    self.assertEqual(b"preserve previously tested bundle", previous.read_bytes())
+                    self.assertEqual([previous], list(self.output.glob("*.zip")))
+                finally:
+                    file.write_bytes(data)
+
+    def test_compact_evidence_links_are_flat_and_source_documents_are_unchanged(self):
+        performance = self.repository / "docs/PERFORMANCE_MEASUREMENTS.md"
+        guide = self.repository / "docs/guides/README_WINDOWS.md"
+        correction_name = self.corrections.name
+        performance.write_text(
+            "".join(f"[measurement](measurements/{name})\n" for name in self.measurements) +
+            f"[corrections](superpowers/plans/{correction_name}#storage)\n", encoding="utf-8")
+        self.corrections.write_text(
+            "[performance](../../PERFORMANCE_MEASUREMENTS.md#capacity)\n" +
+            "".join(f"[measurement](../../measurements/{name})\n" for name in self.measurements) +
+            "[external](https://example.invalid/evidence.json) [not bundled](unbundled.md)\n", encoding="utf-8")
+        guide.write_text(f"[corrections](../superpowers/plans/{correction_name}#storage)\n", encoding="utf-8")
+        originals = {file: file.read_bytes() for file in (performance, self.corrections, guide)}
+        with zipfile.ZipFile(self.build()) as bundle:
+            def markdown(name):
+                return bundle.read(name).decode("utf-8").replace("\r\n", "\n")
+
+            measurements = "".join(f"[measurement]({name})\n" for name in self.measurements)
+            self.assertEqual(measurements + "[corrections](IMPLEMENTATION_CORRECTIONS.md#storage)\n",
+                             markdown("PERFORMANCE_MEASUREMENTS.md"))
+            self.assertEqual("[performance](PERFORMANCE_MEASUREMENTS.md#capacity)\n" + measurements +
+                             "[external](https://example.invalid/evidence.json) [not bundled](unbundled.md)\n",
+                             markdown("IMPLEMENTATION_CORRECTIONS.md"))
+            self.assertEqual("[corrections](IMPLEMENTATION_CORRECTIONS.md#storage)\n", markdown("README_WINDOWS.md"))
+        for file, original in originals.items():
+            self.assertEqual(original, file.read_bytes())
 
     def test_core_packaging_preserves_existing_private_data_exclusion(self):
         (self.publish / "monitor.db-wal").write_bytes(b"private runtime data")

@@ -86,7 +86,9 @@ public sealed class MonitoringEndpointTests
         Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes.Take(3));
         var text = Encoding.UTF8.GetString(bytes.AsSpan(3)); Assert.Contains("\r\n", text);
         using var parser = new TextFieldParser(new StringReader(text)) { HasFieldsEnclosedInQuotes = true, TrimWhiteSpace = false };
-        parser.SetDelimiters(","); var header = parser.ReadFields()!; var row = parser.ReadFields()!;
+        parser.SetDelimiters(","); var header = parser.ReadFields()!;
+        Assert.Equal("QueryContext", parser.ReadFields()![Array.IndexOf(header, "RecordType")]);
+        var row = parser.ReadFields()!; Assert.Equal("Ap", row[Array.IndexOf(header, "RecordType")]);
         var exported = row[Array.IndexOf(header, "AP 이름")];
         Assert.Equal("한글,\"인용\"\n다음 줄" == name ? name : "'" + name, exported);
         Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
@@ -102,7 +104,9 @@ public sealed class MonitoringEndpointTests
         var response = await host.Client.GetAsync($"/api/export.csv?runId={failed.RunId}");
         response.EnsureSuccessStatusCode();
         using var parser = new TextFieldParser(new StringReader(Encoding.UTF8.GetString((await response.Content.ReadAsByteArrayAsync()).AsSpan(3))));
-        parser.SetDelimiters(","); var header = parser.ReadFields()!; var row = parser.ReadFields()!;
+        parser.SetDelimiters(","); var header = parser.ReadFields()!;
+        Assert.Equal("QueryContext", parser.ReadFields()![Array.IndexOf(header, "RecordType")]);
+        var row = parser.ReadFields()!; Assert.Equal("Ap", row[Array.IndexOf(header, "RecordType")]);
         Assert.Equal("Unknown", row[Array.IndexOf(header, "이번 상태")]);
         Assert.Equal("Down", row[Array.IndexOf(header, "마지막 유효 상태")]);
         var evidence = JsonDocument.Parse(row[Array.IndexOf(header, "필드별 근거 JSON")]).RootElement.GetProperty("serial_number");
@@ -124,7 +128,12 @@ public sealed class MonitoringEndpointTests
         response.EnsureSuccessStatusCode(); Assert.Equal("501", response.Headers.GetValues("X-AirWave-Row-Count").Single());
         using var parser = new TextFieldParser(new StringReader(Encoding.UTF8.GetString((await response.Content.ReadAsByteArrayAsync()).AsSpan(3))));
         parser.SetDelimiters(","); var header = parser.ReadFields()!; var ids = new List<string>();
-        while (!parser.EndOfData) ids.Add(parser.ReadFields()![Array.IndexOf(header, "원천 AP ID")]);
+        Assert.Equal("QueryContext", parser.ReadFields()![Array.IndexOf(header, "RecordType")]);
+        while (!parser.EndOfData)
+        {
+            var row = parser.ReadFields()!; Assert.Equal("Ap", row[Array.IndexOf(header, "RecordType")]);
+            ids.Add(row[Array.IndexOf(header, "원천 AP ID")]);
+        }
         Assert.Equal(501, ids.Count); Assert.Equal(501, ids.Distinct().Count()); Assert.Equal("100", ids[0]); Assert.Equal("600", ids[^1]);
     }
 
@@ -231,7 +240,7 @@ public sealed class MonitoringEndpointTests
     }
 
     [Fact]
-    public async Task EmptyFilteredExport_HasHeaderOnlyAndPastSearchNeverUsesCurrentName()
+    public async Task EmptyFilteredExport_HasQueryContextOnlyAndPastSearchNeverUsesCurrentName()
     {
         using var f = new ReadFixture();
         var first = await f.Apply([f.Ap("100", ApState.Down, "original-name"), f.Ap("200", ApState.Up)]);
@@ -242,6 +251,9 @@ public sealed class MonitoringEndpointTests
         var response = await host.Client.GetAsync($"/api/export.csv?runId={first.RunId}&search=future-name");
         response.EnsureSuccessStatusCode(); Assert.Equal("0", response.Headers.GetValues("X-AirWave-Row-Count").Single());
         using var parser = new TextFieldParser(new StringReader(Encoding.UTF8.GetString((await response.Content.ReadAsByteArrayAsync()).AsSpan(3))));
-        parser.SetDelimiters(","); Assert.Contains("AP 이름", parser.ReadFields()!); Assert.True(parser.EndOfData);
+        parser.SetDelimiters(","); var headers = parser.ReadFields()!; Assert.Contains("AP 이름", headers);
+        var context = parser.ReadFields()!; Assert.Equal("QueryContext", context[Array.IndexOf(headers, "RecordType")]);
+        Assert.Equal("future-name", JsonDocument.Parse(context[Array.IndexOf(headers, "QueryConditions")]).RootElement.GetProperty("search").GetString());
+        Assert.True(parser.EndOfData);
     }
 }

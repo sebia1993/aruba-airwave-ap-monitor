@@ -46,8 +46,8 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
         var gaps = ReadGaps(connection, transaction, query.ApId, row.DeviceGenerationId, query.RunId, null, ct);
         var observations = new List<ApObservationHistoryItem>();
         using var command = Command(connection, transaction, """
-            SELECT r.run_id,r.context_json,r.lifecycle,f.finalized_at_utc,f.receipt_json,x.facts_json
-            FROM run_rows x JOIN runs r ON r.run_id=x.run_id JOIN run_results f ON f.run_id=r.run_id
+            SELECT r.run_id,r.context_json,r.lifecycle,f.finalized_at_utc,f.receipt_json,x.facts_json,x.history_observed_at_utc,x.history_commit_sequence
+            FROM historical_ap_rows x JOIN runs r ON r.run_id=x.run_id JOIN run_results f ON f.run_id=r.run_id
             WHERE x.ap_id=$ap AND x.generation_id=$generation AND x.run_id<=$run
             ORDER BY x.run_id DESC LIMIT $limit
             """, ("$ap", query.ApId), ("$generation", row.DeviceGenerationId), ("$run", query.RunId), ("$limit", query.HistoryLimit + 1));
@@ -55,7 +55,7 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
         while (reader.Read())
         {
             ct.ThrowIfCancellationRequested();
-            var context = ReadStored<CollectionContext>(reader.GetString(1)); var facts = ReadStored<RowFacts>(reader.GetString(5));
+            var context = ReadStored<CollectionContext>(reader.GetString(1)); var facts = ReadHistoryFacts(reader.GetString(5), reader.GetInt64(0), reader.IsDBNull(6) ? null : reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetInt64(7));
             observations.Add(new(reader.GetInt64(0), context.Profile.ScopeVersion, context.StartedAtUtc, Time(reader, 3)!.Value,
                 (RunLifecycle)reader.GetInt32(2), ReadStored<CommitReceipt>(reader.GetString(4)).Outcome,
                 facts.CurrentState, facts.Classification, facts.UnknownReason, facts.TimeNeedsReview));
@@ -79,7 +79,7 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
         if (incidentId == Guid.Empty) throw new ArgumentOutOfRangeException(nameof(incidentId));
         var snapshot = await GetDashboardAsync(new(query.DatasetId, query.ScopeVersion, query.AsOfRunId, PageSize: 1), ct);
         using var connection = Open(); using var transaction = connection.BeginTransaction(deferred: true);
-        var seed = ReadIncidentSeeds(connection, transaction, query, ct).SingleOrDefault(seed => seed.IncidentId == incidentId)
+        var seed = ReadIncidentSeeds(connection, transaction, Select(snapshot), query, ct).SingleOrDefault(seed => seed.IncidentId == incidentId)
             ?? throw new KeyNotFoundException("선택한 시점과 대상에 사건이 없습니다.");
         return BuildIncident(connection, transaction, Select(snapshot), seed, ct);
     }
@@ -117,13 +117,14 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
     private static IncidentPage ReadIncidents(SqliteConnection connection, SqliteTransaction transaction,
         RunSelection selection, IncidentQuery query, CancellationToken ct)
     {
-        var seeds = ReadIncidentSeeds(connection, transaction, query, ct);
+        var seeds = ReadIncidentSeeds(connection, transaction, selection, query, ct);
         var rows = Page(seeds, query.Page, query.PageSize).Select(seed => BuildIncident(connection, transaction, selection, seed, ct)).ToImmutableArray();
-        return new(selection, rows, seeds.Count, seeds.Select(seed => seed.ApId).Distinct().Count(), query.Page, query.PageSize);
+        return new(selection, rows, seeds.Count, seeds.Select(seed => seed.ApId).Distinct().Count(), query.Page, query.PageSize,
+            seeds.Count(seed => !seed.Tracking.IsInitialDown), seeds.Count(seed => seed.Tracking.IsInitialDown));
     }
 
     private static List<IncidentSeed> ReadIncidentSeeds(SqliteConnection connection, SqliteTransaction transaction,
-        IncidentQuery query, CancellationToken ct)
+        RunSelection selection, IncidentQuery query, CancellationToken ct)
     {
         var targets = ReadSnapshotRows(connection, transaction, query.AsOfRunId, ct).ToDictionary(row => row.ApId);
         using var command = Command(connection, transaction, """
@@ -136,7 +137,7 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
             FROM latest l JOIN run_transitions t ON t.run_id=l.run_id AND t.incident_id=l.incident_id
                 JOIN aps a ON a.ap_id=t.ap_id
             WHERE a.dataset_id=$dataset
-                AND EXISTS (SELECT 1 FROM run_rows r WHERE r.run_id=$run AND r.ap_id=t.ap_id)
+                AND EXISTS (SELECT 1 FROM historical_ap_rows r WHERE r.run_id=$run AND r.ap_id=t.ap_id)
                 AND ($ap IS NULL OR t.ap_id=$ap) AND ($generation IS NULL OR t.generation_id=$generation)
             """, ("$dataset", query.DatasetId), ("$run", query.AsOfRunId), ("$ap", query.ApId), ("$generation", query.DeviceGenerationId));
         using var reader = command.ExecuteReader(); var seeds = new List<IncidentSeed>();
@@ -151,6 +152,8 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
                 tracking.LastDownRunId > query.AsOfRunId || tracking.RecoveredRunId > query.AsOfRunId || tracking.TrackingEndedRunId > query.AsOfRunId)
                 throw new InvalidDataException("과거 사건의 참조 또는 시점이 일치하지 않습니다.");
             if ((query.Status is null || Status(tracking) == query.Status) &&
+                MeetsOpenElapsedMinimum(tracking.FirstDownAtUtc, tracking.TimeNeedsReview, Status(tracking) == IncidentStatus.Open,
+                    selection.FinalizedAtUtc, query.MinimumOpenElapsedSeconds) &&
                 (query.FromUtc is null || tracking.FirstDownAtUtc >= query.FromUtc) &&
                 (query.ToUtc is null || tracking.FirstDownAtUtc <= query.ToUtc) &&
                 (string.IsNullOrWhiteSpace(query.Search) || MatchesSearch(targets[seed.ApId], query.Search) ||
@@ -217,10 +220,15 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
 
     private static IncidentStatus Status(IncidentTrackingSnapshot value) => value.RecoveredRunId is not null
         ? IncidentStatus.Recovered : value.TrackingEndedRunId is not null ? IncidentStatus.TrackingEnded : IncidentStatus.Open;
+    private static bool MeetsOpenElapsedMinimum(DateTimeOffset? firstDownAtUtc, bool timeNeedsReview, bool isOpen,
+        DateTimeOffset finalizedAtUtc, long? minimumSeconds)
+        => minimumSeconds is null || (isOpen && !timeNeedsReview && firstDownAtUtc is { } firstDown &&
+            finalizedAtUtc >= firstDown && (finalizedAtUtc - firstDown).TotalSeconds >= minimumSeconds.Value);
     private static void ValidateIncidentQuery(IncidentQuery query)
     {
         ValidatePage(query.Page, query.PageSize); ValidateRange(query.FromUtc, query.ToUtc);
         if (query.AsOfRunId <= 0 || query.ScopeVersion <= 0 || query.ApId == Guid.Empty || query.DeviceGenerationId == Guid.Empty ||
+            query.MinimumOpenElapsedSeconds is <= 0 ||
             (query.Status is { } status && !Enum.IsDefined(status))) throw new ArgumentOutOfRangeException(nameof(query));
     }
     private static void ValidatePage(int page, int pageSize)

@@ -101,7 +101,7 @@ public sealed partial class SqliteCollectionStore
             if (current is null) continue; // No row-level evidence was stored for an excluded target; do not invent it.
             var previous = change.Before is { } before ? ReadHistoricalView(connection, transaction, change.Ap, before, change.Run, true) : null;
             var identity = previous is null ? IdentityChange.FirstGeneration : previous.DeviceGenerationId != current.DeviceGenerationId ? IdentityChange.Replaced : IdentityChange.Unchanged;
-            var facts = Optional<RowFacts>(connection, transaction, "SELECT facts_json FROM run_rows WHERE run_id=$run AND ap_id=$ap", ("$run", change.Run), ("$ap", change.Ap))!;
+            var facts = ReadHistoricalFacts(connection, transaction, change.Run, change.Ap);
             var observed = facts.Fields.Values.Select(f => f.CollectedAtUtc).DefaultIfEmpty(context.StartedAtUtc).Max();
             // A schema 1-3 replacement could have accepted stale identity. Keep that historical fact
             // but do not synthesize a new typed event with contradictory evidence.
@@ -126,13 +126,13 @@ public sealed partial class SqliteCollectionStore
         Guid apId, long metadataId, long runId, bool before)
     {
         using var command = Command(connection, transaction, """
-            SELECT a.source_ap_id,r.generation_id,r.interval_id,m.metadata_json,r.facts_json
-            FROM run_rows r JOIN aps a USING(ap_id) JOIN metadata_versions m ON m.metadata_version_id=$metadata
+            SELECT a.source_ap_id,r.generation_id,r.interval_id,m.metadata_json,r.facts_json,r.run_id,r.history_observed_at_utc,r.history_commit_sequence
+            FROM historical_ap_rows r JOIN aps a USING(ap_id) JOIN metadata_versions m ON m.metadata_version_id=$metadata
             WHERE r.ap_id=$ap AND (($before=0 AND r.run_id=$run) OR ($before=1 AND r.run_id<$run))
             ORDER BY r.run_id DESC LIMIT 1
             """, ("$metadata", metadataId), ("$ap", apId), ("$before", before ? 1 : 0), ("$run", runId));
         using var reader = command.ExecuteReader(); if (!reader.Read()) return null;
-        var facts = Decode<RowFacts>(reader.GetString(4));
+        var facts = ReadHistoryFacts(reader.GetString(4), reader.GetInt64(5), reader.IsDBNull(6) ? null : reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetInt64(7));
         return new(apId, reader.GetString(0), Guid.Parse(reader.GetString(1)), Guid.Parse(reader.GetString(2)),
             RestoreMeasurements(Decode<DeviceMetadata>(reader.GetString(3)), facts.Measurements), facts.Fields, facts.SourceAtUtc, facts.LastContactedAtUtc);
     }

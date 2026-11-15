@@ -35,7 +35,7 @@ public enum ObservationClassification { Up, NewDown, InitialDown, ExistingDown, 
 public sealed record DashboardQuery(Guid DatasetId, long ScopeVersion, long? RunId = null, string? Search = null,
     DashboardFilter Filter = DashboardFilter.All, DashboardSort Sort = DashboardSort.Name,
     bool Descending = false, int Page = 1, int PageSize = 50,
-    OperationalStatus? ManagementStatus = null, bool HidePlanned = false);
+    OperationalStatus? ManagementStatus = null, bool HidePlanned = false, long? MinimumOpenElapsedSeconds = null);
 public sealed record ApSnapshotRow(Guid ApId, string SourceApId, Guid DeviceGenerationId, Guid MonitoringIntervalId,
     DeviceIdentity Identity, DeviceDetails Device, LocationDetails Location, ControllerDetails Controller,
     ApState? CurrentState, ApState? LastValidState, DateTimeOffset? LastValidObservedAtUtc,

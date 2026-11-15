@@ -2,6 +2,46 @@ export function countText(value) {
   return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("ko-KR") : "—";
 }
 
+const kstFormatter = new Intl.DateTimeFormat("ko-KR", { timeZone:"Asia/Seoul", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit", hourCycle:"h23" });
+export function kstDateText(value) {
+  if (!value) return "미확인";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "시각 확인 필요" : `${kstFormatter.format(date)} KST`;
+}
+
+// datetime-local has no offset. Every editable local time in this UI is explicitly KST.
+export function kstInputToUtc(value) {
+  if (!value) return null;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value)) throw new Error("KST 시각을 확인하세요.");
+  const expected = value.length === 16 ? `${value}:00` : value;
+  const date = new Date(`${expected}+09:00`);
+  if (!Number.isFinite(date.getTime()) || new Date(date.getTime() + 9 * 3600000).toISOString().slice(0,19) !== expected)
+    throw new Error("KST 시각을 확인하세요.");
+  return date.toISOString();
+}
+export function utcToKstInput(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) throw new Error("KST 시각을 확인하세요.");
+  return new Date(date.getTime() + 9 * 3600000).toISOString().slice(0,16);
+}
+export function kstPeriod(from, to) {
+  const fromUtc = kstInputToUtc(from), toUtc = kstInputToUtc(to);
+  if (fromUtc && toUtc && fromUtc > toUtc) throw new Error("시작 시각은 종료 시각보다 늦을 수 없습니다.");
+  return { fromUtc, toUtc };
+}
+export function addHistoryFilters(params, filters) {
+  for (const key of ["fromUtc", "toUtc"]) if (filters[key]) params.set(key, filters[key]);
+  addMinimumElapsed(params, filters.minimumOpenElapsedSeconds);
+  return params;
+}
+function addMinimumElapsed(params, value) {
+  if (value == null || value === "") return;
+  const seconds = Number(value);
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) throw new Error("미복구 경과 조건은 양수 초로 지정하세요.");
+  params.set("minimumOpenElapsedSeconds", String(seconds));
+}
+
 export function createRequestGate() {
   let generation = 0;
   return {
@@ -23,6 +63,7 @@ export function dashboardQuery(filters = {}, selection = null, exportAll = false
   params.set("descending", String(filters.descending !== false));
   if (filters.managementStatus) params.set("managementStatus", filters.managementStatus);
   params.set("hidePlanned", String(!!filters.hidePlanned));
+  addMinimumElapsed(params, filters.minimumOpenElapsedSeconds);
   if (!exportAll) {
     params.set("page", filters.page || 1);
     params.set("pageSize", filters.pageSize || 50);

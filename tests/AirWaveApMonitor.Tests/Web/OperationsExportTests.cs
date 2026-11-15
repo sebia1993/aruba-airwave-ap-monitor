@@ -41,7 +41,9 @@ public sealed class OperationsExportTests
         response.EnsureSuccessStatusCode(); var bytes = await response.Content.ReadAsByteArrayAsync();
         Assert.Equal(new byte[] { 0xef, 0xbb, 0xbf }, bytes[..3]);
         using var parser = new TextFieldParser(new MemoryStream(bytes)); parser.SetDelimiters(","); parser.HasFieldsEnclosedInQuotes = true;
-        var headers = parser.ReadFields()!; var values = parser.ReadFields()!;
+        var headers = parser.ReadFields()!;
+        Assert.Equal("QueryContext", parser.ReadFields()![Array.IndexOf(headers, "RecordType")]);
+        var values = parser.ReadFields()!; Assert.Equal("Ap", values[Array.IndexOf(headers, "RecordType")]);
         var columns = headers.Zip(values).ToDictionary(pair => pair.First, pair => pair.Second);
         Assert.True(parser.EndOfData);
         Assert.Equal(preferManual ? "'=manual formula" : "past automatic", columns["AP 이름"]);

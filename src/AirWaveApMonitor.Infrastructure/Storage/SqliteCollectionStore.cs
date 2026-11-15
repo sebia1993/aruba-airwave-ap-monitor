@@ -111,7 +111,9 @@ public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceChe
                 profile.ConfigurationVersion, profile.ScopeVersion, targets.ToImmutable(), baseline, profile.Settings)
             {
                 Proxy = profile.Proxy,
-                CredentialsVersion = profile.CredentialsVersion
+                CredentialsVersion = profile.CredentialsVersion,
+                MonitoringScope = profile.MonitoringScope, ScopeRevisions = profile.ScopeRevisions,
+                BaselineConfirmedSourceApIds = profile.BaselineConfirmedSourceApIds
             };
             var now = timeProvider.GetUtcNow().ToUniversalTime();
             Execute(connection, transaction,

@@ -30,6 +30,38 @@ public sealed partial class SqliteCollectionStore
             throw new InvalidDataException("잘못된 AP 회차입니다.");
         }
         var frozen = context.Profile.ExpectedTargets.ToDictionary(target => target.SourceApId, StringComparer.Ordinal);
+        var sourceBatch = batch;
+        var parsedObservationCount = batch.Observations.Length;
+        int? scopeExcludedApCount = null, scopeExcludedRecordCount = null;
+        if (context.Profile.MonitoringScope is { Mode: MonitoringScopeMode.SelectedApIds } selection)
+        {
+            var selectedIds = selection.SourceApIds.ToHashSet(StringComparer.Ordinal);
+            if (frozen.Keys.Any(id => !selectedIds.Contains(id)))
+                throw new InvalidDataException("고정된 기대 대상과 명시 감시 범위가 일치하지 않습니다.");
+            batch = batch with
+            {
+                Observations = batch.Observations.Where(observation => selectedIds.Contains(observation.SourceApId)).ToImmutableArray(),
+                ExcludedRecords = batch.ExcludedRecords.Where(record => record.SourceApId is null ||
+                    record.Reason == CollectionErrorCategory.InvalidField || selectedIds.Contains(record.SourceApId)).ToImmutableArray()
+            };
+            scopeExcludedApCount = sourceBatch.Observations.Length - batch.Observations.Length;
+            scopeExcludedRecordCount = sourceBatch.ExcludedRecords.Length - batch.ExcludedRecords.Length;
+            // Only complete, attributable record diagnostics may be narrowed to the selected inventory.
+            // Unknown documents, failures, and unexplained legacy Partial results retain their quality.
+            if (batch.RecordErrorAttributionComplete &&
+                (batch.Outcome == RunOutcome.Succeeded && batch.Completeness == ObservationCompleteness.Complete ||
+                 batch.Outcome == RunOutcome.Partial && batch.Completeness == ObservationCompleteness.Partial && batch.Errors.Length > 0))
+            {
+                var scopedErrors = batch.Errors.Where(error => error.SourceApId is null || selectedIds.Contains(error.SourceApId)).ToImmutableArray();
+                batch = batch with
+                {
+                    Errors = scopedErrors,
+                    Outcome = scopedErrors.IsEmpty ? RunOutcome.Succeeded : RunOutcome.Partial,
+                    Completeness = batch.Observations.IsEmpty ? ObservationCompleteness.Unknown
+                        : scopedErrors.IsEmpty ? ObservationCompleteness.Complete : ObservationCompleteness.Partial
+                };
+            }
+        }
         var saved = LoadCurrent(connection, transaction, context);
         foreach (var target in frozen.Values)
         {
@@ -79,6 +111,8 @@ public sealed partial class SqliteCollectionStore
         {
             errors.Add(new(CollectionErrorCategory.MissingRecord, missing, "시작 당시 기대 대상 중 관측되지 않은 AP가 있습니다."));
         }
+        var history = new HistoryCapture(context.RunId, batch.CollectedAtUtc,
+            Convert.ToInt64(Scalar(connection, transaction, "SELECT COALESCE(MAX(commit_sequence),0) FROM collection_commits")));
         var decisions = new List<ApTransitionDecision>();
         foreach (var sourceId in targets.Order(StringComparer.Ordinal))
         {
@@ -100,7 +134,7 @@ public sealed partial class SqliteCollectionStore
                 decision = transitions.EvaluateUnobserved(previous?.Tracking,
                     new(sourceId, reason, batch.CollectedAtUtc), context, ids);
             }
-            PersistDecision(connection, transaction, context, decision, previous, true);
+            PersistDecision(connection, transaction, context, decision, previous, true, history);
             decisions.Add(decision);
             Execute(connection, transaction, "INSERT OR IGNORE INTO expected_targets VALUES($dataset,$scope,$source)",
                 ("$dataset", location.DatasetId), ("$scope", context.Profile.ScopeVersion), ("$source", sourceId));
@@ -126,12 +160,21 @@ public sealed partial class SqliteCollectionStore
                 "현재 수집 범위에서 제외됨", batch.CollectedAtUtc, context);
             PersistDecision(connection, transaction, context, decision, previous, false);
         }
+        PersistHistoryFrame(connection, transaction, context, history);
         var unknown = decisions.Any(decision => decision.CurrentState is null);
         var outcome = failed ? RunOutcome.Failed
             : unknown || batch.Outcome == RunOutcome.Partial || errors.Count > 0 || batch.Completeness != ObservationCompleteness.Complete
                 ? RunOutcome.Partial : RunOutcome.Succeeded;
+        var baseline = context.Profile.BaselineStatus;
+        if (context.Profile.BaselineConfirmedSourceApIds is { } confirmedIds && baseline == BaselineStatus.Confirmed &&
+            !targets.SetEquals(confirmedIds))
+        {
+            baseline = BaselineStatus.Unverified;
+            Execute(connection, transaction, "UPDATE scopes SET baseline_status=0 WHERE dataset_id=$dataset AND scope_version=$scope",
+                ("$dataset", location.DatasetId), ("$scope", context.Profile.ScopeVersion));
+        }
         var summary = classifier.Summarize(decisions, targets, outcome,
-            new(context.Profile.BaselineStatus, targets.Count > 0 || frozen.Count > 0, excluded.Length + policyExcluded.Count));
+            new(baseline, targets.Count > 0 || frozen.Count > 0, excluded.Length + policyExcluded.Count));
         var receipt = new CommitReceipt(context.RunId, false, outcome, summary);
         var finalized = timeProvider.GetUtcNow().ToUniversalTime();
         Execute(connection, transaction, """
@@ -141,8 +184,14 @@ public sealed partial class SqliteCollectionStore
             ("$outcome", outcome), ("$receipt", Encode(receipt)),
             ("$complete", failed ? ObservationCompleteness.Unknown : outcome == RunOutcome.Partial ? ObservationCompleteness.Partial : ObservationCompleteness.Complete),
             ("$errors", Encode(errors.ToImmutable())),
-            ("$evidence", Encode(new ApRunSourceEvidence(batch.Observations.Length, validCount, failed ? 0 : appliedValidCount,
-                batch.ExcludedRecords, conflicts with { DuplicateApIds = duplicateIds.ToImmutableHashSet(StringComparer.Ordinal) }))));
+            ("$evidence", Encode(new ApRunSourceEvidence(parsedObservationCount, validCount, failed ? 0 : appliedValidCount,
+                batch.ExcludedRecords, conflicts with { DuplicateApIds = duplicateIds.ToImmutableHashSet(StringComparer.Ordinal) })
+            {
+                SourceOutcome = scopeExcludedApCount is null ? null : sourceBatch.Outcome,
+                SourceCompleteness = scopeExcludedApCount is null ? null : sourceBatch.Completeness,
+                ScopeExcludedApCount = scopeExcludedApCount,
+                ScopeExcludedRecordCount = scopeExcludedRecordCount
+            })));
         if (Execute(connection, transaction, "UPDATE runs SET lifecycle=$lifecycle WHERE run_id=$run AND lifecycle=0",
             ("$lifecycle", lifecycle), ("$run", context.RunId)) != 1)
         {
@@ -167,7 +216,7 @@ public sealed partial class SqliteCollectionStore
         }
         Execute(connection, transaction, "INSERT INTO collection_commits(run_id) VALUES($run)", ("$run", context.RunId));
         PersistCheckpoint(connection, transaction, context, batch, lifecycle);
-        PersistExecutionDetails(connection, transaction, context, batch, finalized, failed ? 0 : appliedValidCount);
+        PersistExecutionDetails(connection, transaction, context, sourceBatch, finalized, failed ? 0 : appliedValidCount);
         return receipt;
     }
 

@@ -61,7 +61,8 @@ public sealed partial class SqliteCollectionStore
         ValidateDataset(query.DatasetId);
         if (query.ScopeVersion <= 0 || query.Page <= 0 || query.PageSize is < 1 or > 10000 ||
             !Enum.IsDefined(query.Filter) || !Enum.IsDefined(query.Sort) ||
-            query.RunId is <= 0 || (query.ManagementStatus is { } management && !Enum.IsDefined(management)))
+            query.RunId is <= 0 || query.MinimumOpenElapsedSeconds is <= 0 ||
+            (query.ManagementStatus is { } management && !Enum.IsDefined(management)))
         {
             throw new ArgumentOutOfRangeException(nameof(query));
         }
@@ -108,6 +109,8 @@ public sealed partial class SqliteCollectionStore
             filtered = filtered.Where(row => MatchesSearch(row, query.Search));
         if (query.ManagementStatus is { } managementStatus)
             filtered = filtered.Where(row => row.ManualManagement?.Status == managementStatus);
+        filtered = filtered.Where(row => MeetsOpenElapsedMinimum(row.FirstDownAtUtc, row.TimeNeedsReview,
+            row.OpenIncidentId is not null, finalized, query.MinimumOpenElapsedSeconds));
         var selected = filtered.ToList();
         var hidden = query.HidePlanned ? selected.Count(row => row.ManualManagement?.Status == OperationalStatus.PlannedWork) : 0;
         if (query.HidePlanned)
@@ -149,8 +152,8 @@ public sealed partial class SqliteCollectionStore
     {
         var rows = new List<ApSnapshotRow>();
         using (var command = Command(connection, transaction, """
-            SELECT r.ap_id,a.source_ap_id,r.generation_id,r.interval_id,m.metadata_json,r.facts_json
-            FROM run_rows r JOIN aps a ON a.ap_id=r.ap_id JOIN metadata_versions m ON m.metadata_version_id=r.metadata_version_id
+            SELECT r.ap_id,a.source_ap_id,r.generation_id,r.interval_id,m.metadata_json,r.facts_json,r.history_observed_at_utc,r.history_commit_sequence
+            FROM historical_ap_rows r JOIN aps a ON a.ap_id=r.ap_id JOIN metadata_versions m ON m.metadata_version_id=r.metadata_version_id
             WHERE r.run_id=$run
             """, ("$run", runId)))
         using (var reader = command.ExecuteReader())
@@ -158,7 +161,7 @@ public sealed partial class SqliteCollectionStore
             while (reader.Read())
             {
                 ct.ThrowIfCancellationRequested();
-                var facts = ReadStored<RowFacts>(reader.GetString(5));
+                var facts = ReadHistoryFacts(reader.GetString(5), runId, reader.IsDBNull(6) ? null : reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetInt64(7));
                 var metadata = RestoreMeasurements(ReadStored<DeviceMetadata>(reader.GetString(4)), facts.Measurements);
                 var upstream = metadata.Upstream is { } reference && facts.Fields.TryGetValue("upstream_device_id", out var upstreamEvidence)
                     ? new SourceUpstreamReference(reference.SourceSwitchId, reference.PortIndex, reference.PortName, reference.ApInterface, upstreamEvidence)

@@ -1,4 +1,5 @@
 "use strict";
+import { kstPeriod } from "./ui-state.js";
 const kinds={ConnectionNeighbor:"연결·이웃",Power:"전력"};
 const metrics={ApConsumption:"AP 소비전력",PortActual:"스위치 포트 실제 전력",Requested:"요청 전력",Allocated:"할당 전력",Reserved:"예약 전력",Maximum:"최대 전력"};
 const availability={Unverified:"미검증",AvailableConfirmed:"제공 확인",UnsupportedConfirmed:"미지원 확인"};
@@ -137,7 +138,7 @@ export function createEnrichmentController({api,onMessage,navigate,dateText,isCu
     state.power??={page:1,through:null,metric:"",from:"",to:"",sourceDeviceId:"",sourceInterfaceId:"",endpointRole:""};const value=state.power,selection=state.selection,form=e("form","toolbar enrichment-filters");
     if(selection)area.append(e("div","notice",`과거 조회 고정 · AP ${unknown(selection.apId)} · 장비 세대 ${unknown(selection.deviceGenerationId)} · 회차 ${selection.runId} · 범위 ${selection.scopeVersion}`),button("전체 대상의 최신 표본 조회",()=>show("power",null)));
     else area.append(button("최신 표본 기준 다시 읽기",()=>{state.power.through=null;state.power.scopeVersion=null;state.power.page=1;void show("power");}));
-    field(form,"metric","전력 지표",{value:value.metric,options:[["","모든 지표 (합산 안 함)"],...Object.entries(metrics)]});field(form,"from","조회 시각 시작",{type:"datetime-local",value:value.from});field(form,"to","조회 시각 종료",{type:"datetime-local",value:value.to});
+    field(form,"metric","전력 지표",{value:value.metric,options:[["","모든 지표 (합산 안 함)"],...Object.entries(metrics)]});field(form,"from","조회 시각 시작 (KST)",{type:"datetime-local",value:value.from});field(form,"to","조회 시각 종료 (KST)",{type:"datetime-local",value:value.to});
     if(!selection){field(form,"sourceDeviceId","원천 장비 ID",{value:value.sourceDeviceId});field(form,"sourceInterfaceId","원천 인터페이스 ID",{value:value.sourceInterfaceId});field(form,"endpointRole","측정 지점 종류",{value:value.endpointRole,options:[["","전체"],["AccessPoint","AP"],["Switch","스위치"],["Controller","컨트롤러"],["Other","기타"]]});}
     const search=e("button","","조건 적용");search.type="submit";form.append(search);form.addEventListener("submit",event=>{event.preventDefault();const v=read(form);state.power={...value,...v,page:1};void show("power");});area.append(form,note("필터와 30일 보존 기준은 수집기가 읽은 조회 시각입니다. 원천·검증된 측정 시각은 별도로 표시합니다. 실제·요청·할당·최대 전력을 합산하거나 누적 에너지로 환산하지 않으며 미확인 값은 0 W가 아닙니다."));
     if(!selection&&value.scopeVersion==null){const settings=await api("/api/settings",{timeout:130000});if(!current(ticket))return;if(!settings.profile)throw new Error("서버 연결 프로필을 먼저 등록하세요.");value.scopeVersion=settings.profile.scopeVersion;}
@@ -154,6 +155,6 @@ export function powerQuery(selection,filters,throughCommitSequence){
   if(selection?.runId)query.set("throughRunId",selection.runId);
   if(throughCommitSequence!=null)query.set("throughCommitSequence",throughCommitSequence);
   for(const key of["metric","sourceDeviceId","sourceInterfaceId","endpointRole"])if(filters[key])query.set(key,filters[key]);
-  for(const [input,key]of[["from","fromUtc"],["to","toUtc"]])if(filters[input]){const date=new Date(filters[input]);if(Number.isNaN(date.getTime()))throw new Error("조회 시각을 확인하세요.");query.set(key,date.toISOString());}
+  for(const [key,value] of Object.entries(kstPeriod(filters.from,filters.to)))if(value)query.set(key,value);
   return query;
 }

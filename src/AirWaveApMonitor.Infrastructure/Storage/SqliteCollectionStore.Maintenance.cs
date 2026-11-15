@@ -40,7 +40,9 @@ public sealed partial class SqliteCollectionStore
                     while (reader.Read()) targets.Add(new(reader.GetString(0), reader.IsDBNull(1) ? null : Guid.Parse(reader.GetString(1)), reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2))));
                 var profile = new ProfileSnapshot(original.InstanceId, original.DatasetId, original.Origin,
                     original.ConfigurationVersion, original.ScopeVersion, targets.ToImmutable(), original.BaselineStatus, original.Settings)
-                { Proxy = original.Proxy, CredentialsVersion = original.CredentialsVersion };
+                { Proxy = original.Proxy, CredentialsVersion = original.CredentialsVersion,
+                    MonitoringScope = original.MonitoringScope, ScopeRevisions = original.ScopeRevisions,
+                    BaselineConfirmedSourceApIds = original.BaselineConfirmedSourceApIds };
                 Execute(connection, transaction, "INSERT INTO runs(dataset_id,scope_version,kind,lifecycle,context_json,target_universe_known) VALUES($dataset,$scope,0,0,'',$known)",
                     ("$dataset", location.DatasetId), ("$scope", profile.ScopeVersion), ("$known", targets.Count > 0 ? 1 : 0));
                 restorationRun = Convert.ToInt64(Scalar(connection, transaction, "SELECT last_insert_rowid()"));

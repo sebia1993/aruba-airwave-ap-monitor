@@ -68,7 +68,7 @@ public sealed partial class SqliteCollectionStoreTests : IDisposable
         Assert.Equal(first.Summary, second.Summary);
         Assert.Equal(1, Count("incidents"));
         Assert.Equal(1, Count("run_results"));
-        Assert.Equal(2, Count("run_rows"));
+        Assert.Equal(2, Count("historical_ap_rows"));
     }
 
     [Fact]
@@ -329,7 +329,9 @@ public sealed partial class SqliteCollectionStoreTests : IDisposable
         await Apply(Observation("100", ApState.Up), Observation("200", ApState.Up));
         await Apply(Observation("100", ApState.Up), Observation("200", ApState.Up));
         Assert.Equal(2, Count("metadata_versions"));
-        Assert.Equal(4, Count("run_rows"));
+        Assert.Equal(4, Count("historical_ap_rows"));
+        Assert.Equal(0, Count("run_rows"));
+        Assert.Equal(2, Count("ap_history_versions"));
         var first = await Dashboard(1);
         var second = await Dashboard(2);
         Assert.True(first.Rows[0].Fields["name"].CollectedAtUtc < second.Rows[0].Fields["name"].CollectedAtUtc);
@@ -358,7 +360,7 @@ public sealed partial class SqliteCollectionStoreTests : IDisposable
             command.ExecuteNonQuery();
         }
         await Assert.ThrowsAsync<InvalidOperationException>(() => Dashboard(target: NewStore()));
-        Assert.Equal(2, Count("run_rows"));
+        Assert.Equal(2, Count("historical_ap_rows"));
     }
 
     private SqliteConnection Connect()

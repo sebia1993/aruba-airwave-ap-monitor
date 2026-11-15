@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 namespace AirWaveApMonitor.Core.Contracts;
 
@@ -30,4 +31,14 @@ public sealed record CollectionSuccessTimes(long? LastValidRunId, DateTimeOffset
     long? LastCompleteRunId, DateTimeOffset? LastCompleteCommittedAtUtc);
 
 public sealed record ApRunSourceEvidence(int ParsedApCount, int ValidStateCount, int AppliedStateCount,
-    ImmutableArray<ExcludedRecord> ExcludedRecords, IdentityBatchConflicts IdentityConflicts);
+    ImmutableArray<ExcludedRecord> ExcludedRecords, IdentityBatchConflicts IdentityConflicts)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public RunOutcome? SourceOutcome { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ObservationCompleteness? SourceCompleteness { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ScopeExcludedApCount { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ScopeExcludedRecordCount { get; init; }
+}

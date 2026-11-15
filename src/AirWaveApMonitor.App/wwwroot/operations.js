@@ -1,4 +1,5 @@
 "use strict";
+import { kstInputToUtc, utcToKstInput } from "./ui-state.js";
 export const inventoryFields = [
   ["Name","이름","device","name"],["IpAddress","IP","device","ipAddress"],["Model","모델","device","model"],["Firmware","펌웨어","device","firmware"],
   ["Site","사업장","location","site"],["Building","건물","location","building"],["Floor","층","location","floor"],["Zone","구역","location","zone"],["Detail","상세 위치","location","detail"],
@@ -86,7 +87,7 @@ export function createOperationsController({api,onMessage,navigate,dateText,isCu
   const section = title => {const n=e("section","panel padded");n.append(e("h2","",title));return n;};
   const badge = (value,cls="")=>e("span",`badge ${cls}`,value);
   const field = (form,name,label,{type="text",value="",required=false,options=null,max=4096}={}) => {
-    const wrap=e("label","operation-field"),caption=e("span","",label); let input;
+    const wrap=e("label","operation-field"),caption=e("span","",type==="datetime-local"?`${label} (KST)`:label); let input;
     if(options) {input=e("select");for(const [key,title] of options){const option=e("option","",title);option.value=key;input.append(option);}}
     else input=e(type==="textarea"?"textarea":"input");
     if(!options&&type!=="textarea")input.type=type;
@@ -133,8 +134,8 @@ export function createOperationsController({api,onMessage,navigate,dateText,isCu
   async function show(tab=state.tab,context=undefined){state.tab=tab;if(context!==undefined){state.context=context;if(tab==="timeline"){state.timeline.filters={apId:context?.apId,deviceGenerationId:context?.deviceGenerationId,installationPointId:context?.installationPointId};state.timeline.page=1;state.timeline.through=null;}}
     navigate("operations");const ticket=epoch(),area=layout();try{const version=await api("/api/operations/version");if(!valid(ticket))return;if(!Number.isSafeInteger(version.restoreEpoch)||version.restoreEpoch<0)throw new Error("등록 기준을 확인하지 못했습니다. 화면을 다시 읽어주세요.");state.version=version;if(tab==="registration")await registration(area,ticket);else if(tab==="points")await points(area,ticket);else if(tab==="work")await work(area,ticket);else if(tab==="import")renderImport(area);else await timeline(area,ticket);}catch(error){if(valid(ticket))area.append(e("div","notice error",error.message));}setBusy();
   }
-  function utc(value){if(!value)return null;const parsed=new Date(value);if(Number.isNaN(parsed.getTime()))throw new Error("시각을 확인하세요.");return parsed.toISOString();}
-  function local(value){if(!value)return "";const date=new Date(value);return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);}
+  function utc(value){return kstInputToUtc(value);}
+  function local(value){return utcToKstInput(value);}
   function pagination(area,total,page,change){const pages=Math.max(1,Math.ceil(total/30)),bar=e("div","pager");bar.append(e("span","",`${total}건 · ${page}/${pages}`));const actions=e("div","actions"),prev=b("이전",()=>change(page-1)),next=b("다음",()=>change(page+1));prev.disabled=page<=1;next.disabled=page>=pages;actions.append(prev,next);bar.append(actions);area.append(bar);}
   function contextPicker(area){const form=e("form","toolbar"),input=field(form,"contextApId","AP 내부 ID",{value:state.context?.apId||"",required:true}),go=e("button","","조회");go.type="submit";form.append(go);form.addEventListener("submit",event=>{event.preventDefault();if(!nonEmptyGuid(input.value.trim()))return showMessage("정확한 AP 내부 ID를 입력하거나 AP 상세의 등록 정보 버튼을 사용하세요.",true);state.context={apId:input.value.trim()};void show("registration");});area.append(form);}
   async function registration(area,ticket){contextPicker(area);if(!state.context?.apId){area.append(note("AP 상세에서 현재 등록 정보를 열거나 정확한 내부 ID를 입력하세요. 이름/IP로 장비를 연결하지 않습니다."));return;}

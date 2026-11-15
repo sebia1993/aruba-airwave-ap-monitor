@@ -70,7 +70,7 @@ public sealed class ApListParser(EvidenceSource source = EvidenceSource.AirWave)
                         valid ? provided ? unverified ? FieldValidity.Unknown : FieldValidity.Valid : FieldValidity.Unknown : FieldValidity.Invalid, source, observedAt);
                     values[field] = valid && provided ? value : null;
                     if (!valid)
-                        errors.Add(new(CollectionErrorCategory.InvalidField, 1, "AP 필드 유효성 확인 실패"));
+                        errors.Add(new(CollectionErrorCategory.InvalidField, 1, "AP 필드 유효성 확인 실패") { SourceApId = id });
                 }
                 foreach (var field in entry.Elements().Select(e => e.Name.ToString()).Distinct(StringComparer.Ordinal).Where(name => !evidence.ContainsKey(name)))
                     evidence[field] = new(FieldAvailability.Unverified, FieldValidity.Unknown, source, observedAt);
@@ -82,7 +82,7 @@ public sealed class ApListParser(EvidenceSource source = EvidenceSource.AirWave)
                     _ => null
                 };
                 if (state is null)
-                    errors.Add(new(CollectionErrorCategory.InvalidField, 1, "AP 상태 미확인"));
+                    errors.Add(new(CollectionErrorCategory.InvalidField, 1, "AP 상태 미확인") { SourceApId = id });
                 var raw = new[] { "last_contacted", "last_reboot", "snmp_uptime" }.Where(f => V(f) != null).ToImmutableDictionary(f => f, f => V(f)!);
                 observations.Add(new(id, state, new(V("serial_number"), V("lan_mac")), new(V("name"), V("lan_ip"), V("model"), V("firmware")),
                     new(AirWaveRawLocation: V("syslocation"), Folder: V("folder"), Group: V("group")), new(V("controller_id")), observedAt, null, null, evidence.ToImmutable(),
@@ -94,13 +94,15 @@ public sealed class ApListParser(EvidenceSource source = EvidenceSource.AirWave)
                     }, V("operating_mode")),
                     new(V("upstream_device_id"), V("upstream_port_index"), null, null, evidence["upstream_device_id"]), raw));
             }
-            foreach (var group in excluded.GroupBy(e => e.Reason))
-                errors.Add(new(group.Key, group.Count(), "제외된 레코드가 있습니다."));
+            foreach (var group in excluded.GroupBy(e => (e.Reason,
+                SourceApId: e.Reason == CollectionErrorCategory.InvalidField ? null : e.SourceApId)))
+                errors.Add(new(group.Key.Reason, group.Count(), "제외된 레코드가 있습니다.") { SourceApId = group.Key.SourceApId });
             if (observations.Count == 0)
                 errors.Add(new(CollectionErrorCategory.Unverified, 1, "AP 0대: 대상·권한·응답 확인이 필요합니다."));
             var partial = errors.Count > 0;
             return new(partial ? RunOutcome.Partial : RunOutcome.Succeeded, observations.ToImmutable(), excluded.ToImmutable(), observedAt,
-                observations.Count == 0 ? ObservationCompleteness.Unknown : partial ? ObservationCompleteness.Partial : ObservationCompleteness.Complete, errors.ToImmutable());
+                observations.Count == 0 ? ObservationCompleteness.Unknown : partial ? ObservationCompleteness.Partial : ObservationCompleteness.Complete, errors.ToImmutable())
+            { RecordErrorAttributionComplete = true };
         }
         catch (ResponseLimitException) { return Failure(CollectionErrorCategory.ResponseTooLarge, observedAt); }
         catch (XmlException) { return Failure(CollectionErrorCategory.InvalidResponse, observedAt); }

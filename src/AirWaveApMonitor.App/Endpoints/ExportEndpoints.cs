@@ -14,7 +14,7 @@ public static class ExportEndpoints
         "폴더", "그룹", "컨트롤러 ID", "컨트롤러 이름", "컨트롤러 IP", "원천 SW ID", "포트 인덱스", "포트명", "AP 인터페이스",
         "이번 상태", "마지막 유효 상태", "마지막 유효 확인 UTC", "첫 Down UTC", "열린 사건 ID", "관측 분류", "미확인 사유",
         "시간 확인 필요", "수동 관리 상태", "수동 관리 사유", "원천 유지보수 모드", "필드별 근거 JSON", "미검증 원문 JSON", "등록 SW 이름", "등록 SW IP", "자산 번호", "대장 메모",
-        "자동 정보 JSON", "수동 등록 JSON", "대장 버전", "대장 출처", "대장 기록 UTC", "수동 우선 필드 JSON", "관측 당시 설치 지점 JSON"];
+        "자동 정보 JSON", "수동 등록 JSON", "대장 버전", "대장 출처", "대장 기록 UTC", "수동 우선 필드 JSON", "관측 당시 설치 지점 JSON", "RecordType", "QueryConditions"];
 
     public static void MapExport(this IEndpointRouteBuilder routes)
     {
@@ -26,6 +26,7 @@ public static class ExportEndpoints
             query = query with { Page = 1, PageSize = 500 };
             var snapshot = await store.GetDashboardAsync(query, ct);
             var builder = new StringBuilder(); Append(builder, Headers);
+            Append(builder, ContextValues(location.Mode, snapshot, query));
             var written = 0;
             for (var page = 1; ; page++)
             {
@@ -50,11 +51,29 @@ public static class ExportEndpoints
             return Results.File(bytes, "text/csv; charset=utf-8", $"airwave-{location.Mode.ToString().ToLowerInvariant()}-run-{runId}.csv");
         }));
     }
-    private static IEnumerable<string?> Values(AppMode mode, DashboardSnapshot snapshot, ApSnapshotRow row) =>
+    private static IEnumerable<string?> CommonValues(AppMode mode, DashboardSnapshot snapshot) =>
     [
         mode.ToString(), snapshot.DatasetId.ToString("D"), snapshot.ScopeVersion.ToString(CultureInfo.InvariantCulture),
         snapshot.RunId.ToString(CultureInfo.InvariantCulture), Time(snapshot.StartedAtUtc), Time(snapshot.FinalizedAtUtc),
-        snapshot.Lifecycle.ToString(), snapshot.Outcome?.ToString(), snapshot.Completeness.ToString(), snapshot.Summary.BaselineStatus.ToString(),
+        snapshot.Lifecycle.ToString(), snapshot.Outcome?.ToString(), snapshot.Completeness.ToString(), snapshot.Summary.BaselineStatus.ToString()
+    ];
+    private static string?[] ContextValues(AppMode mode, DashboardSnapshot snapshot, DashboardQuery query)
+    {
+        var values = new string?[Headers.Length];
+        CommonValues(mode, snapshot).ToArray().CopyTo(values, 0);
+        values[^2] = "QueryContext";
+        values[^1] = MonitoringHttp.Serialize(new
+        {
+            snapshot.DatasetId, snapshot.ScopeVersion, snapshot.RunId, snapshot.StartedAtUtc, snapshot.FinalizedAtUtc,
+            exportExtent = "AllMatchingRows", totalApRows = snapshot.TotalRows,
+            query.Filter, query.Search, query.Sort, query.Descending, query.ManagementStatus, query.HidePlanned,
+            query.MinimumOpenElapsedSeconds
+        });
+        return values;
+    }
+    private static IEnumerable<string?> Values(AppMode mode, DashboardSnapshot snapshot, ApSnapshotRow row) =>
+    [
+        .. CommonValues(mode, snapshot),
         row.SourceApId, row.ApId.ToString("D"), row.DeviceGenerationId.ToString("D"), row.MonitoringIntervalId.ToString("D"),
         Display(row, InventoryField.Name, row.Device.Name), Display(row, InventoryField.IpAddress, row.Device.IpAddress), row.Identity.SerialNumber, row.Identity.WiredMac, Display(row, InventoryField.Model, row.Device.Model), Display(row, InventoryField.Firmware, row.Device.Firmware),
         Display(row, InventoryField.Site, row.Location.Site), Display(row, InventoryField.Building, row.Location.Building), Display(row, InventoryField.Floor, row.Location.Floor), Display(row, InventoryField.Zone, row.Location.Zone), Display(row, InventoryField.Detail, row.Location.Detail), Display(row, InventoryField.RawLocation, row.Location.AirWaveRawLocation),
@@ -71,7 +90,8 @@ public static class ExportEndpoints
         row.ManualInventory?.Version.ToString(CultureInfo.InvariantCulture), row.ManualInventory?.Source.ToString(),
         Time(row.ManualInventory?.RecordedAtUtc),
         row.ManualInventory is null ? null : MonitoringHttp.Serialize(row.ManualInventory.ManualPreferredFields),
-        row.ManualInventory?.Placement is null ? null : MonitoringHttp.Serialize(row.ManualInventory.Placement)
+        row.ManualInventory?.Placement is null ? null : MonitoringHttp.Serialize(row.ManualInventory.Placement),
+        "Ap", null
     ];
     private static string? Registered(ApSnapshotRow row, InventoryField field)
         => row.ManualInventory?.Values.GetValueOrDefault(field);

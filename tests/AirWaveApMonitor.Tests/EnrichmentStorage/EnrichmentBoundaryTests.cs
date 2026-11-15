@@ -19,7 +19,7 @@ public sealed partial class SqliteCollectionStoreTests
         var reopened = NewStore(); await reopened.InitializeAsync(default);
         var health = await reopened.GetEnrichmentHealthAsync(Profile(), CollectionKind.Power, default);
         Assert.False(health.StorageRecoveryPending); Assert.Equal(RunOutcome.Failed, health.LastOutcome); Assert.True(health.HasQualityGap);
-        Assert.Equal(2, Count("run_rows"));
+        Assert.Equal(2, Count("historical_ap_rows")); Assert.Equal(1, Count("run_history_frames"));
     }
     [Fact]
     public async Task EnrichmentAllUnknownSucceededInput_FailsAndPreservesRawMissingPower()

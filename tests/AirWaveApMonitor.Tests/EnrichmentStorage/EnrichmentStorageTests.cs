@@ -93,7 +93,7 @@ public sealed partial class SqliteCollectionStoreTests
             Assert.Equal(RunLifecycle.Interrupted, result.Run.Lifecycle); Assert.Equal(RunOutcome.Failed, result.Run.Outcome);
             Assert.False((await reopened.GetEnrichmentHealthAsync(Profile(), run.Kind, default)).StorageRecoveryPending);
         }
-        Assert.Equal(apRun, (await Dashboard(target: reopened)).RunId); Assert.Equal(2, Count("run_rows"));
+        Assert.Equal(apRun, (await Dashboard(target: reopened)).RunId); Assert.Equal(2, Count("historical_ap_rows")); Assert.Equal(1, Count("run_history_frames"));
     }
 
     [Fact]

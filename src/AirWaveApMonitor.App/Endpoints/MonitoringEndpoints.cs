@@ -87,7 +87,8 @@ internal static class MonitoringHttp
             EnumValue<DashboardFilter>(http, "filter") ?? DashboardFilter.OpenIncidents,
             EnumValue<DashboardSort>(http, "sort") ?? DashboardSort.FirstDownAt,
             Boolean(http, "descending", true), Int(http, "page", 1), Int(http, "pageSize", 50, 500),
-            EnumValue<OperationalStatus>(http, "managementStatus"), Boolean(http, "hidePlanned", false));
+            EnumValue<OperationalStatus>(http, "managementStatus"), Boolean(http, "hidePlanned", false),
+            Long(http, "minimumOpenElapsedSeconds"));
     }
     internal static async Task<long> Scope(HttpContext http, IMonitoringReadStore reads, Guid dataset, long run, CancellationToken ct)
     {
@@ -102,7 +103,8 @@ internal static class MonitoringHttp
     {
         var run = RequiredLong(http, "asOfRunId"); var scope = await Scope(http, reads, location.DatasetId, run, ct);
         return new(location.DatasetId, scope, run, GuidValue(http, "apId"), EnumValue<IncidentStatus>(http, "status"),
-            Text(http, "search", 512), Time(http, "fromUtc"), Time(http, "toUtc"), Int(http, "page", 1), Int(http, "pageSize", 50, 500));
+            Text(http, "search", 512), Time(http, "fromUtc"), Time(http, "toUtc"), Int(http, "page", 1), Int(http, "pageSize", 50, 500),
+            MinimumOpenElapsedSeconds: Long(http, "minimumOpenElapsedSeconds"));
     }
     internal static string? Text(HttpContext http, string key, int maximum = 128)
     {

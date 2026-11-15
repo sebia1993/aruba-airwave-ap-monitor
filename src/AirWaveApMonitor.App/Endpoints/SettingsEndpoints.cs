@@ -11,6 +11,7 @@ public static class SettingsEndpoints
 {
     public static void MapSettings(this WebApplication app)
     {
+        app.MapScopeSettings();
         app.MapGet("/api/antiforgery", (HttpContext context, IAntiforgery antiforgery) => { context.Response.Headers.CacheControl = "no-store"; return Results.Ok(new { token = antiforgery.GetAndStoreTokens(context).RequestToken }); });
         app.MapGet("/api/settings", async (HttpContext context, ProfileStore profiles, ICredentialStore credentials, RuntimeOptions runtime, AirWaveSession session) =>
         {
@@ -73,9 +74,11 @@ public static class SettingsEndpoints
             return Results.Ok(await diagnostics.RunAsync(profile, context.RequestAborted));
         }));
     }
-    private static async Task<IResult> Guard(ProfileStore profiles, HttpContext context, Func<Task<IResult>> action)
+    internal static async Task<IResult> Guard(ProfileStore profiles, HttpContext context, Func<Task<IResult>> action, bool waitForGate = false)
     {
-        if (!await profiles.OperationGate.WaitAsync(0, context.RequestAborted))
+        if (waitForGate)
+            await profiles.OperationGate.WaitAsync(context.RequestAborted);
+        else if (!await profiles.OperationGate.WaitAsync(0, context.RequestAborted))
             return Results.Conflict(new
             {
                 message = "진단 또는 설정 변경이 진행 중입니다. 완료 후 다시 시도하세요."
@@ -88,6 +91,7 @@ public static class SettingsEndpoints
         catch (PlatformNotSupportedException) { return Results.Problem(statusCode: 501, title: SafeMessages.For(CollectionErrorCategory.Unsupported)); }
         catch (AuthenticationStateStoreException) { return Results.Problem(statusCode: 503, title: "인증 중단 상태를 저장하거나 확인하지 못했습니다. 데이터 폴더 권한과 저장 공간을 확인하세요."); }
         catch (CredentialUnavailableException) { return Results.Problem(statusCode: 409, title: SafeMessages.For(CollectionErrorCategory.CredentialUnavailable)); }
+        catch (Microsoft.Data.Sqlite.SqliteException) { return Results.Problem(statusCode: 503, title: "저장된 범위 자료를 읽지 못했습니다. 수집기 저장 상태를 확인하세요."); }
         catch (Exception error) when (error is ArgumentException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException) { return Results.BadRequest(new { message = "입력값 또는 서버 설정을 확인하세요. HTTPS 출처와 고정 프록시 서버 주소만 허용하며 PAC URL은 지원하지 않습니다." }); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException) { return Results.Problem(statusCode: 503, title: "실행 계정의 설정·자격 증명 저장에 실패했습니다. 재등록과 데이터 폴더 권한 확인이 필요합니다."); }
         finally { profiles.OperationGate.Release(); }
