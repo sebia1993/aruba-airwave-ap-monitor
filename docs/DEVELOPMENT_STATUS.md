@@ -180,7 +180,7 @@ Task 5까지 확정 진행률은 **58%**다. 다음은 Task 6의 실제 현황·
 - root 공통 **532 PASS**, Windows 전용 **9 Mac SKIP**, Release 경고/오류 0. Node **43**, Python **8 PASS**. 순수 정책·실제 SQLite·HTTP/UI 독립 검토 PASS.
 - 실제 Mac 브라우저: 수동/자동 분리·지점 v1/v2·배치·작업 예정/실시/취소 버전·CSV 1행 선택 적용·다음 회차 반영·과거 회차 보존·실제 CSV 10행/BOM/수식 방어 확인. 최종 소스 재시작 후 등록 보존·정책 저장·지점 이력 9건/기본정보 5건·한글 변경 요약·콘솔 오류 0을 확인했다.
 - 이력의 구조화된 원본을 안전한 당시 값 요약으로 표시하며 이전 기록은 변경하지 않는다. 화면 증거 `../artifacts/task-8-point-history.jpg`, 사용 안내 `guides/OPERATIONS.md`.
-- Windows CI 결과와 정확한 ZIP 검증은 진행 중이다. 완료 점수는 **80%**이며 아직 Task 8의 12점을 더하지 않는다.
+- 첫 Windows CI `43748148374`는 공통 527 통과·1 실패·Mac/Unix 4 제외. 실행 중 DB의 일반 파일 읽기와 유지보수 쓰기가 충돌한 테스트를 SQLite 읽기로 수정했다. 제품 잠금/백업 변경 없이 Mac 관련 13개 PASS. Windows 재실행과 정확한 ZIP 검증은 진행 중이다. 완료 점수는 **80%**이며 아직 Task 8의 12점을 더하지 않는다.
 
 다음: Task 8 Windows 검증 완료 후 Task 9 연결/전력의 근거·시간·세대 경계, 저장·수집·조회/UI 통합. 실환경 Windows 11/AD·실제 대장/장비·AirWave·Windows GUI/Excel·장기 운영은 미확인이다. 세부 변경과 검증 범위는 `../DEVELOPMENT_LOG.md`에 기록했다.
 

@@ -7,6 +7,8 @@ using AirWaveApMonitor.Infrastructure.AirWave;
 using AirWaveApMonitor.Infrastructure.Maintenance;
 using AirWaveApMonitor.Tests.Support;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Data.Sqlite;
+using AirWaveApMonitor.Infrastructure.Storage;
 
 namespace AirWaveApMonitor.Tests.Runtime;
 
@@ -46,8 +48,21 @@ public sealed class BootstrapTests
         Assert.True(health.GetProperty("collector").GetProperty("paused").GetBoolean());
         Assert.Equal("sqlite-ready", health.GetProperty("persistence").GetString());
         Assert.NotNull(app.Services.GetService<ICollectionStore>());
-        var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(temp.Path, "monitor.db"));
-        Assert.Equal("SQLite format 3\0", System.Text.Encoding.ASCII.GetString(databaseBytes, 0, 16));
+        // The host may be writing maintenance records. Use SQLite's WAL-aware reader;
+        // a raw File.ReadAllBytes handle denies concurrent writers on Windows.
+        using (var database = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.Combine(temp.Path, "monitor.db"), Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false
+        }.ToString()))
+        {
+            await database.OpenAsync();
+            using var command = database.CreateCommand();
+            command.CommandText = "PRAGMA user_version";
+            Assert.Equal((long)SchemaMigrator.CurrentVersion, await command.ExecuteScalarAsync());
+            command.CommandText = "SELECT COUNT(*) FROM runs";
+            Assert.Equal(0L, await command.ExecuteScalarAsync());
+        }
         Assert.False(health.GetProperty("liveConfigured").GetBoolean());
         var emptyDashboard = await client.GetAsync("/api/dashboard");
         Assert.Equal(HttpStatusCode.NotFound, emptyDashboard.StatusCode);
