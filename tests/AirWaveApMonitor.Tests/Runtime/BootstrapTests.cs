@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using AirWaveApMonitor.App.Runtime;
 using AirWaveApMonitor.Core.Contracts;
+using AirWaveApMonitor.Infrastructure.AirWave;
 using AirWaveApMonitor.Tests.Support;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -45,7 +46,7 @@ public sealed class BootstrapTests
         Assert.Contains("AirWave AP Monitor", await client.GetStringAsync("/"));
         if (mode == "live")
         {
-            Assert.Null(app.Services.GetService<IApSource>());
+            Assert.IsType<AirWaveClient>(app.Services.GetService<IApSource>());
             Assert.Equal(JsonValueKind.Null, health.GetProperty("fixtureApCount").ValueKind);
         }
         else
@@ -114,11 +115,13 @@ public sealed class BootstrapTests
         public EnvironmentScope(Dictionary<string, string?> variables)
         {
             original = variables.ToDictionary(pair => pair.Key, pair => Environment.GetEnvironmentVariable(pair.Key));
-            foreach (var variable in variables) Environment.SetEnvironmentVariable(variable.Key, variable.Value);
+            foreach (var variable in variables)
+                Environment.SetEnvironmentVariable(variable.Key, variable.Value);
         }
         public void Dispose()
         {
-            foreach (var variable in original) Environment.SetEnvironmentVariable(variable.Key, variable.Value);
+            foreach (var variable in original)
+                Environment.SetEnvironmentVariable(variable.Key, variable.Value);
         }
     }
 }

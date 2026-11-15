@@ -8,6 +8,16 @@ namespace AirWaveApMonitor.Tests.Demo;
 public sealed class ScenarioApSourceTests
 {
     [Fact]
+    public async Task DemoCollection_UsesParserEvidenceWithoutInventedSourceTimes()
+    {
+        var batch = await new ScenarioApSource(new FixedTimeProvider()).CollectAsync(Context(1), default);
+        var ap = batch.Observations[0];
+        Assert.Null(ap.SourceAtUtc);
+        Assert.Equal(FieldAvailability.NotProvided, ap.Fields["last_contacted"].Availability);
+        Assert.Equal(EvidenceSource.Demo, ap.Fields["is_up"].Source);
+    }
+
+    [Fact]
     public async Task Timeline_Provides2048DistinctDevicesAndRealPrehistoryForVisibleTransitions()
     {
         var source = new ScenarioApSource(new FixedTimeProvider());
@@ -38,7 +48,8 @@ public sealed class ScenarioApSourceTests
     {
         var source = new ScenarioApSource(new FixedTimeProvider());
         var batches = new List<ApCollectionBatch>();
-        for (var run = 1; run <= 7; run++) batches.Add(await source.CollectAsync(Context(run), default));
+        for (var run = 1; run <= 7; run++)
+            batches.Add(await source.CollectAsync(Context(run), default));
         Assert.Equal(10, batches[3].Observations.Count(ap => ap.State == ApState.Down));
         Assert.Equal(ApState.Up, Find(batches[4], "2").State);
         Assert.Equal(ApState.Up, Find(batches[4], "4").State);
@@ -82,7 +93,10 @@ public sealed class ScenarioApSourceTests
         var source = new ScenarioApSource(new FixedTimeProvider());
         var profile = new ProfileSnapshot(Guid.NewGuid(), Guid.NewGuid(), new Uri("https://live.example.invalid"),
             1, 1, [], BaselineStatus.Unverified, new CollectionSettings());
-        var context = Context(1) with { Profile = profile };
+        var context = Context(1) with
+        {
+            Profile = profile
+        };
         await Assert.ThrowsAsync<InvalidOperationException>(() => source.CollectAsync(context, default));
     }
 

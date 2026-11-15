@@ -1,3 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup><ProjectReference Include="../AirWaveApMonitor.Core/AirWaveApMonitor.Core.csproj" /></ItemGroup>
+  <ItemGroup><PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" /></ItemGroup>
 </Project>

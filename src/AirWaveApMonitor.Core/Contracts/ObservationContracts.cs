@@ -2,12 +2,30 @@ using System.Collections.Immutable;
 
 namespace AirWaveApMonitor.Core.Contracts;
 
-public enum ApState { Up, Down }
-public enum FieldAvailability { Provided, NotProvided, Unsupported, Unverified }
-public enum FieldValidity { Valid, Invalid, Unknown }
-public enum SourceFreshness { Current, Delayed, Unknown }
-public enum ObservationCompleteness { Complete, Partial, Unknown }
-public enum EvidenceSource { AirWave, Demo, Manual, Import }
+public enum ApState
+{
+    Up, Down
+}
+public enum FieldAvailability
+{
+    Provided, NotProvided, Unsupported, Unverified
+}
+public enum FieldValidity
+{
+    Valid, Invalid, Unknown
+}
+public enum SourceFreshness
+{
+    Current, Delayed, Unknown
+}
+public enum ObservationCompleteness
+{
+    Complete, Partial, Unknown
+}
+public enum EvidenceSource
+{
+    AirWave, Demo, Manual, Import
+}
 
 public sealed record FieldEvidence(FieldAvailability Availability, FieldValidity Validity, EvidenceSource Source,
     DateTimeOffset CollectedAtUtc, DateTimeOffset? SourceAtUtc = null, SourceFreshness Freshness = SourceFreshness.Unknown);
@@ -23,14 +41,17 @@ public sealed record SourceManagementDetails(bool? MaintenanceMode = null, strin
 /// <summary>AP-list upstream reference is not proof of a current physical link, LLDP or power state.</summary>
 public sealed record SourceUpstreamReference(string? SourceSwitchId, string? PortIndex, string? PortName,
     string? ApInterface, FieldEvidence Evidence);
-public enum OperationalStatus { Operating, PlannedWork, Decommissioned, MonitoringExcluded }
+public enum OperationalStatus
+{
+    Operating, PlannedWork, Decommissioned, MonitoringExcluded
+}
 public sealed record ManualManagementDetails(OperationalStatus Status, string Reason, DateTimeOffset RecordedAtUtc);
 
 /// <summary>Identity conflicts exclude the entire source record; null state cannot drive a transition.</summary>
 public sealed record ApObservation(string SourceApId, ApState? State, DeviceIdentity Identity, DeviceDetails Device,
     LocationDetails Location, ControllerDetails Controller, DateTimeOffset CollectedAtUtc,
     DateTimeOffset? SourceAtUtc, DateTimeOffset? LastContactedAtUtc, ImmutableDictionary<string, FieldEvidence> Fields,
-    SourceManagementDetails? SourceManagement = null, SourceUpstreamReference? Upstream = null)
+    SourceManagementDetails? SourceManagement = null, SourceUpstreamReference? Upstream = null, ImmutableDictionary<string, string>? RawSourceValues = null)
 {
     public int SchemaVersion => 1;
 }

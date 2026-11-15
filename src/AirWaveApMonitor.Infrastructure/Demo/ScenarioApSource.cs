@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using AirWaveApMonitor.Core.Contracts;
 using System.Globalization;
 using System.Xml.Linq;
+using System.Text;
+using AirWaveApMonitor.Infrastructure.AirWave;
 
 namespace AirWaveApMonitor.Infrastructure.Demo;
 
@@ -19,7 +21,10 @@ public sealed class ScenarioApSource : IApSource
     public ScenarioApSource(TimeProvider timeProvider) => this.timeProvider = timeProvider;
 
     // Two prehistory runs precede the five visible scenarios. They are observations, not UI totals.
-    public static ImmutableArray<DemoScenarioFrame> Frames { get; } =
+    public static ImmutableArray<DemoScenarioFrame> Frames
+    {
+        get;
+    } =
     [
         Frame("기준 관측", true, 55, RunOutcome.Partial, [], [], [6]),
         Frame("선행 Down", true, 60, RunOutcome.Partial, [1, 2, 3, 4, 5, 9, 10], [], [6]),
@@ -39,19 +44,23 @@ public sealed class ScenarioApSource : IApSource
         lock (gate)
         {
             frame = Frames[Math.Min(nextFrame, Frames.Length - 1)];
-            if (nextFrame < Frames.Length - 1) nextFrame++;
+            if (nextFrame < Frames.Length - 1)
+                nextFrame++;
         }
         var collectedAt = timeProvider.GetUtcNow();
         if (frame.Outcome == RunOutcome.Failed)
             return Task.FromResult(new ApCollectionBatch(RunOutcome.Failed, [], [], collectedAt,
-                ObservationCompleteness.Unknown, [new(CollectionErrorCategory.Timeout, 1, "가상 전체 수집 시간 초과") ]));
+                ObservationCompleteness.Unknown, [new(CollectionErrorCategory.Timeout, 1, "가상 전체 수집 시간 초과")]));
 
-        var observations = CreateObservations(frame, collectedAt);
+        var parsed = new ApListParser(EvidenceSource.Demo).Parse(new MemoryStream(Encoding.UTF8.GetBytes(CreateXml(frame))), collectedAt, ct);
+        var observations = parsed.Observations;
         var exclusions = frame.MissingIds.Order().Select(id => new ExcludedRecord(id, id.ToString(CultureInfo.InvariantCulture),
             CollectionErrorCategory.MissingRecord, "가상 응답에서 누락된 기대 대상")).ToImmutableArray();
         var errors = ImmutableArray.CreateBuilder<CollectionError>();
-        if (exclusions.Length > 0) errors.Add(new(CollectionErrorCategory.MissingRecord, exclusions.Length, "일부 기대 대상 누락"));
-        if (frame.UnknownStateIds.Count > 0) errors.Add(new(CollectionErrorCategory.InvalidField, frame.UnknownStateIds.Count, "상태 미제공"));
+        if (exclusions.Length > 0)
+            errors.Add(new(CollectionErrorCategory.MissingRecord, exclusions.Length, "일부 기대 대상 누락"));
+        if (frame.UnknownStateIds.Count > 0)
+            errors.Add(new(CollectionErrorCategory.InvalidField, frame.UnknownStateIds.Count, "상태 미제공"));
         return Task.FromResult(new ApCollectionBatch(frame.Outcome, observations, exclusions, collectedAt,
             frame.Outcome == RunOutcome.Succeeded ? ObservationCompleteness.Complete : ObservationCompleteness.Partial,
             errors.ToImmutable()));
@@ -60,7 +69,8 @@ public sealed class ScenarioApSource : IApSource
     /// <summary>Synthetic fixture for the later XML parser. This does not establish real AirWave compatibility.</summary>
     public static string CreateXml(DemoScenarioFrame frame)
     {
-        if (frame.Outcome == RunOutcome.Failed) throw new InvalidOperationException("실패 시나리오에는 성공 XML이 없습니다.");
+        if (frame.Outcome == RunOutcome.Failed)
+            throw new InvalidOperationException("실패 시나리오에는 성공 XML이 없습니다.");
         XNamespace ns = "http://www.airwave.com";
         var root = new XElement(ns + "amp_ap_list", new XAttribute(XNamespace.Xmlns + "amp", ns), new XAttribute("version", "1"));
         foreach (var ap in CreateObservations(frame, frame.SourceAtUtc))
@@ -79,12 +89,17 @@ public sealed class ScenarioApSource : IApSource
         var result = ImmutableArray.CreateBuilder<ApObservation>(DeviceCount - frame.MissingIds.Count);
         for (var id = 1; id <= DeviceCount; id++)
         {
-            if (frame.MissingIds.Contains(id)) continue;
+            if (frame.MissingIds.Contains(id))
+                continue;
             ApState? state = frame.UnknownStateIds.Contains(id) ? null : frame.DownIds.Contains(id) ? ApState.Down : ApState.Up;
             var evidence = new FieldEvidence(FieldAvailability.Provided, FieldValidity.Valid, EvidenceSource.Demo, collectedAt, frame.SourceAtUtc);
             var fields = new[] { "name", "lan_ip", "lan_mac", "serial_number", "model", "firmware", "location", "controller" }
                 .ToImmutableDictionary(name => name, _ => evidence)
-                .Add("is_up", state is null ? evidence with { Availability = FieldAvailability.NotProvided, Validity = FieldValidity.Unknown } : evidence);
+                .Add("is_up", state is null ? evidence with
+                {
+                    Availability = FieldAvailability.NotProvided,
+                    Validity = FieldValidity.Unknown
+                } : evidence);
             var ip = id <= 254 ? $"192.0.2.{id}" : $"198.18.{(id - 255) / 254}.{(id - 255) % 254 + 1}";
             result.Add(new ApObservation(id.ToString(CultureInfo.InvariantCulture), state,
                 new DeviceIdentity($"DEMO-{id:D6}", $"02:00:00:{(id >> 16) & 255:X2}:{(id >> 8) & 255:X2}:{id & 255:X2}"),

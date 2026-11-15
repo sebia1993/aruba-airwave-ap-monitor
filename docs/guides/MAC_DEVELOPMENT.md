@@ -47,23 +47,25 @@ dotnet run --project src/AirWaveApMonitor.App -- --mode demo
 
 첫 실행은 빈 데이터 폴더에 `runtime-mode.json`을 원자적으로 기록한다. 표시자에는 버전·모드·데이터셋 ID가 있고, 같은 모드로 다시 열 때 같은 ID를 사용한다. 다른 모드, 손상되거나 필수 필드가 빠진 표시자, 표시자 없이 기존 자료가 있는 폴더는 거부한다. 상대 경로나 심볼릭 링크로 같은 폴더를 가리켜도 표시자를 공유하므로 모드를 우회할 수 없다. 표시자를 지워서 기존 자료를 다른 모드에 편입하지 않는다.
 
-**현재 Task 1 단계에서는 데이터 폴더에 모드 표시자만 저장한다.** AP DB·수집 결과·운영 이력은 아직 저장하지 않는다. `runtime-mode.lock`은 표시자 초기화를 보호하는 파일이며, 전체 수집 프로세스의 중복 실행 잠금은 후속 단계다.
+**현재 Task 2 단계에서는 데이터 폴더에 모드 표시자와 저장한 프로필을 보관한다.** Windows Live에서 등록한 자격 증명은 해당 프로세스 계정의 DPAPI로 보호한다. AP DB·수집 결과·운영 이력은 아직 저장하지 않는다. `runtime-mode.lock`은 표시자 초기화를 보호하는 파일이며, 전체 수집 프로세스의 중복 실행 잠금은 후속 단계다.
 
-Demo는 실제 자격 증명 공급자를 만들거나 읽지 않는다. 자격 증명 등록을 거부하며 로그인 없이 가상 자료를 공급한다. Live는 미설정 상태를 표시하고 가상 AP 공급자를 등록하지 않는다. macOS에서는 Windows DPAPI·서비스·예약 작업을 지원하지 않으며, Windows에서도 해당 구현은 후속 단계다.
+Demo는 실제 자격 증명 공급자를 만들거나 읽지 않는다. 자격 증명 등록을 거부하며 로그인 없이 가상 XML을 실제 파서에 공급한다. Live는 미설정 상태를 표시하고 가상 AP 공급자를 등록하지 않는다. macOS의 Live 자격 증명 저장은 평문 대체 없이 미지원 응답이다. Windows DPAPI는 구현했으며 서비스·예약 작업은 후속 단계다.
 
 ## 현재 화면과 API
 
-화면은 실행 모드와 준비 상태를 표시한다. 수집·상태 처리·SQLite 저장이 없음을 명시하고, 수집하지 않은 자료를 Down 0대나 전체 정상으로 표시하지 않는다. 모든 HTML/CSS/JavaScript는 앱에서 제공한다.
+화면은 실행 모드와 준비 상태, 연결 설정, 실제 프로세스 실행 계정과 진단 결과를 표시한다. 자동 수집·상태 처리·SQLite 저장이 없음을 명시하고, 수집하지 않은 자료를 Down 0대나 전체 정상으로 표시하지 않는다. 모든 HTML/CSS/JavaScript는 앱에서 제공한다.
 
-- `GET /api/health`: 실행 모드, `bootstrap`, 수집·저장 미구현 상태, Demo 자료 대수.
+- `GET /api/health`: 실행 모드, `connection-diagnostics`, 자동 수집·이력 저장 미구현 상태, Demo 자료 대수.
 - `GET /api/dashboard`: 저장된 현황이 없으므로 HTTP 503.
-- `GET /api/capabilities/windows`: 운영체제 지원 여부와 아직 미구현인 Windows 운영 기능.
+- `GET /api/capabilities/windows`: DPAPI 지원 여부와 미구현인 서비스·예약 작업의 구분.
+- `GET /api/settings`, `GET /api/antiforgery`: 비밀을 제외한 설정·계정 보호 상태와 변경 요청용 토큰.
+- `POST /api/settings`, `/api/credentials`, `/api/authentication/retry`, `/api/diagnostics`: 연결 설정, Windows 자격 증명 등록, 명시적 인증 재시도, 단일 읽기 진단.
 
-허용된 로컬 Host 및 동일 출처를 검사한다. Task 1에는 변경 API가 없다. 최초 자격 증명·설정 변경 API를 구현할 때 위조 요청 방지 토큰을 연결해야 한다.
+모든 변경 요청은 허용된 로컬 Host, 정확한 Origin, 위조 요청 방지 쿠키·헤더 토큰을 검사한다. 진단은 자체 ID를 사용하며 DB의 운영 RunId를 만들거나 이력 저장 성공을 표시하지 않는다. 이미 저장한 서버 출처를 바꾸려면 새 전용 데이터 폴더로 시작한다. 로그인 거절 후에는 자격 증명 재등록 또는 명시적 재시도가 필요하다.
 
 ## 가상 시나리오
 
-`ScenarioApSource`는 2,048개의 서로 다른 AP ID를 가진 가상 관측을 준비한다. 이후 실제 파서·상태 머신·SQLite 저장 경로에 연결할 자료이며 현재 화면의 집계로 직접 사용하지 않는다. XML 생성 기능도 가상 파서 입력용이고 실제 AirWave API를 검증했다는 뜻은 아니다.
+`ScenarioApSource`는 2,048개의 서로 다른 AP ID를 가진 가상 XML을 실제 `ApListParser`에 입력한다. 상태 머신·SQLite 연결은 후속 단계이며 현재 화면의 감시 집계로 직접 사용하지 않는다. Demo 연결 진단은 2,048대 파싱을 확인하며 실제 AirWave API 검증을 뜻하지 않는다.
 
 | 순서 | 가상 시각 KST | 내용 |
 | --- | --- | --- |
@@ -85,6 +87,15 @@ dotnet test AirWaveApMonitor.slnx
 dotnet test tests/AirWaveApMonitor.Tests --filter ModeIsolationTests
 ```
 
-Task 1 Mac 결과는 공통 테스트 34개 통과, Windows 전용 기본 경로 테스트 2개 건너뜀이다. 테스트에는 실제 임시 폴더·영구 표시자, 실제 Kestrel HTTP 요청, 외부 URL 환경 설정 거부, 가상 시나리오의 관측 자료가 포함된다. Windows 전용 프로젝트는 Windows에서만 해당 테스트를 실행하며, Unix 심볼릭 링크 검사는 Windows에서 권한 조건 때문에 명시적으로 건너뛴다.
+최신 명령·대수·CI 링크는 `../DEVELOPMENT_STATUS.md`에 기록한다. 테스트에는 실제 임시 폴더·영구 표시자, Kestrel HTTP 요청, 외부 URL 설정 거부, XML·가상 HTTP/시간 제어, 인증 중단 및 계정 보호가 포함된다. Windows 전용 DPAPI·경로 검사는 Mac에서 명시적으로 건너뛰며, Unix 심볼릭 링크 검사는 Windows에서 권한 조건 때문에 건너뛴다.
+
+초기 Windows 패키지는 다음 명령으로 만든다. 정식 SDK와 Python 3가 필요하며 Node 빌드가 필요하지 않다.
+
+```bash
+python3 -m unittest discover -s tests/Packaging -v
+./scripts/publish-win.sh
+```
+
+`artifacts/win-x64/`에 소스 커밋·시각을 포함하는 고유 이름의 폴더와 ZIP·SHA256 파일을 생성한다. 이전 산출물은 덮어쓰지 않는다. 런타임과 로컬 웹 자원, 실행 안내, `VERSION.json`과 파일별 해시를 포함한다. 게시 폴더에 로컬 설정·프로필·DB·자격 증명·로그가 섞이면 패키징을 중단한다. 이 Mac 명령의 성공은 Windows 실행 확인이 아니다.
 
 Windows 호환성은 저장소의 GitHub Actions Windows 작업 성공 결과로 별도 확인한다. Mac 빌드·테스트·가상 자료 테스트는 Windows 실행이나 사내 AirWave 연동 검증을 대신하지 않는다. 실제 계정, 원문 XML, 인증서, 운영 DB나 로그를 저장소에 넣지 않는다.

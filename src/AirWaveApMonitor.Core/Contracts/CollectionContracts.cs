@@ -1,14 +1,36 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 namespace AirWaveApMonitor.Core.Contracts;
 
-public enum CollectionKind { ApStatus, ConnectionNeighbor, Power }
-public enum RunTrigger { Scheduled, Manual, Startup, Resume }
-public enum RunOutcome { Succeeded, Partial, Failed }
-public enum RunLifecycle { Running, Finalized, Interrupted }
-public enum BaselineStatus { Unverified, Confirmed }
-public enum RunRequestStatus { Accepted, Queued, AlreadyRunning, ScheduleSkipped, AuthenticationBlocked, Paused, Unconfigured }
-public enum CollectionErrorCategory { Configuration, AuthenticationRejected, SessionExpired, Timeout, Transport, Tls, InvalidResponse, ResponseTooLarge, MissingRecord, DuplicateIdentity, InvalidField, Interrupted, Storage, Unsupported }
+public enum CollectionKind
+{
+    ApStatus, ConnectionNeighbor, Power
+}
+public enum RunTrigger
+{
+    Scheduled, Manual, Startup, Resume
+}
+public enum RunOutcome
+{
+    Succeeded, Partial, Failed
+}
+public enum RunLifecycle
+{
+    Running, Finalized, Interrupted
+}
+public enum BaselineStatus
+{
+    Unverified, Confirmed
+}
+public enum RunRequestStatus
+{
+    Accepted, Queued, AlreadyRunning, ScheduleSkipped, AuthenticationBlocked, Paused, Unconfigured
+}
+public enum CollectionErrorCategory
+{
+    Unverified, Permission, AuthenticationBlocked, CredentialUnavailable, Configuration, AuthenticationRejected, SessionExpired, Timeout, Transport, Tls, InvalidResponse, ResponseTooLarge, MissingRecord, DuplicateIdentity, InvalidField, Interrupted, Storage, Unsupported
+}
 
 public interface IApSource
 {
@@ -25,18 +47,32 @@ public sealed record ExpectedTarget(string SourceApId, Guid? DeviceGenerationId 
 
 public sealed record CollectionSettings
 {
-    public int ApIntervalMinutes { get; }
-    public int EnrichmentIntervalMinutes { get; }
-    public bool ConnectionCollectionEnabled { get; }
-    public bool PowerCollectionEnabled { get; }
+    public int ApIntervalMinutes
+    {
+        get;
+    }
+    public int EnrichmentIntervalMinutes
+    {
+        get;
+    }
+    public bool ConnectionCollectionEnabled
+    {
+        get;
+    }
+    public bool PowerCollectionEnabled
+    {
+        get;
+    }
     public TimeSpan RequestTimeout => TimeSpan.FromSeconds(45);
     public TimeSpan RunTimeout => TimeSpan.FromSeconds(120);
     public long MaximumDecompressedResponseBytes => 64L * 1024 * 1024;
     public CollectionSettings(int apIntervalMinutes = 5, int enrichmentIntervalMinutes = 15,
         bool connectionCollectionEnabled = false, bool powerCollectionEnabled = false)
     {
-        if (apIntervalMinutes is < 1 or > 60) throw new ArgumentOutOfRangeException(nameof(apIntervalMinutes));
-        if (enrichmentIntervalMinutes is < 1 or > 60) throw new ArgumentOutOfRangeException(nameof(enrichmentIntervalMinutes));
+        if (apIntervalMinutes is < 1 or > 60)
+            throw new ArgumentOutOfRangeException(nameof(apIntervalMinutes));
+        if (enrichmentIntervalMinutes is < 1 or > 60)
+            throw new ArgumentOutOfRangeException(nameof(enrichmentIntervalMinutes));
         ApIntervalMinutes = apIntervalMinutes;
         EnrichmentIntervalMinutes = enrichmentIntervalMinutes;
         ConnectionCollectionEnabled = connectionCollectionEnabled;
@@ -47,14 +83,45 @@ public sealed record CollectionSettings
 public sealed record ProfileSnapshot
 {
     public int SchemaVersion => 1;
-    public Guid InstanceId { get; }
-    public Guid DatasetId { get; }
-    public Uri Origin { get; }
-    public long ConfigurationVersion { get; }
-    public long ScopeVersion { get; }
-    public ImmutableArray<ExpectedTarget> ExpectedTargets { get; }
-    public BaselineStatus BaselineStatus { get; }
-    public CollectionSettings Settings { get; }
+    public Guid InstanceId
+    {
+        get;
+    }
+    public Guid DatasetId
+    {
+        get;
+    }
+    public Uri Origin
+    {
+        get;
+    }
+    public long ConfigurationVersion
+    {
+        get;
+    }
+    public long ScopeVersion
+    {
+        get;
+    }
+    public ImmutableArray<ExpectedTarget> ExpectedTargets
+    {
+        get;
+    }
+    public BaselineStatus BaselineStatus
+    {
+        get;
+    }
+    public CollectionSettings Settings
+    {
+        get;
+    }
+    public ProxySettings Proxy { get; init; } = new();
+    public long CredentialsVersion { get; init; } = 1;
+
+    [JsonConstructor]
+    public ProfileSnapshot(Guid instanceId, Guid datasetId, Uri origin, long configurationVersion, long scopeVersion,
+        ImmutableArray<ExpectedTarget> expectedTargets, BaselineStatus baselineStatus, CollectionSettings settings)
+        : this(instanceId, datasetId, origin, configurationVersion, scopeVersion, (IEnumerable<ExpectedTarget>)expectedTargets, baselineStatus, settings) { }
 
     public ProfileSnapshot(Guid instanceId, Guid datasetId, Uri origin, long configurationVersion, long scopeVersion,
         IEnumerable<ExpectedTarget> expectedTargets, BaselineStatus baselineStatus, CollectionSettings settings)
@@ -63,8 +130,10 @@ public sealed record ProfileSnapshot
         if (!origin.IsAbsoluteUri || origin.Scheme != Uri.UriSchemeHttps || origin.UserInfo.Length != 0 ||
             origin.AbsolutePath != "/" || origin.Query.Length != 0 || origin.Fragment.Length != 0)
             throw new ArgumentException("서버 주소는 사용자 정보·경로·쿼리가 없는 HTTPS 출처여야 합니다.", nameof(origin));
-        if (instanceId == Guid.Empty) throw new ArgumentException("인스턴스 ID가 필요합니다.", nameof(instanceId));
-        if (datasetId == Guid.Empty) throw new ArgumentException("데이터셋 ID가 필요합니다.", nameof(datasetId));
+        if (instanceId == Guid.Empty)
+            throw new ArgumentException("인스턴스 ID가 필요합니다.", nameof(instanceId));
+        if (datasetId == Guid.Empty)
+            throw new ArgumentException("데이터셋 ID가 필요합니다.", nameof(datasetId));
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(configurationVersion);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(scopeVersion);
         ArgumentNullException.ThrowIfNull(settings);

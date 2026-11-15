@@ -2,7 +2,7 @@
 
 **핵심 목표는 AirWave를 주기적으로 조회하여 Down AP 현황을 추적하는 것입니다.** 수집 PC 한 대에서 이번 Down, 신규 Down, 미복구, 복구 확인과 반복 이력을 조회합니다. 정보·연결 변경, 장비 교체와 작업·조치 기록은 이 감시와 조사를 지원합니다.
 
-**현재 상태: Task 1의 .NET 10 실행 골격·공통 계약·Demo/Live 데이터 분리를 구현했습니다. 자동 수집·SQLite 이력·실제 AirWave 연동은 후속 단계이며 정식 Windows 릴리즈는 아직 없습니다.**
+**현재 상태: .NET 10 실행 골격·Demo/Live 분리에 이어 Task 2의 AirWave 읽기 어댑터, Windows 계정 보호, 연결 설정·단일 읽기 진단을 구현했습니다. 실제 AirWave 연동은 현장 미확인입니다. 자동 수집·SQLite 이력·정식 Windows 릴리즈는 후속 단계입니다.**
 
 실행: `./scripts/dev-mac.sh` → `http://127.0.0.1:8765`. [Mac 개발 안내](docs/guides/MAC_DEVELOPMENT.md)와 [작업별 진행·검증 기록](docs/DEVELOPMENT_STATUS.md)을 확인하세요. 초기 화면은 수집하지 않은 상태를 정상이나 Down 0대로 표시하지 않습니다.
 
@@ -10,7 +10,7 @@
 
 [MacBook Codex 작업 지시서](docs/superpowers/plans/2026-11-15-macos-codex-implementation.md)를 실행 기준으로 사용합니다. 기존 설계·모의화면을 연결하고, 파일 구성·인터페이스·10단계 구현 순서·20개 수용 검증·Windows 반입 패키지·보고 형식을 정리했습니다.
 
-작업 지시서의 Task 1부터 순서대로 구현을 시작했습니다. 현재 실행 가능한 것은 모드가 분리된 초기 화면이며, 각 단계의 기능·명령·검증 상태는 진행 기록을 기준으로 확인합니다.
+작업 지시서의 Task 1부터 순서대로 구현하고 있습니다. 현재 연결 설정·계정 등록·진단 화면을 실행할 수 있으며, 각 단계의 검증 결과와 개발 진행률은 진행 기록을 기준으로 확인합니다. 초기 Windows ZIP은 `./scripts/publish-win.sh`로 생성합니다. [초기 진단 안내](docs/guides/INITIAL_DIAGNOSTICS.md)는 패키지의 범위와 실행 방법을 설명합니다.
 
 사내 접속 없이 실제 저장·상태 처리 코드를 사용하는 Demo 모드로 개발합니다. Mac 검증, Windows용 게시, Windows 실행, 사내 AirWave 확인을 나누어 기록하며, 실환경 확인을 기다리는 동안 가능한 구현은 계속합니다.
 

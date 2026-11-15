@@ -31,3 +31,5 @@ secrets.*
 *.dpapi
 **/runtime-mode.json
 **/runtime-mode.lock
+**/__pycache__/
+*.pyc
