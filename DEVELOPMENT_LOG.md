@@ -19,11 +19,12 @@
 - 실제 Mac 브라우저: 설정 저장 후 새로고침 유지, PAC URL 거부, 2,048대 Demo XML 파싱/제외 0, 가상 TLS·HTTP 미수신 및 이력 미저장 안내를 확인했다. 브라우저 console error 0, 실제 수신 주소는 127.0.0.1뿐이었다. 테스트 서버는 종료했다.
 - 독립 검토 중 로컬 JSON/DPAPI 임시 파일 혼입, 프록시 변경에 의한 인증 중단 해제, 중복 AP 분류, 파서 취소, 재로그인 오류의 오인 중단, 경로 쿠키, 계정 저장 직후 취소를 회귀 사례로 재현·수정했다. 최종 요구 준수·품질·패키지 재검토 모두 PASS, 남은 Critical/Important 없음.
 - 실제 실행 명령·RED/GREEN·통합 로그는 로컬 `.superpowers/sdd/2026-11-15-macos-codex-implementation/evidence/task-2-*`에 보관한다. 상세 요구별 구현 보고서는 같은 폴더 상위의 `task-2-report.md`다.
-- Windows CI는 이번 소스 커밋을 대상으로 실행 후 결과를 기록한다. 기존 Task 1 성공을 Task 2의 Windows 검증으로 재사용하지 않는다.
+- [Windows CI 43728301653](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43728301653): 소스 `9366a71`에서 전체 성공. Windows Server 2025, 공통 84 통과·Mac/Unix 전용 3 건너뜀, Windows DPAPI/경로 5 통과, Python 3 통과·Unix 전용 2 건너뜀. CI에서 생성한 ZIP의 355개 파일 해시와 PowerShell 5.1 launcher 구문, 압축 해제 후 EXE의 한글/공백 경로·루프백만 수신·Origin 없는 변경 거부·Demo 2,048대 진단을 확인했다. launcher를 통한 실행과 실제 Windows 11/서비스 동작은 이 검사로 확인하지 않았다.
+- Mac의 커밋된 깨끗한 소스로 초기 ZIP `AirWaveAPMonitor-0.1.0-diagnostics-9366a71c3447-20261115T150941Z-610013.zip`를 생성했다. 48,707,315 bytes, 355개 파일/ZIP 해시 일치, `working_tree_dirty=false`, `onsite_verified=false`. SHA256: `91b0a395c14e99d79ed93c1e7c8be917b03e0dcbc42da8ab58c2ea565d802b3e`. Windows CI는 같은 소스에서 별도 생성한 ZIP을 실행했으며 이 Mac 생성 ZIP 자체를 Windows에서 실행했다고 표현하지 않는다.
 
 ### 다음 작업·진행률·실환경 미확인
 
-- Task 2의 Windows 자동 검증과 최종 패키지 식별을 확정하기 전까지 완료 가중치는 기존 **8 / 100%**로 유지한다. 완료 후 Task 2 가중치 12를 더해 20%로 기록한다.
+- Task 2 구현·Mac/Windows 검증·독립 검토·초기 패키지 생성을 확인해 가중치 12를 추가했다. **완료로 확인한 개발 진행률 20 / 100%**이며 실환경 운영 보장률이 아니다. 소스 `9366a71`은 원격 작업 브랜치에 보존했으며 정식 릴리즈·main 병합은 하지 않았다.
 - 다음 Task 3은 AP 식별·장비 세대·감시 구간·장애/복구 전환이다. 독립 순수 로직이므로 Task 2 수정/검증과 충돌하지 않는 managed worktree에서 착수했다. 기존 작업 폴더 변경은 보존한다.
 - 실제 AirWave 버전의 로그인/쿠키 계약·AP 대수·분류, 사내 PAC/TLS, 실제 Windows 11 사용자·서비스·재부팅·장기 수집, 실제 LLDP/PoE는 미확인이다. 자동 수집·SQLite·서비스 및 최종 운영 패키지는 후속 작업이다. 다른 Windows 사용자로의 실제 계정 전환은 CI 동일 계정 DPAPI와 구분한다.
 

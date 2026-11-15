@@ -7,7 +7,7 @@
 | 작업 | 가중치 | 현재 상태 | 완료 근거 |
 |---|---:|---|---|
 | 1. Mac 골격·계약·모드 분리 | 8 | 완료 | `454dee4`, Mac 34 통과, Windows CI 성공, 독립 검토 통과 |
-| 2. API·진단·계정 보호 | 12 | Windows 검증 대기 | Mac 87 통과, 패키지 5 통과, 독립 재검토 PASS |
+| 2. API·진단·계정 보호 | 12 | 완료 | `9366a71`, Mac 87 통과, Windows CI 성공, 초기 ZIP·독립 검토 PASS |
 | 3. 식별·상태·사건 | 14 | 별도 worktree에서 구현 중 | 순수 로직; 아직 완료 점수 없음 |
 | 4. 원자적 저장·회차 현황 | 14 | 대기 | — |
 | 5. 자동 수집·건강 상태 | 10 | 대기 | — |
@@ -17,7 +17,7 @@
 | 9. 조건부 부가 관측 | 5 | 대기 | — |
 | 10. 통합 확인·인수 자료 | 3 | 대기 | — |
 
-**완료로 확인된 개발 진행률: 8 / 100%.** Task 1 전체 완료에만 가중치 8을 부여했다. 실환경 운영 보장률이 아니다.
+**완료로 확인된 개발 진행률: 20 / 100%.** Task 1의 8점과 Task 2의 12점을 합산했다. Task 3 이후 진행 중 작업은 아직 점수에 넣지 않았으며 실환경 운영 보장률이 아니다.
 
 ## 착수 확인
 
@@ -54,7 +54,7 @@ TDD 실패→통과 증거와 전체 로그는 로컬 `.superpowers/sdd/2026-11-
 - 소스 커밋 `454dee4`를 원격 작업 브랜치에 보존했다. 정식 릴리즈·main 병합 없음. 이 단계에 전달용 반입 ZIP은 생성하지 않았으며 CI의 임시 게시 폴더를 다운로드 산출물로 표시하지 않는다.
 - 실행: 저장소에서 `./scripts/dev-mac.sh`. 상세 안내: `guides/MAC_DEVELOPMENT.md`.
 
-## Task 2 결과 — Windows 검증 대기
+## Task 2 결과
 
 변경: 공식 문서 기반 AirWave 로그인·AP 읽기, 안전 XML 파서, 세션·인증 중단·본문/전체 시간 제한, Windows DPAPI 계정 보호, 프로필 저장과 변경 API 보호, 실제 설정·진단 화면, 초기 self-contained Windows 패키지 생성. 세부 구현·검토 수정은 `../DEVELOPMENT_LOG.md`의 Task 2 기록에 있다.
 
@@ -66,12 +66,23 @@ TDD 실패→통과 증거와 전체 로그는 로컬 `.superpowers/sdd/2026-11-
 | 패키지 행동 검사 | Python 5 통과; 민감 자료 혼입·실패 시 기존 파일 보존 포함 |
 | 실제 Mac 브라우저 | 설정 저장·새로고침 유지·PAC URL 거부·Demo 2,048대 파싱/제외 0, console error 0 |
 | 독립 검토 | 요구 준수·품질·패키지 PASS; 지적 사항 회귀 재현 후 수정 |
-| Windows CI | 새 소스 커밋에서 실행 예정; 아직 통과로 계산하지 않음 |
+| Windows CI | [run 43728301653](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43728301653), 소스 `9366a71`, 전체 성공 |
+| Windows 실행 테스트 | 공통 84 통과·Mac/Unix 3 건너뜀, DPAPI/경로 5 통과, Python 3 통과·Unix 2 건너뜀 |
+| Windows 패키지 | self-contained 게시, ZIP 압축 해제·355개 해시, PowerShell 5.1 launcher 구문, 한글/공백 경로 EXE·루프백·Origin 거부·Demo 2,048대 진단 통과 |
 | 사내 Windows 11·AirWave | 미확인 |
 
 진단 ID는 운영 RunId가 아니며 자동 감시·SQLite 이력·서비스 설치를 아직 제공하지 않는다. 초기 패키지 안내는 `guides/INITIAL_DIAGNOSTICS.md`, 현장 기록 양식은 `guides/ONSITE_INITIAL_CHECKLIST.md`다. 사내 검증은 개발 진행률과 별개다.
 
-다음: Task 3 순수 AP 식별/세대/감시 구간/상태 전환. Task 2와 공유 파일이 충돌하지 않도록 별도 managed worktree에서 구현하고 통합 전에 검토한다. 현재 완료 점수는 Task 1의 8점이며 Windows CI 및 초기 패키지 확정 후 Task 2를 합산한다.
+다음: Task 3 순수 AP 식별/세대/감시 구간/상태 전환. Task 2와 공유 파일이 충돌하지 않도록 별도 managed worktree에서 구현하고 통합 전에 검토한다. 완료 점수는 Task 1·2의 20점이다. Windows CI 실제 OS는 Server 2025이며 사내 Windows 11, launcher를 통한 직접 실행·서비스·재부팅은 별도 확인 항목이다.
+
+### 초기 Windows 반입 산출물
+
+- 로컬 위치: `artifacts/win-x64/AirWaveAPMonitor-0.1.0-diagnostics-9366a71c3447-20261115T150941Z-610013.zip` 및 같은 이름의 압축 해제 폴더, `.zip.sha256`.
+- 버전 `0.1.0-diagnostics`, 소스 `9366a71c3447237e2be920a19838d32a0ba33539`, 미커밋 변경 없음, 사내 검증 완료 표시 없음.
+- ZIP 크기 **48,707,315 bytes**, 내부 **355개 파일**의 SHA256과 ZIP SHA256을 실제 대조했다.
+- ZIP SHA256: `91b0a395c14e99d79ed93c1e7c8be917b03e0dcbc42da8ab58c2ea565d802b3e`.
+- Mac에서 생성한 ZIP이다. Windows CI에서는 같은 소스 커밋으로 별도 생성한 ZIP을 실행했다. Mac ZIP의 정확한 바이트를 Windows에서 실행한 검증과는 구분한다.
+- 범위: 연결 설정·Windows 계정 보호·단일 읽기 진단. 자동 감시·SQLite 이력·서비스·최종 운영 패키지는 아직 없다. 정식 릴리즈 게시 없이 원격 작업 브랜치에 소스만 보존했다.
 
 ## 실환경 미확인
 
