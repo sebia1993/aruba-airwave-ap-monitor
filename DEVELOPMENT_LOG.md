@@ -1,5 +1,15 @@
 # Development Log
 
+## 2026-11-16 Task 1–10 최종 완료 —100%
+
+최종7bbecb4/Windows43775283731 전체SUCCESS와 정확한 CI ZIP 검증을 완료했다. Windows 공통887통과/4플랫폼제외·전용9·Node100·Python9통과/Unix2제외, PS5.1/한글경로/재시작/SCM68.84초복구/schema6백업·복원/예약작업·정리 통과. 최신 Mac 전체 공통891·Node100·Python11, 추가 실제SIGKILL/재시작13개 검사도 통과했다. 원문3파일은727ddb2와 동일하다.
+
+전력 신규 표본 재조회 제거는 최초 귀속·저장 형식·5초 토큰을 유지한다. 최종Windows Power Apply4.699초·전체5.591초/12,288정상이며, 이전 토큰취소/AlreadyApplied 복구와 구분한다. 이전 간헐 실패 원인을 소급해 해결됐다고 주장하지 않는다.
+
+정확ZIP AirWaveAPMonitor-0.1.0-7bbecb4f227d-20261115T233948Z-a30d3b.zip,50,657,644bytes, SHA256 cee5ca3418622b67be97c70178a650a2738ccd948348a1fd7c8ae8531f767d61. manifest397개/전체398파일 일치와 source·script·guide·JSON7개 대조를 완료했다. CRLF 바이트 차이와 의미 일치를 구분했다. ZIP은재포장하지않았으며 포함문서92%는검증전시점, 이후문서만100%로갱신한다.
+
+다음은 사내실환경 확인이다. Live 부가전송 어댑터 미구현/비활성, 실제 AirWave·Windows11/AD·계정A/B·GUI/Excel·절전/재부팅·managed fatal주입·장기용량은미확인이다. [작업별 최종 결과](docs/DEVELOPMENT_STATUS.md), [인수 근거](docs/ACCEPTANCE_EVIDENCE.md), [측정](docs/PERFORMANCE_MEASUREMENTS.md)에 변경·실제검증·다음작업·진행률·한계를 기록했다.
+
 ## 2026-11-16 최신 Windows 네이티브 재시작 진단
 
 e30/Windows43773086532는 공통887통과/4제외·Windows9·Node100·Python9통과/2제외·게시까지 성공했지만 EXE 강제 종료 후 재시작 준비45초 검사에서 실패했다. 최초 회차3·현황/상세/CSV는 통과, 후속SCM/task/backup/restore와ZIP보존은 미실행이다. 마지막health/restartstdout이 없어 원인은미확정. Power12,288은 취소 토큰 후 원래 커밋의AlreadyApplied 복구로 성공했으며5초 벽시계 보장을 주장하지 않는다. 제품/45초한도 유지, 단계별상태·UTF8로그·실패artifact를 추가한 뒤 전체Windows와정확ZIP을 확인한다. 진행률92%, 실환경미확인 유지.

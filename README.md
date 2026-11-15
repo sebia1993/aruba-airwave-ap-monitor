@@ -2,7 +2,9 @@
 
 **핵심 목표는 AirWave를 주기적으로 조회하여 Down AP 현황을 추적하는 것입니다.** 수집 PC 한 대에서 이번 Down, 신규 Down, 미복구, 복구 확인과 반복 이력을 조회합니다. 정보·연결 변경, 장비 교체와 작업·조치 기록은 이 감시와 조사를 지원합니다.
 
-**현재 상태: 확인된 개발 진행률은92%입니다. Task 1–8과 Task 4·6의 원문 누락 보완은 Windows 전체 실행·정확한 CI ZIP까지 검증했습니다. 최신 전력 저장 보완의 Mac 공통891·화면100·패키지11개 검사도 통과했으며 Task 9·10은 최신 소스의 Windows·최종 ZIP 확인을 기다립니다. 실제 AirWave와 사내 Windows11/AD 운영은 미확인입니다.**
+**현재 상태: 계획의 Task 1–10 구현·자동 검증·인수 산출물 범위를 완료했으며 개발 진행률은100%입니다. Mac 공통891·화면100·패키지11개 검사와 최신 Windows 전체 실행, 정확한 CI ZIP 해시/소스 대조를 완료했습니다. 실제 AirWave와 사내 Windows11/AD 운영은 미확인이며 Live 연결·LLDP·PoE 전송 어댑터는 미구현·미검증·비활성입니다.**
+
+최종 반입본의 소스·SHA256·실제 검증과 미확인 항목은 [최종 결과](docs/DEVELOPMENT_STATUS.md)를 확인하세요. ZIP은 Windows에서 실행한 원본이며, 포함 문서는 검증 전92% 시점으로 보존됩니다.
 
 실행: `./scripts/dev-mac.sh` → `http://127.0.0.1:8765`. [Mac 개발 안내](docs/guides/MAC_DEVELOPMENT.md)와 [작업별 진행·검증 기록](docs/DEVELOPMENT_STATUS.md)을 확인하세요. 초기 화면은 수집하지 않은 상태를 정상이나 Down 0대로 표시하지 않습니다.
 
@@ -101,7 +103,7 @@ AirWave 8.2.14.0 공식 문서에는 AP의 연결 장비·포트와 전원·소�
 | 설계 문서 | 이력 확대 및 PoE·LLDP 조건 반영, 기술 제안값과 실환경 확인 구분 |
 | MacBook Codex 작업 지시서 | 작성 완료, 10단계 작업과 수용 검증·반입 기준 포함 |
 | 사용자 흐름 모의화면 | 가상 데이터 기반 클릭형 HTML 작성, 실제 연동 없음 |
-| 제품 구현·Windows 실행 파일 | 확정92%. Task 1–8과 Task4·6 보완 Windows/ZIP 통과. 최신 Task9·10 Windows/패키지 대기. Mac 공통891·Node100·Python11 통과 |
+| 제품 구현·Windows 실행 파일 | 개발100%. 최종7bbecb4/Windows43775283731 전체·정확한 ZIP 통과. Windows 공통887+전용9·Node100·Python9 통과(플랫폼 제외 별도), Mac 공통891·Node100·Python11 통과 |
 | 실환경 AirWave API 로그인·AP 목록 조회 | 미확인 |
 | 스위치·포트 매핑, PoE·LLDP API 필드·최신성 | 미확인 |
 | 사내 상시 운영 | 미확인 |
