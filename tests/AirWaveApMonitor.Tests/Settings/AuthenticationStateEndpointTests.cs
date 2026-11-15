@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AirWaveApMonitor.App.Runtime;
+using AirWaveApMonitor.App.Collection;
+using AirWaveApMonitor.App.Maintenance;
 using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Infrastructure.Maintenance;
 using AirWaveApMonitor.Infrastructure.Security;
@@ -9,6 +11,7 @@ using AirWaveApMonitor.Tests.Security;
 using AirWaveApMonitor.Tests.Support;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace AirWaveApMonitor.Tests.Settings;
 
@@ -86,8 +89,12 @@ public sealed class AuthenticationStateEndpointTests
         await app.StartAsync();
         using var client = SettingsEndpointTests.Client(port);
         await SettingsEndpointTests.Token(client);
-        // Startup now validates the database before serving. Exercise a runtime storage
-        // failure after successful initialization; startup corruption has a separate test.
+        // Keep HTTP serving, but drain background SQLite users before deliberately
+        // corrupting this disposable DB. File replacement while a worker holds a handle
+        // is a Windows sharing violation, not the endpoint failure being tested.
+        foreach (var worker in app.Services.GetServices<IHostedService>().Where(service => service is CollectionWorker or MaintenanceWorker))
+            await worker.StopAsync(CancellationToken.None);
+        // Startup corruption has a separate test; these requests exercise runtime reads.
         File.WriteAllText(Path.Combine(directory.Path, "monitor.db"), "synthetic-database-secret");
         var get = await client.GetAsync("/api/settings");
         var retry = await client.PostAsync("/api/authentication/retry", null);

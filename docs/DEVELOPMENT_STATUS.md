@@ -182,6 +182,8 @@ Task 5까지 확정 진행률은 **58%**다. 다음은 Task 6의 실제 현황·
 - 이력의 구조화된 원본을 안전한 당시 값 요약으로 표시하며 이전 기록은 변경하지 않는다. 화면 증거 `../artifacts/task-8-point-history.jpg`, 사용 안내 `guides/OPERATIONS.md`.
 - 첫 Windows CI `43748148374`는 공통 527 통과·1 실패·Mac/Unix 4 제외. 실행 중 DB의 일반 파일 읽기와 유지보수 쓰기가 충돌한 테스트를 SQLite 읽기로 수정했다. 제품 잠금/백업 변경 없이 Mac 관련 13개 PASS. Windows 재실행과 정확한 ZIP 검증은 진행 중이다. 완료 점수는 **80%**이며 아직 Task 8의 12점을 더하지 않는다.
 
+- 두 번째 Windows CI `43748984883`은 이전 검사를 통과했으나 인증 오류 테스트의 DB 손상 주입 단계가 백그라운드 작업과 충돌했다(527 통과·1 실패·4 제외). 해당 테스트만 worker 정상 종료 후 손상을 주입하도록 분리했다. HTTP 503·비밀 비노출 검증은 유지하며 관련 Mac 18개 PASS, Windows 재실행 대기다.
+
 다음: Task 8 Windows 검증 완료 후 Task 9 연결/전력의 근거·시간·세대 경계, 저장·수집·조회/UI 통합. 실환경 Windows 11/AD·실제 대장/장비·AirWave·Windows GUI/Excel·장기 운영은 미확인이다. 세부 변경과 검증 범위는 `../DEVELOPMENT_LOG.md`에 기록했다.
 
 ## 실환경 미확인
