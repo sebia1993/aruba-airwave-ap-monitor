@@ -132,10 +132,36 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
         Assert.Equal(RunRequestStatus.Paused, (await request).Status);
         Assert.Equal(1, f.RunCount());
         Assert.Equal(0, await f.Checkpoint());
+        var timer = Stopwatch.StartNew();
         await f.Coordinator.SetPausedAsync(false, default);
-        await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle);
+        output.WriteLine($"pause-resume admission: {timer.Elapsed.TotalMilliseconds:F3} ms; {HealthText()}");
+        timer.Restart();
+        var idleObserved = false;
+        try
+        {
+            await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle,
+                () => $"pause-resume Idle wait after {timer.Elapsed.TotalMilliseconds:F3} ms; {HealthText()}");
+            idleObserved = true;
+        }
+        finally
+        {
+            output.WriteLine($"pause-resume Idle wait: {timer.Elapsed.TotalMilliseconds:F3} ms; passed={idleObserved}; {HealthText()}");
+        }
         Assert.Equal(3, source.Calls);
         AssertNormal((await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1), default)).Summary);
+
+        string HealthText()
+        {
+            var health = f.Health.GetSnapshot();
+            return JsonSerializer.Serialize(new
+            {
+                sourceCalls = Volatile.Read(ref source.Calls), phase = health.Phase.ToString(),
+                activeKind = health.ActiveKind?.ToString(), health.ActiveRunId,
+                health.LastAttemptRunId, health.LastFinalRunId, lastOutcome = health.LastOutcome?.ToString(),
+                health.StorageRecoveryPending, health.LastStorageError,
+                lastCollectionError = health.LastCollectionError?.ToString(), health.BlockedReason, health.Paused
+            });
+        }
     }
 
     [Fact]

@@ -1,5 +1,9 @@
 # Development Log
 
+## 2026-11-16 Windows 재개·전력 확정 진단
+
+`7908884`의 Windows43770712705는 공통884통과/2실패/4제외였다. PauseDuringSeed 재개 후 Idle10초 대기와 전력 실제runner의 Interrupted/Failed·표본0이 실패했다. 전력 전체6.414초에는 결과 조회가 포함되어5초 확정 예산 초과를 단정하지 않는다. 이전 동일제품 실행은6.852초에도 성공했다. 제품/시간제한은 유지하고 저장 단계별 예외·취소·시간과 재개 대기 health 진단을 추가한다. FailedSeed는 이번5.434초 Idle/정상확정으로 통과했으나 최초원인 미확정이다. 후속 Windows/native/ZIP 미실행, 확정66%, 다음은 원인확인·필요수정·전체재검증이다.
+
 ## 2026-11-16 Windows Demo 초기 관측 대기 진단
 
 Windows43769015284는 공통885통과/1실패/4플랫폼제외였다. FailedSeed 재시도 후 Idle10초 대기 실패의 당시상태가 없어 원인을 단정하지 않는다. 제품/대기시간변경 없이 요청receipt·단계별Stopwatch·정리전health/sourceCalls를 기록했다. Mac관련12/12 통과. Windows전용/패키지/native는 미실행, 다음은 새전체Windows실행, 확정66% 유지.

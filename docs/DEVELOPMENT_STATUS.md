@@ -23,6 +23,14 @@
 
 아래 Task별 결과는 각 단계 당시의 소스·패키지·검증 기록이다. 각 절의 진행률·다음 작업·당시 미구현 설명은 그 시점의 기록이며 현재 요약은 위 표와 최신 Task 결과를 따른다.
 
+## Windows 재실행 — 재개·전력 확정 단계 진단
+
+소스 `7908884`의 [Windows run 43770712705](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43770712705)는 공통 **884 통과·2 실패·Mac/Unix 4 제외**로 실패했다. Windows 전용·Python·게시·native·ZIP은 미실행이다. `PauseDuringSeed_FinalizesThatSeedAndDoesNotBeginAnother`는 재개 후 Idle 10초 대기에서 실패했으며 당시 상태는 기록되지 않았다. `Demo2048Targets_RealRunnerCommitsAllPowerWithinItsProductionFinalizationBudget`는 Power가 Interrupted/Failed·표본0으로 확정되어 실패했다.
+
+전력 검사 전체6.414초는 runner와 결과 조회를 포함한다. 동일 제품의 이전 실행은 전체6.852초에도 정상12,288표본으로 통과했으므로, 전체시간만으로 제품의5초 확정 예산 초과를 원인으로 단정하지 않는다. 저장/결과 반영 예외 후 중단 확정이 성공했지만 원래 예외는 미확인이다. 실제5초 예산과 테스트10초 대기는 유지하고, 저장 위임 단계별 시간·예외형식·취소상태와 재개 검사 정리 전 health 진단을 추가한다.
+
+이전 실패였던 FailedSeed는 이번에 통과했다. 재시도 Accepted/회차4 후 Idle5.434초·sourceCalls4·Succeeded·저장복구/오류없음이었다. 최초 실패 원인을 해결했다고 주장하지 않는다. 진단 추가 후 Mac 관련13개는 모두 통과했다. 실제 Power Apply1.952초/12,288표본, 재개 후 Idle0.644초·Succeeded였다. Mac 결과는 Windows 실패 원인의 확인을 대신하지 않는다. 다음은 진단 포함 전체 Windows 실행과 확인된 원인에 대한 수정이며, 확정 진행률 **66%**를 유지한다. 실제 AirWave·사내 Windows 11/AD·장비·장기운영은 미확인이다.
+
 ## Windows 재실행 — Demo 초기 관측 대기 진단
 
 소스 `447f2ae`의 [Windows run 43769015284](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43769015284)는 Frontend/Restore/Build 성공 후 공통 **885 통과·1 실패·Mac/Unix 4 제외**로 실패했다. 실패는 `FailedSeed_StopsCurrentAdmissionWithoutBusyLoop`의 재시도 후 Idle 10초 대기이며 전체 테스트 시간22.559초에는 요청·대기·정리가 포함된다. Windows전용/Python/publish/native/ZIP은 미실행이며 최종 ZIP은 없다.
