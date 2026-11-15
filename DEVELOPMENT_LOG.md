@@ -1,6 +1,6 @@
 # Development Log
 
-## 2026-11-16 — Task 5 통합: 자동 수집·실행 조정·건강 상태
+## 2026-11-16 — Task 5 실제 구현: 자동 수집·실행 조정·건강 상태
 
 ### 변경 내용
 
@@ -14,11 +14,11 @@
 - root 통합 Release 빌드 경고 0·오류 0, 공통 268 통과, Windows 전용 5개 Mac 건너뜀, Python 패키지 검사 5 통과. 28개 전달 파일의 SHA256을 대조했다.
 - 별도 macOS 프로세스에서 시작 회차, 설정 변경 후 회차, 60.05초 뒤 예약 회차를 실제 DB에서 확인했다. SIGTERM 종료 0, Running 0. 시간 대기 검사는 최종 내부 handoff 리팩터링 전이며 최종 hosted 자동 검사는 다시 통과했다.
 - 독립 검토의 인증 차단 재시작 시 갱신 지연 누락 P2를 수정했다. 현재 설정 주기 경계의 실제 SQLite 회귀가 통과했고 독립 재검토 PASS다.
-- Windows smoke는 브라우저 없는 자동 확정, 동일 폴더 중복 프로세스 거절, Idle 상태 프로세스 재시작 후 회차/프로필 유지로 확장했다. 아직 이번 코드의 Windows 결과는 없다. 실제 Windows 재부팅/서비스 검증으로 해석하지 않는다.
+- Windows smoke는 브라우저 없는 자동 확정, 동일 폴더 중복 프로세스 거절, Idle 상태 프로세스 재시작 후 회차/프로필 유지로 확장했다. 소스 `d66a3a2`의 [Windows CI 43737258765](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43737258765)가 성공했다. Windows Server 2025에서 공통 264 통과·Mac/Unix 4 건너뜀, Windows 전용 5 통과, Python 3 통과·Unix 2 건너뜀이다. self-contained ZIP 360개 해시·PS5.1 launcher 구문과 확장한 EXE 동작 검사가 통과했다. 실제 Windows 재부팅/서비스 검증으로 해석하지 않는다.
 
 ### 다음 작업·진행률·실환경 미확인
 
-- 독립 검토와 Windows CI를 완료한 뒤 Task 5 완료를 반영한다. 현재 **48 / 100%**다. Task 6 조회·CSV·UI는 별도 worktree에서 구현·검토 중이다.
+- 독립 검토와 Windows CI를 완료하여 Task 5의 10점을 반영했다. 현재 **58 / 100%**다. Task 6 조회·CSV·UI는 별도 worktree에서 구현·검토 중이다.
 - 실제 AirWave·사내 TLS/PAC·운영 계정·장비, Windows 11 서비스/재부팅/절전, 장기 운영·물리 디스크 고장·전원 차단은 미확인이다. 백업·운영 이력·조건부 부가 수집은 후속 작업이다.
 
 ## 2026-11-16 — Task 4 실제 구현: 원자적 저장·불변 과거 현황·인증 복원
