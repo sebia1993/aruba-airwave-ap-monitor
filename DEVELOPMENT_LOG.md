@@ -19,12 +19,14 @@
 - `dotnet build AirWaveApMonitor.slnx -c Release`: 성공, 경고 0·오류 0.
 - `dotnet test AirWaveApMonitor.slnx -c Release --no-build`: 공통 34개 통과, Windows 전용 2개는 Mac에서 명시적으로 건너뜀.
 - `dotnet run --project src/AirWaveApMonitor.App -- --mode demo`: 실제 브라우저에서 Demo 표시와 미구현 안내 확인. `/api/health`는 `bootstrap`, 수집·저장은 `not-implemented`; `/api/dashboard`는 503. `lsof`로 `127.0.0.1:8765` 단일 수신 확인.
-- 독립 코드 검토와 Windows CI는 이 기록 작성 시 진행 중이다. 최종 결과는 `docs/DEVELOPMENT_STATUS.md`에 이어 기록한다.
+- 독립 검토: 요구 준수·품질 PASS, Critical/Important 없음. 프로필 JSON 복원 생성자 호환성 Minor 1건은 실제 저장/복원 경로를 연결하기 전에 보완하도록 기록했다.
+- [Windows CI 43725557307](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43725557307): 커밋 `454dee4`에서 전체 성공. Windows Server 2025 러너에서 공통 32 통과·Mac/Unix 2 건너뜀, Windows 전용 2 통과, self-contained 게시 및 한글/공백 경로 EXE 실행·루프백 HTTP 확인. 실제 사내 Windows 11 검증과 구분한다.
+- 스테이징 점검에서 `credentials*` 패턴이 대소문자 비구분 Git에서 소스 파일까지 제외함을 발견했다. `credentials.*` 등으로 좁히고 모든 제품 소스의 추적 여부를 확인했다.
 
 ### 다음 작업·진행률·한계
 
 - 다음 단계: Task 2의 AirWave 읽기 어댑터·안전한 XML 파서·실행 계정 DPAPI·연결 진단·초기 Windows 패키지.
-- Task 1 가중치는 8%이며 독립 검토와 Windows CI 결과 확인 전에는 완료 점수를 부여하지 않았다. 전체 가중치와 완료 근거는 진행 기록에서 관리한다.
+- Task 1 구현·Mac 검증·독립 검토·Windows CI를 확인하여 개발 산출물 진행률 **8 / 100%**를 확정했다. 구현 커밋 `454dee4`, 원격 `codex/macos-v0.1`. 전체 가중치와 완료 근거는 진행 기록에서 관리한다.
 - 실제 AirWave, 사내 PAC/TLS, Windows 11 운영 계정/서비스/재부팅, PoE·LLDP 필드와 상시 수집은 미확인이다. 이 단계는 자동 수집·SQLite 이력이나 반입 ZIP을 제공한 단계가 아니다.
 - 원래 계획·설계·모의화면과 이전 작업 기록을 보존했다. 실제 계정·내부 자료·DB·로그·배포 ZIP은 커밋 대상에서 제외했다.
 
