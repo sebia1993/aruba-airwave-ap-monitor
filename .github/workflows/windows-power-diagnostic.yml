@@ -1,0 +1,54 @@
+name: Windows power storage diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/macos-v0.1]
+    paths:
+      - 'src/AirWaveApMonitor.Infrastructure/Storage/SqliteCollectionStore.Enrichment.Apply.cs'
+      - 'src/AirWaveApMonitor.Infrastructure/Storage/SqliteCollectionStore.Enrichment.Power.cs'
+      - 'tests/AirWaveApMonitor.Tests/EnrichmentStorage/EnrichmentScaleTests.cs'
+      - 'tests/AirWaveApMonitor.Tests/EnrichmentStorage/EnrichmentPowerStatementTests.cs'
+      - '.github/workflows/windows-power-diagnostic.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-power-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+
+# Targeted feedback only. This workflow does not produce a release package;
+# the complete Windows verification workflow remains the release requirement.
+jobs:
+  power-storage:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-dotnet@v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Restore
+        run: dotnet restore AirWaveApMonitor.slnx
+      - name: Build
+        run: dotnet build AirWaveApMonitor.slnx -c Release --no-restore
+      - name: Actual production budget and statement reuse regressions
+        run: |
+          dotnet test tests/AirWaveApMonitor.Tests -c Release --no-build --filter "FullyQualifiedName~EnrichmentScaleTests|FullyQualifiedName~SqliteCollectionStoreTests.PowerBatch_" --logger "trx;LogFileName=power-storage-windows.trx"
+          if ($LASTEXITCODE -ne 0) { throw 'Power storage diagnostic failed.' }
+          [xml]$results = Get-Content -Raw tests/AirWaveApMonitor.Tests/TestResults/power-storage-windows.trx
+          $counts = $results.TestRun.ResultSummary.Counters
+          if ([int]$counts.total -ne 5 -or [int]$counts.passed -ne 5) {
+            throw 'Expected the scale test and all four statement reuse regressions to pass.'
+          }
+      - name: Preserve targeted diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: windows-power-storage-diagnostics
+          path: tests/AirWaveApMonitor.Tests/TestResults/power-storage-windows.trx
+          if-no-files-found: ignore

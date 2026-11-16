@@ -19,7 +19,13 @@ public sealed partial class SqliteCollectionStore
         await writeGate.WaitAsync(ct);
         try
         {
-            using var connection = Open(); Initialize(connection, ct); using var transaction = connection.BeginTransaction();
+            using var connection = Open(); Initialize(connection, ct);
+            // A large power batch otherwise repeatedly spills dirty index pages from
+            // SQLite's default small cache. This connection-local 16-MiB page-cache
+            // target is not a process memory cap; pooling is disabled and durability
+            // (WAL, synchronous FULL and normal cache spilling) stays unchanged.
+            if (context.Kind == CollectionKind.Power) Execute(connection, null, "PRAGMA cache_size=-16384");
+            using var transaction = connection.BeginTransaction();
             var saved = CheckedEnrichmentContext(connection, transaction, context);
             var existing = Optional<EnrichmentCommitReceipt>(connection, transaction, "SELECT receipt_json FROM run_results WHERE run_id=$run", ("$run", saved.RunId));
             if (existing is not null)
@@ -95,11 +101,14 @@ public sealed partial class SqliteCollectionStore
                 ct.ThrowIfCancellationRequested(); var accepted = StorePort(connection, transaction, context, profileKey, port, EndpointConnections(connectionsByEndpoint, port.Endpoint), targetBounds, updateFacts);
                 valid += accepted.Valid ? 1 : 0; quality |= accepted.Gap;
             }
-            for (var i = 0; i < detail.PowerSamples.Length; i++)
+            using (var statements = new PowerStatements(connection, transaction))
             {
-                ct.ThrowIfCancellationRequested(); var accepted = StorePower(connection, transaction, context, profileKey, detail.PowerSamples[i], i,
-                    detail.PowerSamples[i].Metric == PowerMetric.ApConsumption ? [] : EndpointConnections(frozenByEndpoint, detail.PowerSamples[i].Endpoint), targetBounds, updateFacts);
-                valid += accepted ? 1 : 0; quality |= !accepted;
+                for (var i = 0; i < detail.PowerSamples.Length; i++)
+                {
+                    ct.ThrowIfCancellationRequested(); var accepted = StorePower(connection, transaction, context, profileKey, detail.PowerSamples[i], i,
+                        detail.PowerSamples[i].Metric == PowerMetric.ApConsumption ? [] : EndpointConnections(frozenByEndpoint, detail.PowerSamples[i].Endpoint), targetBounds, statements, updateFacts);
+                    valid += accepted ? 1 : 0; quality |= !accepted;
+                }
             }
             foreach (var state in detail.PowerStates)
             {

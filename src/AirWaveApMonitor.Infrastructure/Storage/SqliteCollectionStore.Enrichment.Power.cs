@@ -1,3 +1,4 @@
+using System.Globalization;
 using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Core.Enrichment;
 using Microsoft.Data.Sqlite;
@@ -7,8 +8,55 @@ namespace AirWaveApMonitor.Infrastructure.Storage;
 
 public sealed partial class SqliteCollectionStore
 {
+    // The high-volume sample loop uses identical SQL repeatedly. Keep its prepared
+    // statements only for this transaction; readers and all parameters are refreshed
+    // per sample so earlier writes in the same batch remain immediately visible.
+    private sealed class PowerStatements(SqliteConnection connection, SqliteTransaction transaction) : IDisposable
+    {
+        private readonly Dictionary<string, SqliteCommand> commands = new(StringComparer.Ordinal);
+
+        public SqliteCommand Bind(string sql, params (string Name, object? Value)[] parameters)
+        {
+            if (!commands.TryGetValue(sql, out var command))
+            {
+                command = Command(connection, transaction, sql, parameters);
+                try { command.Prepare(); commands.Add(sql, command); }
+                catch { command.Dispose(); throw; }
+            }
+            else
+            {
+                // Match StorageDatabase.Command's persisted-value representation,
+                // including DBNull on transitions from a non-null prior sample.
+                foreach (var (name, value) in parameters)
+                    command.Parameters[name].Value = value switch
+                    {
+                        null => DBNull.Value,
+                        Guid id => id.ToString("D"),
+                        DateTimeOffset at => at.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+                        Enum enumeration => Convert.ToInt32(enumeration, CultureInfo.InvariantCulture),
+                        _ => value
+                    };
+            }
+            return command;
+        }
+
+        public int Execute(string sql, params (string Name, object? Value)[] parameters)
+            => Bind(sql, parameters).ExecuteNonQuery();
+
+        public object? Scalar(string sql, params (string Name, object? Value)[] parameters)
+        {
+            var result = Bind(sql, parameters).ExecuteScalar();
+            return result is DBNull ? null : result;
+        }
+
+        public void Dispose()
+        {
+            foreach (var command in commands.Values) command.Dispose();
+        }
+    }
+
     private bool StorePower(SqliteConnection connection, SqliteTransaction transaction, CollectionContext context,
-        string profile, PowerSample sample, int ordinal, IReadOnlyList<ConnectionObservation> connections, StoredTargetBoundsCache targetBounds, bool current)
+        string profile, PowerSample sample, int ordinal, IReadOnlyList<ConnectionObservation> connections, StoredTargetBoundsCache targetBounds, PowerStatements statements, bool current)
     {
         var normalized = PowerValuePolicy.Normalize(sample);
         var eligible = sample.Timing.SourceAtUtc is { } measured
@@ -28,7 +76,7 @@ public sealed partial class SqliteCollectionStore
         long? sequence = null;
         if (keyHash is not null)
         {
-            using var command = Command(connection, transaction, "SELECT measurement_hash,sample_sequence FROM power_sample_keys WHERE key_hash=$key", ("$key", keyHash));
+            var command = statements.Bind("SELECT measurement_hash,sample_sequence FROM power_sample_keys WHERE key_hash=$key", ("$key", keyHash));
             using var reader = command.ExecuteReader();
             if (reader.Read())
             {
@@ -39,7 +87,7 @@ public sealed partial class SqliteCollectionStore
                 else
                 {
                     reader.Close();
-                    Execute(connection, transaction, "INSERT INTO enrichment_power_reads VALUES($run,$ordinal,NULL,$at)", ("$run", context.RunId), ("$ordinal", ordinal), ("$at", sample.Timing.ReadAtUtc));
+                    statements.Execute("INSERT INTO enrichment_power_reads VALUES($run,$ordinal,NULL,$at)", ("$run", context.RunId), ("$ordinal", ordinal), ("$at", sample.Timing.ReadAtUtc));
                     return false;
                 }
             }
@@ -49,7 +97,7 @@ public sealed partial class SqliteCollectionStore
         {
             if (sample.Id == Guid.Empty) throw new ArgumentException("전력 표본 ID가 비어 있습니다.", nameof(sample));
             var target = attribution.Target;
-            Execute(connection, transaction, """
+            statements.Execute("""
                 INSERT INTO power_samples(sample_id,run_id,profile_key,scope_version,endpoint_role,source_device_id,source_interface_id,metric,
                     ap_id,generation_id,interval_id,point_id,read_at_utc,source_at_utc,sample_json,normalized_json,attribution_json)
                 VALUES($id,$run,$profile,$scope,$role,$device,$interface,$metric,$ap,$gen,$interval,$point,$read,$source,$sample,$normalized,$attribution)
@@ -57,20 +105,21 @@ public sealed partial class SqliteCollectionStore
                 ("$device", sample.Endpoint.SourceDeviceId), ("$interface", sample.Endpoint.SourceInterfaceId), ("$metric", sample.Metric), ("$ap", target?.ApId),
                 ("$gen", target?.DeviceGenerationId), ("$interval", target?.MonitoringIntervalId), ("$point", target?.Placement?.InstallationPointId),
                 ("$read", sample.Timing.ReadAtUtc), ("$source", sample.Timing.SourceAtUtc), ("$sample", Encode(sample)), ("$normalized", Encode(normalized)), ("$attribution", Encode(attribution)));
-            sequence = Convert.ToInt64(Scalar(connection, transaction, "SELECT last_insert_rowid()"));
-            if (keyHash is not null) Execute(connection, transaction, "INSERT INTO power_sample_keys VALUES($key,$hash,$sequence)", ("$key", keyHash), ("$hash", measurementHash), ("$sequence", sequence));
+            sequence = Convert.ToInt64(statements.Scalar("SELECT last_insert_rowid()"));
+            if (keyHash is not null) statements.Execute("INSERT INTO power_sample_keys VALUES($key,$hash,$sequence)", ("$key", keyHash), ("$hash", measurementHash), ("$sequence", sequence));
         }
-        Execute(connection, transaction, "INSERT INTO enrichment_power_reads VALUES($run,$ordinal,$sequence,$at)", ("$run", context.RunId), ("$ordinal", ordinal), ("$sequence", sequence), ("$at", sample.Timing.ReadAtUtc));
+        statements.Execute("INSERT INTO enrichment_power_reads VALUES($run,$ordinal,$sequence,$at)", ("$run", context.RunId), ("$ordinal", ordinal), ("$sequence", sequence), ("$at", sample.Timing.ReadAtUtc));
         var entity = EnrichmentHash(new { sample.Endpoint, sample.Metric });
-        var previous = Optional<PowerSample>(connection, transaction, "SELECT p.sample_json FROM enrichment_power_current c JOIN power_samples p USING(sample_sequence) WHERE c.profile_key=$profile AND c.entity_key=$key", ("$profile", profile), ("$key", entity));
+        var previousJson = statements.Scalar("SELECT p.sample_json FROM enrichment_power_current c JOIN power_samples p USING(sample_sequence) WHERE c.profile_key=$profile AND c.entity_key=$key", ("$profile", profile), ("$key", entity)) as string;
+        var previous = previousJson is null ? null : Decode<PowerSample>(previousJson);
         var regressed = sample.Timing.MeaningVerified && previous?.Timing.MeaningVerified == true && sample.Timing.SourceAtUtc is { } at && previous.Timing.SourceAtUtc is { } before && at < before;
         var valid = normalized.Watts is not null && !regressed;
         if (current && valid)
         {
-            Execute(connection, transaction, "INSERT INTO enrichment_power_current VALUES($profile,$key,$sequence) ON CONFLICT(profile_key,entity_key) DO UPDATE SET sample_sequence=excluded.sample_sequence", ("$profile", profile), ("$key", entity), ("$sequence", sequence));
+            statements.Execute("INSERT INTO enrichment_power_current VALUES($profile,$key,$sequence) ON CONFLICT(profile_key,entity_key) DO UPDATE SET sample_sequence=excluded.sample_sequence", ("$profile", profile), ("$key", entity), ("$sequence", sequence));
             // Deduplicated reads retain the original sample attribution, not this read's current placement.
             var storedTarget = isNewSample ? attribution.Target : ReadPowerEvidence(connection, transaction, sequence.Value)!.Attribution.Target;
-            Execute(connection, transaction, "INSERT INTO enrichment_accepted_power(profile_key,entity_key,run_id,sample_sequence,ap_id,generation_id,interval_id) VALUES($profile,$key,$run,$sequence,$ap,$gen,$interval)",
+            statements.Execute("INSERT INTO enrichment_accepted_power(profile_key,entity_key,run_id,sample_sequence,ap_id,generation_id,interval_id) VALUES($profile,$key,$run,$sequence,$ap,$gen,$interval)",
                 ("$profile", profile), ("$key", entity), ("$run", context.RunId), ("$sequence", sequence), ("$ap", storedTarget?.ApId),
                 ("$gen", storedTarget?.DeviceGenerationId), ("$interval", storedTarget?.MonitoringIntervalId));
         }
