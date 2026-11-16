@@ -1,7 +1,7 @@
 ﻿param([Parameter(Mandatory=$true)][string]$PackageDirectory)
 $ErrorActionPreference = 'Stop'
 $packageSource = (Resolve-Path -LiteralPath $PackageDirectory).Path
-. (Join-Path $packageSource 'Monitor-Common.ps1')
+. (Join-Path $packageSource 'tools/Monitor-Common.ps1')
 Assert-MonitorAdministrator
 $caseId = [guid]::NewGuid().ToString('N')
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('AirWave 운영 검증 ' + $caseId)
@@ -142,19 +142,21 @@ try {
     New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
     foreach ($entry in Get-ChildItem -LiteralPath $packageSource -Force) { Copy-Item -LiteralPath $entry.FullName -Destination $packageRoot -Recurse }
     $exe = Join-Path $packageRoot 'app\AirWaveApMonitor.App.exe'
+    $toolsRoot = Join-Path $packageRoot 'tools'
     foreach ($scriptName in @('Install-Service.ps1','Remove-Service.ps1','Install-ScheduledTask.ps1','Remove-ScheduledTask.ps1','Monitor-Common.ps1','Monitor-ServiceRecovery.ps1','Backup-Restore.ps1','Start-Monitor.ps1')) {
-        if (-not (Test-Path -LiteralPath (Join-Path $packageRoot $scriptName) -PathType Leaf)) { throw ('Packaged operation script missing: ' + $scriptName) }
+        if (-not (Test-Path -LiteralPath (Join-Path $toolsRoot $scriptName) -PathType Leaf)) { throw ('Packaged operation script missing: ' + $scriptName) }
     }
-    . (Join-Path $packageRoot 'Monitor-Common.ps1')
+    . (Join-Path $toolsRoot 'Monitor-Common.ps1')
     $servicePort = Get-FreePort
     $serviceLaunch = Get-MonitorLaunchSpec -ExecutablePath $exe -DataDirectory $serviceData -Mode demo -Port $servicePort -ServiceName $serviceName -RequireExecutable
-    & (Join-Path $packageRoot 'Install-Service.ps1') -ServiceName $serviceName -DataDirectory $serviceData -Mode demo -Port $servicePort -ExecutablePath $exe -DemoLocalSystem -StartNow
+    & (Join-Path $toolsRoot 'Install-Service.ps1') -ServiceName $serviceName -DataDirectory $serviceData -Mode demo -Port $servicePort -DemoLocalSystem -StartNow
     $initial = Wait-OperationalHealth -Port $servicePort -Service
     $policy = Get-MonitorServiceRecovery -ServiceName $serviceName
     if (($policy.ActionTypes -join ',') -ne '1,1,1,0' -or ($policy.Delays -join ',') -ne '60000,60000,60000,0' -or $policy.ResetPeriod -ne 86400 -or -not $policy.NonCrashFailures) { throw 'Actual SCM recovery policy differs.' }
     $profilePath = Join-Path $serviceData 'profile.json'
     $profileHash = (Get-FileHash -LiteralPath $profilePath -Algorithm SHA256).Hash
     $profile = Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $evidence.serviceDefaultExecutableVerified = $true
     $evidence.serviceInitialRunId = [long]$initial.Health.collector.lastFinalRunId
     $evidence.serviceInitialProcessId = $initial.ProcessId
     Assert-LoopbackProcess -ProcessId $initial.ProcessId -Port $servicePort -Executable $exe
@@ -206,7 +208,7 @@ try {
     $evidence.preservedDatabaseSha256 = $preservedHash
     Stop-OwnedService -Launch $serviceLaunch
     $databaseHash = (Get-FileHash -LiteralPath (Join-Path $serviceData 'monitor.db') -Algorithm SHA256).Hash
-    & (Join-Path $packageRoot 'Remove-Service.ps1') -ServiceName $serviceName -DataDirectory $serviceData -Mode demo -Port $servicePort -ExecutablePath $exe
+    & (Join-Path $toolsRoot 'Remove-Service.ps1') -ServiceName $serviceName -DataDirectory $serviceData -Mode demo -Port $servicePort
     if ($null -ne (Get-CimInstance -ClassName Win32_Service -Filter "Name = '$serviceName'")) { throw 'Owned service registration remains.' }
     if ((Get-FileHash -LiteralPath (Join-Path $serviceData 'monitor.db') -Algorithm SHA256).Hash -ne $databaseHash -or
         (Get-FileHash -LiteralPath $profilePath -Algorithm SHA256).Hash -ne $profileHash) { throw 'Service removal changed retained DB/profile files.' }
@@ -214,10 +216,11 @@ try {
 
     $taskPort = Get-FreePort
     $taskLaunch = Get-MonitorLaunchSpec -ExecutablePath $exe -DataDirectory $taskData -Mode demo -Port $taskPort -RequireExecutable
-    & (Join-Path $packageRoot 'Install-ScheduledTask.ps1') -TaskName $taskName -DataDirectory $taskData -Mode demo -Port $taskPort -ExecutablePath $exe -DemoLocalSystem -StartNow
+    & (Join-Path $toolsRoot 'Install-ScheduledTask.ps1') -TaskName $taskName -DataDirectory $taskData -Mode demo -Port $taskPort -DemoLocalSystem -StartNow
     $taskReady = Wait-OperationalHealth -Port $taskPort
     $registeredTask = Get-MonitorRegisteredTask -Name $taskName
     Assert-MonitorOwnedTask -Task $registeredTask -Launch $taskLaunch
+    $evidence.taskDefaultExecutableVerified = $true
     [xml]$taskXml = Export-ScheduledTask -TaskPath $taskPath -TaskName $taskName
     $ns = New-Object Xml.XmlNamespaceManager($taskXml.NameTable)
     $ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
@@ -229,7 +232,7 @@ try {
     $taskProfileHash = (Get-FileHash -LiteralPath $taskProfilePath -Algorithm SHA256).Hash
     $taskProcess = Get-Process -Id $taskReady.ProcessId
     try {
-        & (Join-Path $packageRoot 'Remove-ScheduledTask.ps1') -TaskName $taskName -DataDirectory $taskData -Mode demo -Port $taskPort -ExecutablePath $exe
+        & (Join-Path $toolsRoot 'Remove-ScheduledTask.ps1') -TaskName $taskName -DataDirectory $taskData -Mode demo -Port $taskPort
         if (-not $taskProcess.HasExited -and -not $taskProcess.WaitForExit(30000)) { throw 'Owned task process did not exit after task removal; preserve its data folder.' }
     } finally { $taskProcess.Dispose() }
     if ($null -ne (Get-MonitorRegisteredTask -Name $taskName)) { throw 'Owned scheduled task registration remains.' }
@@ -250,7 +253,7 @@ try {
             if ($null -ne $remainingService) {
                 Assert-MonitorOwnedService -Service $remainingService -Launch $serviceLaunch
                 Set-Service -Name $serviceName -StartupType Disabled
-                & (Join-Path $packageRoot 'Remove-Service.ps1') -ServiceName $serviceName -DataDirectory $serviceData -Mode demo -Port $servicePort -ExecutablePath $exe
+                & (Join-Path $toolsRoot 'Remove-Service.ps1') -ServiceName $serviceName -DataDirectory $serviceData -Mode demo -Port $servicePort
             }
         } catch { $cleanupOk = $false; Write-Warning ('Owned service cleanup needs inspection: ' + $_.Exception.Message) }
     }
@@ -259,7 +262,7 @@ try {
             $remainingTask = Get-MonitorRegisteredTask -Name $taskName
             if ($null -ne $remainingTask) {
                 Assert-MonitorOwnedTask -Task $remainingTask -Launch $taskLaunch
-                & (Join-Path $packageRoot 'Remove-ScheduledTask.ps1') -TaskName $taskName -DataDirectory $taskData -Mode demo -Port $taskPort -ExecutablePath $exe
+                & (Join-Path $toolsRoot 'Remove-ScheduledTask.ps1') -TaskName $taskName -DataDirectory $taskData -Mode demo -Port $taskPort
             }
         } catch { $cleanupOk = $false; Write-Warning ('Owned task cleanup needs inspection: ' + $_.Exception.Message) }
     }
