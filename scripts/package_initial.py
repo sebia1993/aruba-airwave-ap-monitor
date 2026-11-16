@@ -52,13 +52,18 @@ def validate_publish(published):
             raise ValueError("운영 자료·비밀·로그 또는 잘못된 파일명이 게시 폴더에 있습니다.")
 
 
-def create_package(published, destination, repository, commit, dirty, stage="initial-diagnostics"):
+def create_package(published, destination, repository, commit, dirty, stage="initial-diagnostics", launcher=None):
     published, destination, repository = map(Path, (published, destination, repository))
     if stage not in {"initial-diagnostics", "core-monitoring"}:
         raise ValueError("지원하지 않는 패키지 범위입니다.")
     validate_publish(published)
     core = stage == "core-monitoring"
     if core:
+        if launcher is None:
+            raise ValueError("핵심 감시 패키지에는 컴파일된 Windows 실행기가 필요합니다.")
+        launcher = Path(launcher)
+        if not launcher.is_file() or launcher.is_symlink() or launcher.stat().st_size == 0:
+            raise ValueError("Windows 실행기는 비어 있지 않은 일반 파일이어야 합니다.")
         for required in ("e_sqlite3.dll", "wwwroot/app.css", "wwwroot/ui-state.js", "wwwroot/operations.js", "wwwroot/enrichment.js"):
             if not (published / required).is_file():
                 raise ValueError("핵심 감시 패키지의 필수 자원이 누락되었습니다: " + required)
@@ -89,6 +94,13 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
                        "docs/measurements/2026-11-16-compact-steady-up-5000.json": "2026-11-16-compact-steady-up-5000.json",
                        "docs/measurements/2026-11-16-enrichment-storage.json": "2026-11-16-enrichment-storage.json",
                        "docs/superpowers/plans/2026-11-16-compact-history-correction.md": "IMPLEMENTATION_CORRECTIONS.md"})
+        guides = {source: ("tools/" + target if source.startswith("scripts/windows/") else
+                           "docs/guides/" + target if source.startswith("docs/guides/") else
+                           "docs/measurements/" + target if source.startswith("docs/measurements/") else
+                           "docs/development/" + target)
+                  for source, target in guides.items()}
+        guides["docs/guides/GETTING_STARTED.txt"] = "시작하기.txt"
+        guides["docs/LAUNCHER_RELEASE_STATUS.md"] = "docs/development/LAUNCHER_RELEASE_STATUS.md"
     elif (repository / "scripts/windows/Monitor-Common.ps1").exists():
         # Later launchers share this dependency. Historic diagnostics generation must
         # not create a launcher that refers to a missing helper.
@@ -100,22 +112,26 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
 
     destination.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
-    version = "0.1.0" if core else "0.1.0-diagnostics"
+    version = "0.1.1" if core else "0.1.0-diagnostics"
     name = "AirWaveAPMonitor-{}-{}-{}-{}".format(
         version, commit[:12], now.strftime("%Y%m%dT%H%M%SZ"), uuid.uuid4().hex[:6])
     with tempfile.TemporaryDirectory(prefix=".bundle-", dir=destination) as temporary:
         staging = Path(temporary)
         payload = staging / "payload"
         shutil.copytree(published, payload / "app")
+        if core:
+            shutil.copyfile(launcher, payload / "AirWaveAPMonitor.exe")
         for source, target in guides.items():
+            (payload / target).parent.mkdir(parents=True, exist_ok=True)
             if source.endswith(".md"):
-                # Guides are flat in the portable bundle. Rewrite links only to other
-                # included files; repository documents remain unchanged, anchors survive.
+                # Resolve links between their packaged locations. Only included files
+                # are rewritten; repository documents and link anchors remain intact.
                 content = (repository / source).read_text(encoding="utf-8")
                 for linked_source, linked_target in guides.items():
                     relative = posixpath.relpath(linked_source, posixpath.dirname(source) or ".")
+                    packaged_relative = posixpath.relpath(linked_target, posixpath.dirname(target) or ".")
                     pattern = r"(\]\()" + re.escape(relative) + r"(?=[)#])"
-                    content = re.sub(pattern, lambda match: match.group(1) + linked_target, content)
+                    content = re.sub(pattern, lambda match: match.group(1) + packaged_relative, content)
                 (payload / target).write_text(content, encoding="utf-8")
             else:
                 shutil.copyfile(repository / source, payload / target)
@@ -129,10 +145,12 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
                                 if core else ["핵심 감시 반입·전체 승인 범위의 검증은 별도 패키지/기록 참조"]),
             "verification": "포함 기능의 구현 범위이며 검증 완료 표시가 아닙니다. 이 소스의 Windows CI 결과와 사내 확인 여부는 개발 검증 기록을 참조하세요.",
         }
-        (payload / "VERSION.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        metadata_directory = payload / "metadata" if core else payload
+        metadata_directory.mkdir(parents=True, exist_ok=True)
+        (metadata_directory / "VERSION.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         checksums = [sha256(item) + "  " + item.relative_to(payload).as_posix()
                      for item in sorted(payload.rglob("*")) if item.is_file()]
-        (payload / "SHA256SUMS.txt").write_text("\n".join(checksums) + "\n", encoding="utf-8")
+        (metadata_directory / "SHA256SUMS.txt").write_text("\n".join(checksums) + "\n", encoding="utf-8")
         temporary_zip = staging / "bundle.zip"
         with zipfile.ZipFile(temporary_zip, "x", zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
             for item in sorted(payload.rglob("*")):

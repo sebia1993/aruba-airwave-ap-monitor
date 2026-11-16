@@ -4,13 +4,14 @@ param(
     [Parameter(Mandatory=$true)][string]$DataDirectory,
     [ValidateSet('live','demo')][string]$Mode = 'live',
     [ValidateRange(1,65535)][int]$Port = 8765,
-    [string]$ExecutablePath = (Join-Path $PSScriptRoot 'app\AirWaveApMonitor.App.exe'),
+    [string]$ExecutablePath,
     [Parameter(Mandatory=$true,ParameterSetName='Credential')][PSCredential]$Credential,
     [Parameter(Mandatory=$true,ParameterSetName='DemoSystem')][switch]$DemoLocalSystem,
     [switch]$StartNow
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Monitor-Common.ps1')
+if (-not $PSBoundParameters.ContainsKey('ExecutablePath')) { $ExecutablePath = Get-MonitorDefaultExecutable }
 Assert-MonitorAdministrator
 $TaskName = Test-MonitorRegistrationName $TaskName
 Assert-MonitorAccountSelection -ParameterSetName $PSCmdlet.ParameterSetName -Mode $Mode -DemoLocalSystem ([bool]$DemoLocalSystem)

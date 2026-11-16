@@ -107,8 +107,10 @@ class InitialPackageTests(unittest.TestCase):
         artifacts.mkdir(parents=True)
         previous = artifacts / "previous.zip"
         previous.write_bytes(b"preserve previous validated package")
+        launcher = self.root / "compiled launcher.exe"
+        launcher.write_bytes(b"synthetic launcher passed to publish wrapper")
         environment = dict(os.environ, PATH=str(fake_bin) + os.pathsep + os.environ["PATH"])
-        result = subprocess.run(["bash", str(scripts / "publish-win.sh")], env=environment,
+        result = subprocess.run(["bash", str(scripts / "publish-win.sh"), str(launcher)], env=environment,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.assertEqual(42, result.returncode, result.stdout + result.stderr)
         self.assertEqual(b"preserve previous validated package", previous.read_bytes())

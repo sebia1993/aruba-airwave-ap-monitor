@@ -6,7 +6,7 @@
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Monitor-Common.ps1')
 Assert-MonitorWindows
-$exe = Join-Path $PSScriptRoot 'app\AirWaveApMonitor.App.exe'
+$exe = Get-MonitorDefaultExecutable
 if ([string]::IsNullOrWhiteSpace($DataDirectory)) {
     $base = if ($Mode -eq 'live') { [Environment]::GetFolderPath('CommonApplicationData') } else { [Environment]::GetFolderPath('LocalApplicationData') }
     $DataDirectory = Join-Path (Join-Path $base 'AirWaveAPMonitor') $Mode

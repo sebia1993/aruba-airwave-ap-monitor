@@ -2,6 +2,16 @@
 function Assert-MonitorWindows {
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw '이 스크립트는 Windows에서 실행하세요.' }
 }
+function Get-MonitorDefaultExecutable {
+    # Core tools live one level below the package. Legacy diagnostics retain their
+    # root VERSION.json, including when the user names that root folder "tools".
+    $package = $PSScriptRoot
+    if ((Split-Path $PSScriptRoot -Leaf) -ieq 'tools' -and
+        -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'VERSION.json') -PathType Leaf)) {
+        $package = Split-Path $PSScriptRoot -Parent
+    }
+    return Join-Path $package 'app\AirWaveApMonitor.App.exe'
+}
 function Assert-MonitorAdministrator {
     Assert-MonitorWindows
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()

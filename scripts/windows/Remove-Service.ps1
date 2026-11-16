@@ -4,10 +4,11 @@ param(
     [Parameter(Mandatory=$true)][string]$DataDirectory,
     [ValidateSet('live','demo')][string]$Mode = 'live',
     [ValidateRange(1,65535)][int]$Port = 8765,
-    [string]$ExecutablePath = (Join-Path $PSScriptRoot 'app\AirWaveApMonitor.App.exe')
+    [string]$ExecutablePath
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Monitor-Common.ps1')
+if (-not $PSBoundParameters.ContainsKey('ExecutablePath')) { $ExecutablePath = Get-MonitorDefaultExecutable }
 Assert-MonitorAdministrator
 $ServiceName = Test-MonitorRegistrationName $ServiceName
 $launch = Get-MonitorLaunchSpec -ExecutablePath $ExecutablePath -DataDirectory $DataDirectory -Mode $Mode -Port $Port -ServiceName $ServiceName
