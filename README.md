@@ -2,6 +2,8 @@
 
 **핵심 목표는 AirWave를 주기적으로 조회하여 Down AP 현황을 추적하는 것입니다.** 수집 PC 한 대에서 이번 Down, 신규 Down, 미복구, 복구 확인과 반복 이력을 조회합니다. 정보·연결 변경, 장비 교체와 작업·조치 기록은 이 감시와 조사를 지원합니다.
 
+**최신 v0.1.1:** [Windows ZIP 하나 다운로드](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/download/v0.1.1/AirWaveAPMonitor-v0.1.1-win-x64.zip) → 전체 압축 해제 → **최상위 `AirWaveAPMonitor.exe` 더블클릭**. 실행기와 목적별 폴더를 추가했고 Windows 전체 CI·공개 다운로드 파일 대조를 완료했습니다. [업데이트·검증 완료 기록](docs/LAUNCHER_RELEASE_STATUS.md)에 작업별 결과와 실환경 미확인 항목을 기록했습니다.
+
 **기존 v0.1.0 상태: 계획의 Task 1–10 구현·자동 검증·인수 산출물 범위를 완료했으며 개발 진행률은100%입니다. Mac 공통891·화면100·패키지11개 검사와 최신 Windows 전체 실행, 정확한 CI ZIP 해시/소스 대조를 완료했습니다. 실제 AirWave와 사내 Windows11/AD 운영은 미확인이며 Live 연결·LLDP·PoE 전송 어댑터는 미구현·미검증·비활성입니다.**
 
 v0.1.0 반입본의 소스·SHA256·실제 검증과 미확인 항목은 [최종 결과](docs/DEVELOPMENT_STATUS.md)를 확인하세요. ZIP은 Windows에서 실행한 원본이며, 포함 문서는 검증 전92% 시점으로 보존됩니다.
@@ -122,4 +124,4 @@ AP 기본 연결 → 상태·장애·회차별 현황 저장 → Down 우선 화
 
 [최신 릴리즈](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/latest)의 Windows ZIP 하나를 받고 **전체 압축 해제 → 최상위 `AirWaveAPMonitor.exe` 더블클릭**으로 실행합니다. 준비되면 기본 브라우저가 열립니다. `app/`은 실행 파일, `tools/`는 관리 도구, `docs/`는 안내, `metadata/`는 버전과 체크섬입니다.
 
-v0.1.1 EXE 실행·구성 변경의 검증 진행과 실환경 미확인 항목은 [추가 작업 기록](docs/LAUNCHER_RELEASE_STATUS.md)을 확인하세요.
+v0.1.1 EXE 실행·구성 변경의 게시 결과, 실제 검증과 실환경 미확인 항목은 [추가 작업 기록](docs/LAUNCHER_RELEASE_STATUS.md)을 확인하세요.

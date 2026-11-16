@@ -2,13 +2,21 @@
 
 기준: v0.1.0 사용자 변경과 기존 데이터·운영 계약을 보존한다. 이 문서는 이번 추가 요청만 추적한다.
 
+**이번 추가 요청의 구현·자동 검증·릴리즈 게시를 100% 완료했다.** [Windows ZIP](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/download/v0.1.1/AirWaveAPMonitor-v0.1.1-win-x64.zip)을 전체 압축 해제한 뒤 최상위 `AirWaveAPMonitor.exe`를 실행한다. 실행 중 수집기 콘솔 창은 열어 둔다. 실환경 미확인 항목은 아래와 같이 별도로 남긴다.
+
 | 작업 | 변경 내용 | 실제 검증 결과 | 다음 작업 | 진행률 | 실환경 미확인 |
 |---|---|---|---|---|---|
-| Task 1 EXE | 최상위 실행기·브라우저 열기·동일 데이터 재사용·데이터 경로 보호·포트 진단 구현 | 최종 macOS 공통 935/935, Frontend 100, Python 15 PASS. desktop/경로 40개 포함. Release 경고/오류 0. Windows 전용 9개는 Mac SKIP | Windows 네이티브 빌드·실행 재검증 | 구현 100%, Windows 검증 진행 중 | Windows 수동 더블클릭·기본 브라우저 GUI |
-| Task 2 구성 | app/tools/docs/metadata 분리·문서 링크·도구 기본경로 구현 (e5205d3) | macOS Python 15/15, PS7.6.10 구문 8/8·동작 24 PASS | 독립 검토와 Windows 통합 | 구현 100%, Windows 검증 대기 | 기존 운영 PC 경로/권한 |
-| Task 3 배포 | 시작 안내·CI 컴파일·추출 ZIP 실행/재사용/충돌/Live 최초 설정 검사 준비 | macOS PS7 구문 4개, 패키지 검증 fixture 4개 PASS. 독립 검토의 오류 안내·상대 경로 수정 완료 | Windows 전체 CI와 원본 ZIP 검증 후 릴리즈 게시 | 검증·게시 진행 중 | 실제 AirWave·AD·프록시·인증서·하드웨어 |
+| Task 1 EXE | 최상위 실행기·브라우저 열기·동일 데이터 재사용·데이터 경로 보호·포트 진단 | Windows 실제 EXE 10개 사례 통과. desktop/경로 39 통과·Unix 1 제외(전체 공통 검사에 포함) | 실제 PC의 더블클릭·브라우저 인수 확인 | 구현·자동 검증 100% | Windows 수동 더블클릭·기본 브라우저 GUI |
+| Task 2 구성 | app/tools/docs/metadata 분리·문서 링크·도구 기본경로 | 원본 ZIP 401개 파일·400개 해시·문서 링크 66개 정상. Windows Python 13 통과·Unix 2 제외, PS5.1 도구 8개와 실제 기본 경로 실행 확인 | 운영 PC의 배포 경로·권한 확인 | 구현·패키지 검증 100% | 기존 운영 PC 경로/권한 |
+| Task 3 배포 | 시작 안내·추출 ZIP·운영 도구 검증·전력 저장 보완·단일 ZIP 릴리즈 | 전체 Windows CI 성공: 공통 930 통과·플랫폼 5 제외, Windows 전용 9, Frontend 100. 서비스 복구·예약 작업·백업/복원 통과. v0.1.1 게시 및 공개 다운로드 원본 대조 완료 | 사내 실환경 인수 확인(자동 검증과 별도) | 구현·자동 검증·게시 100% | 실제 AirWave·AD·프록시·인증서·하드웨어·재부팅 |
 
-최종 Windows CI와 게시 결과는 [v0.1.1 릴리즈](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/tag/v0.1.1)의 검증 링크를 따른다. 전체 Windows CI 성공과 다운로드 ZIP 대조 후에만 릴리즈를 게시한다. ZIP 내부 문서는 패키지 생성 시점의 기록이며 최신 결과는 이 저장소 문서와 릴리즈를 따른다. Live 연결·전력 어댑터는 이번 범위에서 변경하지 않으며 미구현·미검증·비활성 상태다.
+검증 소스는 `b5882f89e3be28c9533491b26a289525e009092f`, [전체 Windows CI는 43789827101](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43789827101)이다. [v0.1.1 릴리즈](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/tag/v0.1.1)는 이 커밋을 가리킨다. 성공한 원본 ZIP을 재포장하지 않고 파일명만 변경했다. ZIP 내부 문서는 패키지 생성 시점의 기록이며 최신 결과는 이 완료 기록과 릴리즈를 따른다. Live 부가 관측(연결·LLDP·PoE) 전송 어댑터는 미구현·미검증·비활성 상태다.
+
+배포 파일은 `AirWaveAPMonitor-v0.1.1-win-x64.zip` 하나이며, 50,746,795 bytes / SHA-256 `44eeb6822eeae9234c2e7732ed7e2a7c3545978ea16f8ff8ad516705ebd01859`이다. 원본 CI ZIP·릴리즈용 복사본·GitHub 업로드 자산·인증 없이 공개 URL에서 다시 받은 파일의 해시와 바이트가 일치한다. 릴리즈 ID는 `446539479`, 자산 ID는 `753137738`, 게시 시각은 `2026-11-16T02:25:41Z`다.
+
+최종 macOS 전체 검증은 공통 935, Frontend 100, Python 15 통과, Windows 전용 9개 Mac 제외, 빌드 경고·오류 0이다. Windows 전력 전용 진단 5개는 공통 검사의 일부이며 중복 합산하지 않는다. 전용 진단의 Power 적용은 3.795초·취소 없음이었다. 전체 CI에서는 6.880초 적용 성공 응답 시 토큰이 취소 상태였고, 후속 상태 조회 취소 뒤 이미 커밋된 결과를 재확인해 Finalized/Succeeded·표본 12,288개·복구 대기 없음으로 끝났다. 실제 COMMIT 전후 취소 순서는 이 로그로 확정하지 않으며 5초 이내 완료나 실환경 성능을 보장하지 않는다.
+
+기존 v0.1.0 태그·ZIP과 원래 사용자 계획·설계·모의 화면은 보존했다. 아래는 릴리즈 완료 전 실패 및 보완 이력이다.
 
 첫 Windows 실행 [43780557973](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/43780557973)은 공통 908 통과·2 실패·4 제외였다. 두 실패는 새 실행기의 최초 HTTP 포트 확인에서 약 2초 뒤 충돌로 처리된 사례이며, 원래 예외가 기록되지 않아 정확한 OS 원인은 미확정이다. 네이티브 컴파일·Windows 전용·Python·ZIP 검사는 그 실행에서 진행되지 않았다. Windows의 수신 포트 목록과 HTTP 앱 식별을 분리하고 진단을 추가했으며, 제한 시간은 늘리지 않았다. 새 Windows 분기는 다음 전체 CI로 확인한다. Mac 통과를 그 분기의 검증으로 간주하지 않는다.
 

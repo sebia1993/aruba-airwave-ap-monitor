@@ -43,8 +43,8 @@
 **Interfaces:** Windows MSVC build가 launcher EXE 생성 → package_core.py 입력 → 실제 extracted ZIP native launcher smoke 및 기존 운영 smoke.
 - [x] native EXE CI/추출ZIP launch·재실행·실패 검사 및 diagnostics 추가.
 - [x] 간결한 시작 안내와 새 tools 명령/폴더 설명·업데이트 가이드 작성.
-- [ ] 로컬 관련 검사 및 전체 Windows CI 결과 확인, 실제 ZIP inventory/hash/링크 확인.
-- [ ] v0.1.1 릴리즈에 기능 변경·검증·미확인 항목과 ZIP 하나 게시하고 실제 다운로드 해시 확인.
+- [x] 로컬 관련 검사 및 전체 Windows CI 결과 확인, 실제 ZIP inventory/hash/링크 확인.
+- [x] v0.1.1 릴리즈에 기능 변경·검증·미확인 항목과 ZIP 하나 게시하고 실제 다운로드 해시 확인.
 
 ## 결과 기록
 
