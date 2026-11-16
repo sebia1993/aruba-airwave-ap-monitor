@@ -130,6 +130,9 @@ public static class AppBootstrap
             var collector = health.GetSnapshot();
             return Results.Json(new
             {
+                product = DesktopStartup.Product,
+                datasetId = location.DatasetId,
+                processId = Environment.ProcessId,
                 mode = options.Mode.ToString().ToLowerInvariant(),
                 status = collector.Paused ? "paused" : collector.BlockedReason ?? collector.Phase.ToString().ToLowerInvariant(),
                 collection = "automatic",
