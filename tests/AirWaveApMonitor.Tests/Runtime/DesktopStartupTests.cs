@@ -181,6 +181,54 @@ public sealed class DesktopStartupTests
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"http://127.0.0.1:{port}/")).StatusCode);
     }
 
+    [Fact]
+    public async Task StoppedCollector_RestartsOnSamePortAndDataset()
+    {
+        using var directory = new TemporaryDirectory();
+        var port = FreePort();
+        Guid dataset;
+        await using (var first = DesktopApp(directory.Path, port, noBrowser: true))
+        {
+            Assert.True(await DesktopStartup.StartAsync(first, new RecordingShell()));
+            dataset = first.Services.GetRequiredService<StorageLocation>().DatasetId;
+            // Exercise a real connection before shutdown; a listener snapshot must not
+            // mistake any remaining TCP connection state for a still-running server.
+            using var client = new HttpClient();
+            Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"http://127.0.0.1:{port}/api/health")).StatusCode);
+            await first.StopAsync();
+        }
+        await using var restarted = DesktopApp(directory.Path, port, noBrowser: true);
+        Assert.True(await DesktopStartup.StartAsync(restarted, new RecordingShell()));
+        using var restartedClient = new HttpClient();
+        using var health = JsonDocument.Parse(await restartedClient.GetStringAsync($"http://127.0.0.1:{port}/api/health"));
+        Assert.Equal(dataset, health.RootElement.GetProperty("datasetId").GetGuid());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ForeignWildcardListener_IsNotOpenedOrReplaced(bool dualStack)
+    {
+        using var directory = new TemporaryDirectory();
+        var builder = WebApplication.CreateBuilder();
+        // Listen on a real wildcard endpoint: a temporary exclusive bind to loopback
+        // alone cannot reliably prove that this listener is absent on Windows.
+        builder.WebHost.ConfigureKestrel(server => server.Listen(dualStack ? IPAddress.IPv6Any : IPAddress.Any, 0));
+        await using var foreign = builder.Build();
+        foreign.MapGet("/api/health", () => Results.Json(new { product = "OtherApp" }));
+        await foreign.StartAsync();
+        var port = new Uri(Assert.Single(foreign.Urls)).Port;
+        await using var candidate = DesktopApp(directory.Path, port, noBrowser: true);
+        var shell = new RecordingShell();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => DesktopStartup.StartAsync(candidate, shell));
+        Assert.Contains("identity-mismatch", error.Message);
+        Assert.Empty(shell.Opened); Assert.Empty(candidate.Urls);
+        Assert.False(File.Exists(Path.Combine(directory.Path, "monitor.db")));
+        using var client = new HttpClient();
+        using var health = JsonDocument.Parse(await client.GetStringAsync($"http://127.0.0.1:{port}/api/health"));
+        Assert.Equal("OtherApp", health.RootElement.GetProperty("product").GetString());
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -215,7 +263,9 @@ public sealed class DesktopStartupTests
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         await using var candidate = DesktopApp(directory.Path, port);
         var shell = new RecordingShell();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => DesktopStartup.StartAsync(candidate, shell));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => DesktopStartup.StartAsync(candidate, shell));
+        Assert.Contains("http-timeout", error.Message);
+        Assert.Contains("TaskCanceledException", error.Message);
         Assert.Empty(shell.Opened); Assert.Empty(candidate.Urls);
         Assert.False(File.Exists(Path.Combine(directory.Path, "monitor.db")));
         Assert.True(listener.Server.IsBound);

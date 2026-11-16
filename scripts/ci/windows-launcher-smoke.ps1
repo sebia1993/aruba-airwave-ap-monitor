@@ -133,6 +133,24 @@ try {
     Wait-LauncherExit -Launch $otherPort -ExpectSuccess $false
     $null = Assert-OriginalCollector -Port $port -ExpectedProcessId $backendProcessId -DatasetId $datasetId
 
+    $relativeData = '상대 데이터 공백'
+    $relativeFromApp = Join-Path (Split-Path -Parent $backend) $relativeData
+    $relativeFromCaller = Join-Path $workingDirectory $relativeData
+    if ((Test-Path -LiteralPath $relativeFromApp) -or (Test-Path -LiteralPath $relativeFromCaller)) { throw 'Relative-path rejection fixture already exists.' }
+    $relative = Start-OwnedLauncher -Case 'relative-data-directory-rejected' -Arguments @('--mode','demo','--data-dir',$relativeData,'--port',[string](Get-LauncherFreePort),'--no-browser','true')
+    Wait-LauncherExit -Launch $relative -ExpectSuccess $false
+    if ((Test-Path -LiteralPath $relativeFromApp) -or (Test-Path -LiteralPath $relativeFromCaller)) { throw 'Rejected relative desktop data path created a directory before validation.' }
+    $null = Assert-OriginalCollector -Port $port -ExpectedProcessId $backendProcessId -DatasetId $datasetId
+    $evidence.relativeDataDirectoryRejectedBeforeCreation = $true
+
+    $insideData = [IO.Path]::GetFullPath((Join-Path $packageRoot '패키지 내부 데이터 공백'))
+    if (Test-Path -LiteralPath $insideData) { throw 'In-package rejection fixture already exists.' }
+    $inside = Start-OwnedLauncher -Case 'in-package-data-directory-rejected' -Arguments @('--mode','demo','--data-dir',$insideData,'--port',[string](Get-LauncherFreePort),'--no-browser','true')
+    Wait-LauncherExit -Launch $inside -ExpectSuccess $false
+    if (Test-Path -LiteralPath $insideData) { throw 'Rejected in-package desktop data path created a directory or mode marker.' }
+    $null = Assert-OriginalCollector -Port $port -ExpectedProcessId $backendProcessId -DatasetId $datasetId
+    $evidence.packageDataDirectoryRejectedBeforeCreation = $true
+
     $foreignPort = Get-LauncherFreePort
     $foreignJob = Start-Job -ArgumentList $foreignPort -ScriptBlock {
         param([int]$ListenPort)

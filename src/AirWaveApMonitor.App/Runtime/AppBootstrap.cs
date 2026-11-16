@@ -18,6 +18,7 @@ public static class AppBootstrap
     public static WebApplication Build(string[] args)
     {
         var options = RuntimeOptions.Parse(args);
+        DesktopDataDirectory.Validate(options, AppContext.BaseDirectory);
         var location = StoragePaths.Open(options.Mode, options.DataDirectory);
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
