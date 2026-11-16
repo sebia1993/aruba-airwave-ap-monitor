@@ -301,16 +301,70 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
         BlockingScenario source = null!;
         await using var f = await DemoFixture.Create(decorateSource: inner => source = new(inner, 3));
         using var browser = new CancellationTokenSource();
-        var accepted = await f.Coordinator.RequestAsync(CollectionKind.ApStatus, RunTrigger.Manual, browser.Token);
-        Assert.Equal(RunRequestStatus.Accepted, accepted.Status);
-        await source.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        browser.Cancel();
-        source.Release.TrySetResult();
-        await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle);
-        var snapshot = await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1, accepted.RunId), default);
-        Assert.Equal(RunLifecycle.Finalized, snapshot.Lifecycle);
-        AssertNormal(snapshot.Summary);
-        Assert.Equal(2, await f.Checkpoint());
+        var total = Stopwatch.StartNew();
+        var timer = Stopwatch.StartNew();
+        RunRequestReceipt? accepted = null;
+        var stage = "request";
+        var completed = false;
+        try
+        {
+            try { accepted = await f.Coordinator.RequestAsync(CollectionKind.ApStatus, RunTrigger.Manual, browser.Token); }
+            finally
+            {
+                output.WriteLine($"accepted-cancel RequestAsync: {timer.Elapsed.TotalMilliseconds:F3} ms; receipt={accepted?.Status}/{accepted?.RunId}; {HealthText()}");
+            }
+            Assert.Equal(RunRequestStatus.Accepted, accepted.Status);
+            stage = "source-entered";
+            timer.Restart();
+            try { await source.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+            finally
+            {
+                output.WriteLine($"accepted-cancel source Entered wait: {timer.Elapsed.TotalMilliseconds:F3} ms; {HealthText()}");
+            }
+            stage = "cancel-release";
+            timer.Restart();
+            browser.Cancel();
+            source.Release.TrySetResult();
+            output.WriteLine($"accepted-cancel browser.Cancel/Release: {timer.Elapsed.TotalMilliseconds:F3} ms; {HealthText()}");
+            stage = "idle";
+            var idleObserved = false;
+            try
+            {
+                await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle,
+                    () => $"accepted-cancel Idle wait after {timer.Elapsed.TotalMilliseconds:F3} ms from browser.Cancel/Release; acceptedRun={accepted.RunId}; {HealthText()}");
+                idleObserved = true;
+            }
+            finally
+            {
+                output.WriteLine($"accepted-cancel Idle wait: {timer.Elapsed.TotalMilliseconds:F3} ms from browser.Cancel/Release; passed={idleObserved}; acceptedRun={accepted.RunId}; {HealthText()}");
+            }
+            stage = "assert-committed-run";
+            var snapshot = await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1, accepted.RunId), default);
+            Assert.Equal(RunLifecycle.Finalized, snapshot.Lifecycle);
+            AssertNormal(snapshot.Summary);
+            Assert.Equal(2, await f.Checkpoint());
+            completed = true;
+        }
+        finally
+        {
+            // Preserve the state before fixture disposal cancels an unfinished run.
+            output.WriteLine($"accepted-cancel completion: {total.Elapsed.TotalMilliseconds:F3} ms; passed={completed}; stage={stage}; acceptedRun={accepted?.RunId}; {HealthText()}");
+        }
+
+        string HealthText()
+        {
+            var health = f.Health.GetSnapshot();
+            return JsonSerializer.Serialize(new
+            {
+                sourceCalls = Volatile.Read(ref source.Calls), sourceEntered = source.Entered.Task.IsCompleted,
+                sourceReleased = source.Release.Task.IsCompleted, browserCanceled = browser.IsCancellationRequested,
+                phase = health.Phase.ToString(), activeKind = health.ActiveKind?.ToString(), health.ActiveRunId,
+                health.LastAttemptRunId, health.LastFinalRunId, lastOutcome = health.LastOutcome?.ToString(),
+                health.LastValidCommittedAtUtc, health.LastCompleteCommittedAtUtc, health.StorageRecoveryPending,
+                health.LastStorageError, lastCollectionError = health.LastCollectionError?.ToString(),
+                health.BlockedReason, health.LastDiagnosticFileError, health.Paused
+            });
+        }
     }
 
     private static void AssertNormal(RunSummary summary)
