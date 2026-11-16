@@ -12,13 +12,15 @@
 # 서비스 방식 예시. 예약 작업 방식이면 해당 작업만 중지한다.
 Stop-Service -Name AirWaveAPMonitor
 (Get-Service -Name AirWaveAPMonitor).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
-.\Backup-Restore.ps1 -Operation pre-update-backup -Mode live `
+.\tools\Backup-Restore.ps1 -Operation pre-update-backup -Mode live `
   -DataDirectory 'C:\ProgramData\AirWaveAPMonitor\live'
 ```
 
 출력 JSON의 백업 경로·SHA256·데이터셋·스키마·시각을 운영 기록에 남긴다. `backup`은 일반 수동 백업, `pre-update-backup`은 업데이트 전 별도 백업이다. DB와 검증 manifest를 함께 보관한다. DB 백업은 `profile.json`, 데이터 모드 표시자, DPAPI 자격 증명 파일을 되돌리지 않으며 원문 자격 증명·세션 토큰을 포함하지 않는다. 설정과 계정의 보호·이전은 조직 정책에 맞춰 별도로 다룬다.
 
 ## 업데이트
+
+v0.1.1에서는 최상위 `AirWaveAPMonitor.exe`로 대화형 실행한다. 관리 스크립트는 `tools/`로 이동했지만 데이터 경로와 DB 스키마는 유지한다. 이전 v0.1.0의 제거·백업 도구는 이전 ZIP의 루트에 있고, 새 버전의 도구는 새 ZIP의 `tools/`에 있다. 자동 시작 등록이 없는 일반 실행은 기존 수집기 종료·백업 후 새 EXE를 같은 계정/데이터 경로로 실행한다. 사용자 지정 경로·포트는 [실행 옵션](WINDOWS_RUN.md)을 따른다.
 
 1. 새 ZIP·해시·소스 버전·검증 결과를 확인하고 **새 버전 폴더**에 전부 푼다. 이전 버전을 덮어쓰거나 삭제하지 않는다.
 2. 현재 운영 방식·계정·서비스/작업 이름·포트·데이터 폴더·실행 경로·마지막 회차를 기록한다. 새 버전의 데이터 스키마 호환 범위를 확인한다.
@@ -32,7 +34,7 @@ Stop-Service -Name AirWaveAPMonitor
 ## 정지 상태 복원
 
 ```powershell
-.\Backup-Restore.ps1 -Operation restore -Mode live `
+.\tools\Backup-Restore.ps1 -Operation restore -Mode live `
   -DataDirectory 'C:\ProgramData\AirWaveAPMonitor\live' `
   -BackupFile 'C:\ProgramData\AirWaveAPMonitor\live\backups\검증된-백업.db'
 ```

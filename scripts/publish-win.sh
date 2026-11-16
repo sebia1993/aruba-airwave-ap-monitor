@@ -10,6 +10,11 @@ else
   echo "정식 .NET 10 SDK가 필요합니다. docs/guides/MAC_DEVELOPMENT.md를 확인하세요." >&2
   exit 1
 fi
+launcher_path="${1:-}"
+if [[ -z "$launcher_path" || ! -f "$launcher_path" ]]; then
+  echo "Windows에서 같은 소스로 빌드한 AirWaveAPMonitor.exe 경로를 첫 인수로 지정하세요. 배포용 ZIP은 Windows CI 산출물을 사용하세요." >&2
+  exit 1
+fi
 command -v python3 >/dev/null 2>&1 || { echo "패키지 생성에 Python 3가 필요합니다." >&2; exit 1; }
 artifact_root="$repo_root/artifacts/win-x64"
 mkdir -p -- "$artifact_root"
@@ -19,4 +24,4 @@ trap 'rm -rf -- "$staging"' EXIT
   -c Release -r win-x64 --self-contained true \
   -p:PublishAot=false -p:PublishReadyToRun=false -p:PublishTrimmed=false -p:PublishSingleFile=false \
   -o "$staging/app"
-python3 "$repo_root/scripts/package_core.py" "$staging/app" "$artifact_root"
+python3 "$repo_root/scripts/package_core.py" "$staging/app" "$artifact_root" --launcher "$launcher_path"

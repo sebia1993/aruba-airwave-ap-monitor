@@ -70,10 +70,12 @@ jobs:
         run: python -m unittest discover -s tests/Packaging -v
       - name: Publish self-contained Windows application
         run: dotnet publish src/AirWaveApMonitor.App -c Release -r win-x64 --self-contained true -p:PublishAot=false -p:PublishReadyToRun=false -p:PublishTrimmed=false -p:PublishSingleFile=false -o artifacts/win-x64/app
+      - name: Build native desktop launcher
+        run: ./scripts/build-launcher.ps1 -OutputDirectory artifacts/win-x64/launcher
       - name: Package and run extracted ZIP from Korean and space path
         shell: powershell
         run: |
-          $archive = python ./scripts/package_core.py ./artifacts/win-x64/app ./artifacts/win-x64/bundles
+          $archive = python ./scripts/package_core.py ./artifacts/win-x64/app ./artifacts/win-x64/bundles --launcher ./artifacts/win-x64/launcher/AirWaveAPMonitor.exe
           if ($LASTEXITCODE -ne 0) { throw 'Core package creation failed.' }
           ./scripts/ci/windows-package-smoke.ps1 -Archive $archive
       - name: Preserve the verified Windows core ZIP
@@ -99,4 +101,6 @@ jobs:
           path: |
             artifacts/windows-smoke-diagnostics/*.log
             artifacts/windows-smoke-diagnostics/collector-waits.json
+            artifacts/windows-launcher-diagnostics/*.json
+            artifacts/windows-launcher-diagnostics/*.log
           if-no-files-found: ignore

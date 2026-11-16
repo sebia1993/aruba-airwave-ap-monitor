@@ -9,7 +9,7 @@
 조직의 내부 기록 위치에 다음을 남긴다. 이 양식은 실제 운영 자료를 외부로 제출하라는 요청이 아니다.
 
 - 확인 날짜·담당자·PC의 Windows 버전/아키텍처·AD 정책 적용 여부
-- ZIP 이름·SHA256·`VERSION.json`의 소스 버전·검증한 CI 링크
+- ZIP 이름·SHA256·`metadata/VERSION.json`의 소스 버전·검증한 CI 링크
 - 선택한 실행 방식·실제 수집 계정·설치 경로·별도 데이터 폴더·포트
 - 확인 항목 ID, 선택 회차·범위, 기대값·실제값, 결과(통과/실패/미확인), 남은 조치
 - 오류가 있으면 발생 단계·안전한 오류 범주·회차를 기록한다. 암호·세션 토큰이나 원문 응답을 기록할 필요는 없다.
@@ -17,10 +17,10 @@
 ## 최초 실행과 기준 대조
 
 1. 반입본의 ZIP 해시·버전·포함 기능을 확인한다. 버전 폴더와 데이터 폴더를 분리하고 Demo/Live를 다른 경로로 둔다.
-2. 사내 정책이 허용하는 방식으로 실제 수집 계정을 정한다. 대화형 첫 실행 예시는 패키지 루트의 `Start-Monitor.ps1`이며, 서비스·예약 작업으로 운영할 때는 해당 프로세스의 계정을 기준으로 등록한다.
+2. 사내 정책이 허용하는 방식으로 실제 수집 계정을 정한다. 대화형 첫 실행은 최상위 `AirWaveAPMonitor.exe`이며 사용자 지정 운영 명령은 `tools/Start-Monitor.ps1`에 있고, 서비스·예약 작업으로 운영할 때는 해당 프로세스의 계정을 기준으로 등록한다.
 
 ```powershell
-.\Start-Monitor.ps1 -Mode live -DataDirectory 'C:\ProgramData\AirWaveAPMonitor\live' -Port 8765
+.\tools\Start-Monitor.ps1 -Mode live -DataDirectory 'C:\ProgramData\AirWaveAPMonitor\live' -Port 8765
 ```
 
 3. `http://127.0.0.1:8765`의 **연결 설정**에서 실행 계정, HTTPS 출처, 프록시 경로를 확인한다. 화면을 연 사용자와 수집 계정이 다를 수 있다. 진단 성공과 운영 수집 성공은 별개다.
@@ -33,7 +33,7 @@
 
 | 항목 | 기록할 근거 | 현장 상태 |
 |---|---|---|
-| 패키지 식별 | ZIP SHA256, VERSION.json 소스/단계, Windows CI 링크 | 미확인 |
+| 패키지 식별 | ZIP SHA256, metadata/VERSION.json 소스/단계, Windows CI 링크 | 미확인 |
 | PC 환경 | Windows 11 버전/아키텍처, 사용자/수집 계정 | 미확인 |
 | 운영 방식 | 서비스 또는 예약 작업의 허용 여부·이름·실제 실행 경로 | 미확인 |
 | 권한 | 선택 계정의 데이터 폴더 수정·서비스/배치 로그온 권한 | 미확인 |

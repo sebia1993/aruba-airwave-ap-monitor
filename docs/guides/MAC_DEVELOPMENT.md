@@ -98,10 +98,12 @@ Windows 전용 테스트가 Mac에서 건너뛰어지면 **미실행**으로 기
 ## Windows 반입 패키지 만들기
 
 ```bash
-./scripts/package-win.sh
+./scripts/package-win.sh /absolute/path/to/AirWaveAPMonitor.exe
 ```
 
-`package-win.sh`는 현재 `publish-win.sh`를 호출하여 `win-x64` self-contained Release를 게시하고 패키징한다. SDK와 Python 3가 필요하다. `artifacts/win-x64/` 아래 새 고유 폴더·ZIP·SHA256 파일을 만들며 이전 산출물을 덮어쓰지 않는다.
+v0.1.1부터 최상위 네이티브 실행기는 Windows MSVC로 빌드한다. 실제 배포는 GitHub Actions `Windows verification`의 검증된 ZIP을 사용한다. Mac에서 패키지 구조를 검사하려면 Windows에서 같은 소스로 컴파일한 실행기 경로를 위 인수에 제공한다.
+
+`package-win.sh`는 `publish-win.sh`를 호출하여 `win-x64` self-contained Release를 게시하고 패키징한다. SDK와 Python 3가 필요하다. `artifacts/win-x64/` 아래 새 고유 폴더·ZIP·SHA256 파일을 만들며 이전 산출물을 덮어쓰지 않는다.
 
 ZIP 전체, 버전/소스 정보와 해시를 함께 확인한다. 개발 DB·프로필·자격 증명·로그를 게시 폴더에 넣지 않는다. Mac 게시 성공은 그 ZIP을 Windows에서 실행했다는 뜻이 아니다. 실제 반입은 [Windows 안내](README_WINDOWS.md)와 [사내 확인표](ONSITE_VALIDATION.md)를 따른다.
 

@@ -2,9 +2,9 @@
 
 **핵심 목표는 AirWave를 주기적으로 조회하여 Down AP 현황을 추적하는 것입니다.** 수집 PC 한 대에서 이번 Down, 신규 Down, 미복구, 복구 확인과 반복 이력을 조회합니다. 정보·연결 변경, 장비 교체와 작업·조치 기록은 이 감시와 조사를 지원합니다.
 
-**현재 상태: 계획의 Task 1–10 구현·자동 검증·인수 산출물 범위를 완료했으며 개발 진행률은100%입니다. Mac 공통891·화면100·패키지11개 검사와 최신 Windows 전체 실행, 정확한 CI ZIP 해시/소스 대조를 완료했습니다. 실제 AirWave와 사내 Windows11/AD 운영은 미확인이며 Live 연결·LLDP·PoE 전송 어댑터는 미구현·미검증·비활성입니다.**
+**기존 v0.1.0 상태: 계획의 Task 1–10 구현·자동 검증·인수 산출물 범위를 완료했으며 개발 진행률은100%입니다. Mac 공통891·화면100·패키지11개 검사와 최신 Windows 전체 실행, 정확한 CI ZIP 해시/소스 대조를 완료했습니다. 실제 AirWave와 사내 Windows11/AD 운영은 미확인이며 Live 연결·LLDP·PoE 전송 어댑터는 미구현·미검증·비활성입니다.**
 
-최종 반입본의 소스·SHA256·실제 검증과 미확인 항목은 [최종 결과](docs/DEVELOPMENT_STATUS.md)를 확인하세요. ZIP은 Windows에서 실행한 원본이며, 포함 문서는 검증 전92% 시점으로 보존됩니다.
+v0.1.0 반입본의 소스·SHA256·실제 검증과 미확인 항목은 [최종 결과](docs/DEVELOPMENT_STATUS.md)를 확인하세요. ZIP은 Windows에서 실행한 원본이며, 포함 문서는 검증 전92% 시점으로 보존됩니다.
 
 실행: `./scripts/dev-mac.sh` → `http://127.0.0.1:8765`. [Mac 개발 안내](docs/guides/MAC_DEVELOPMENT.md)와 [작업별 진행·검증 기록](docs/DEVELOPMENT_STATUS.md)을 확인하세요. 초기 화면은 수집하지 않은 상태를 정상이나 Down 0대로 표시하지 않습니다.
 
@@ -12,7 +12,7 @@
 
 [MacBook Codex 작업 지시서](docs/superpowers/plans/2026-11-15-macos-codex-implementation.md)를 실행 기준으로 사용합니다. 기존 설계·모의화면을 연결하고, 파일 구성·인터페이스·10단계 구현 순서·20개 수용 검증·Windows 반입 패키지·보고 형식을 정리했습니다.
 
-자동 감시·현황·장애/운영 이력·수동 대장·CSV와 조건부 부가 관측의 구현 및 검증 수준은 [진행 기록](docs/DEVELOPMENT_STATUS.md)을 기준으로 확인합니다. `./scripts/verify-mac.sh`로 로컬 검증하고 `./scripts/package-win.sh`로 Windows ZIP을 생성합니다. [Windows 실행 안내](docs/guides/README_WINDOWS.md)와 [A01–A20 인수 근거표](docs/ACCEPTANCE_EVIDENCE.md)를 함께 보세요. [초기 진단 안내](docs/guides/INITIAL_DIAGNOSTICS.md)는 보존된 Task 2 패키지의 설명입니다.
+자동 감시·현황·장애/운영 이력·수동 대장·CSV와 조건부 부가 관측의 구현 및 검증 수준은 [진행 기록](docs/DEVELOPMENT_STATUS.md)을 기준으로 확인합니다. `./scripts/verify-mac.sh`로 로컬 검증하고 Windows CI에서 네이티브 실행기를 포함한 Windows ZIP을 생성·검증합니다. Mac 패키징은 `./scripts/package-win.sh /path/to/AirWaveAPMonitor.exe`처럼 같은 소스로 Windows에서 빌드한 실행기를 지정합니다. [Windows 실행 안내](docs/guides/README_WINDOWS.md)와 [A01–A20 인수 근거표](docs/ACCEPTANCE_EVIDENCE.md)를 함께 보세요. [초기 진단 안내](docs/guides/INITIAL_DIAGNOSTICS.md)는 보존된 Task 2 패키지의 설명입니다.
 
 사내 접속 없이 실제 저장·상태 처리 코드를 사용하는 Demo 모드로 개발합니다. Mac 검증, Windows용 게시, Windows 실행, 사내 AirWave 확인을 나누어 기록하며, 실환경 확인을 기다리는 동안 가능한 구현은 계속합니다.
 
@@ -117,3 +117,9 @@ AirWave 8.2.14.0 공식 문서에는 AP의 연결 장비·포트와 전원·소�
 AP 기본 연결 → 상태·장애·회차별 현황 저장 → Down 우선 화면·검색·CSV → 자동 시작·백업·배포 순서로 핵심 감시를 먼저 완성합니다.
 
 이미 승인된 운영 이력·작업 화면과 스위치·PoE·LLDP의 부가 수집은 공통 기반 위에서 병행·후속 구현합니다. 핵심 감시가 동작하는 상태와 전체 승인 범위의 완료를 구분합니다. 구체적인 구현 작업과 완료 기준은 MacBook Codex 작업 지시서에 정리했습니다.
+
+## Windows에서 시작하기
+
+[최신 릴리즈](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/latest)의 Windows ZIP 하나를 받고 **전체 압축 해제 → 최상위 `AirWaveAPMonitor.exe` 더블클릭**으로 실행합니다. 준비되면 기본 브라우저가 열립니다. `app/`은 실행 파일, `tools/`는 관리 도구, `docs/`는 안내, `metadata/`는 버전과 체크섬입니다.
+
+v0.1.1 EXE 실행·구성 변경의 검증 진행과 실환경 미확인 항목은 [추가 작업 기록](docs/LAUNCHER_RELEASE_STATUS.md)을 확인하세요.

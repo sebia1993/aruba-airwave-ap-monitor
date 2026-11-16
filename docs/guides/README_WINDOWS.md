@@ -1,20 +1,28 @@
-# Windows 핵심 감시 운영
+# Windows 실행과 운영 (v0.1.1)
 
-이 안내는 AP 현황·장애/복구 이력·자동 수집·Windows 실행·백업을 위한 핵심 패키지의 운영 절차다. 패키지의 `VERSION.json`과 개발 검증 기록으로 실제 포함 범위를 확인한다. 운영 이력·수동 대장·CSV 등록은 `OPERATIONS.md`를 따른다. 조건부 연결·전력 화면과 Demo 검증 절차는 [ENRICHMENT.md](ENRICHMENT.md)를 따른다. Live LLDP/PoE 어댑터는 미구현·미검증이며 비활성이다. [개발 검증 기록](../DEVELOPMENT_STATUS.md)에서 실제 Windows 검사 결과와 완료 범위를 확인한다.
+**처음 실행: ZIP 전체 압축 해제 → 최상위 `AirWaveAPMonitor.exe` 더블클릭.** 준비가 끝나면 기본 브라우저가 열립니다. 최초 AirWave 연결은 화면의 설정에서 등록하세요. 수집기 창은 실행 중 열어 두세요. 종료는 수집기 창의 `Ctrl+C` 또는 창 닫기입니다.
+
+최상위의 `시작하기.txt`는 간단한 안내입니다. `app/`은 프로그램, `tools/`는 운영 도구, `docs/`는 안내·검증 자료, `metadata/`는 버전·체크섬입니다. 파일을 개별로 옮기지 말고 전체 폴더를 유지하세요. 별도 .NET 설치나 PowerShell 실행 없이 EXE로 시작할 수 있습니다.
+
+기본값은 Live, `http://127.0.0.1:8765`, `%ProgramData%\AirWaveAPMonitor\live`입니다. 이전과 다른 사용자 계정으로 실행하면 DPAPI 자격 증명을 다시 등록해야 할 수 있습니다. 사용자 지정 경로·포트 또는 Demo는 [Windows 실행 옵션](WINDOWS_RUN.md)을 따릅니다.
+
+이 안내는 AP 현황·장애/복구 이력·자동 수집·Windows 실행·백업을 위한 핵심 패키지의 운영 절차다. 패키지의 `metadata/VERSION.json`과 개발 검증 기록으로 실제 포함 범위를 확인한다. 운영 이력·수동 대장·CSV 등록은 `OPERATIONS.md`를 따른다. 조건부 연결·전력 화면과 Demo 검증 절차는 [ENRICHMENT.md](ENRICHMENT.md)를 따른다. Live LLDP/PoE 어댑터는 미구현·미검증이며 비활성이다. [개발 검증 기록](../DEVELOPMENT_STATUS.md)에서 실제 Windows 검사 결과와 완료 범위를 확인한다.
 
 [A01–A20 인수 근거표](../ACCEPTANCE_EVIDENCE.md)는 자동 검사가 확인한 동작과 현장에 남은 확인을 연결한다.
 
 ## 실행 전
 
-- Windows x64용 ZIP 전체와 `.zip.sha256`를 함께 보관한다. `Get-FileHash -Algorithm SHA256 .\패키지.zip` 결과를 대조한 뒤 새 버전 폴더에 푼다. `app` 내부 파일은 따로 옮기지 않는다. `SHA256SUMS.txt`는 내부 파일의 무결성 목록이며 전자서명·사내 검증 완료 증명은 아니다.
+- Windows x64용 ZIP 전체를 보관한다. 배포 릴리즈에 기재된 SHA256 또는 CI의 `.zip.sha256`와 ZIP 해시를 대조한다. `Get-FileHash -Algorithm SHA256 .\패키지.zip` 결과를 대조한 뒤 새 버전 폴더에 푼다. `app` 내부 파일은 따로 옮기지 않는다. `metadata/SHA256SUMS.txt`는 내부 파일의 무결성 목록이며 전자서명·사내 검증 완료 증명은 아니다.
 - 전용 데이터 폴더를 버전 폴더 밖의 로컬 디스크에 둔다. 예: `C:\ProgramData\AirWaveAPMonitor\live`. UNC·네트워크 드라이브는 사용하지 않는다. DB·설정·DPAPI 파일·로그·백업이 이 폴더에 남는다.
 - 사내 정책이 허용하는 자동 시작 방식 하나와 수집 계정을 정한다. 선택 계정에는 데이터 폴더의 수정 권한, 필요한 프록시·인증서 접근, 해당 방식의 서비스/배치 로그온 권한이 필요하다. 설치 스크립트는 계정 권한·실행 정책·방화벽·인증서·절전 정책을 전역 변경하지 않는다.
 - 모든 예시는 압축을 푼 패키지 루트에서 실행한다. PowerShell 5.1을 사용하며 실행 정책이 차단하면 조직의 허용 절차를 따른다. 정책 우회 옵션을 사용하지 않는다.
 
-## 대화형 실행과 최초 설정
+## 고급 대화형 실행과 최초 설정
+
+일반 사용자는 최상위 EXE를 더블클릭하면 된다. 아래 명령은 PowerShell로 모드·경로·포트를 지정하는 운영용 방법이다.
 
 ```powershell
-.\Start-Monitor.ps1 -Mode live -DataDirectory 'C:\ProgramData\AirWaveAPMonitor\live' -Port 8765
+.\tools\Start-Monitor.ps1 -Mode live -DataDirectory 'C:\ProgramData\AirWaveAPMonitor\live' -Port 8765
 ```
 
 `http://127.0.0.1:8765`에서 실제 실행 계정·서버 주소·프록시를 확인하고 AirWave 자격 증명을 등록한다. 브라우저 종료는 수집을 멈추지 않는다. 콘솔 종료는 수집기를 멈춘다. 화면의 일시 중지는 새 수집을 막지만 프로세스와 이력 조회는 유지한다.
@@ -31,7 +39,7 @@ Demo는 가상 출처와 별도 데이터 폴더를 사용한다. 실제 장비�
 
 ```powershell
 $collectorCredential = Get-Credential -Message 'Windows 수집 계정'
-.\Install-Service.ps1 -ServiceName AirWaveAPMonitor -Mode live `
+.\tools\Install-Service.ps1 -ServiceName AirWaveAPMonitor -Mode live `
   -DataDirectory 'C:\ProgramData\AirWaveAPMonitor\live' -Port 8765 `
   -Credential $collectorCredential -StartNow
 $collectorCredential = $null
@@ -49,7 +57,7 @@ $collectorCredential = $null
 
 ```powershell
 $collectorCredential = Get-Credential -Message 'Windows 수집 계정'
-.\Install-ScheduledTask.ps1 -TaskName AirWaveAPMonitor -Mode live `
+.\tools\Install-ScheduledTask.ps1 -TaskName AirWaveAPMonitor -Mode live `
   -DataDirectory 'C:\ProgramData\AirWaveAPMonitor\live' -Port 8765 `
   -Credential $collectorCredential -StartNow
 $collectorCredential = $null
@@ -72,10 +80,10 @@ Invoke-RestMethod 'http://127.0.0.1:8765/api/health'
 등록 제거는 관리자 PowerShell에서 **설치 때의 실행 파일·데이터 폴더·모드·포트·이름과 동일한 값**으로 실행한다. 원래 버전 폴더에서 실행하거나 `-ExecutablePath`를 명시한다.
 
 ```powershell
-.\Remove-Service.ps1 -ServiceName AirWaveAPMonitor -Mode live `
+.\tools\Remove-Service.ps1 -ServiceName AirWaveAPMonitor -Mode live `
   -DataDirectory 'C:\ProgramData\AirWaveAPMonitor\live' -Port 8765
 # 예약 작업을 선택한 경우:
-.\Remove-ScheduledTask.ps1 -TaskName AirWaveAPMonitor -Mode live `
+.\tools\Remove-ScheduledTask.ps1 -TaskName AirWaveAPMonitor -Mode live `
   -DataDirectory 'C:\ProgramData\AirWaveAPMonitor\live' -Port 8765
 ```
 
