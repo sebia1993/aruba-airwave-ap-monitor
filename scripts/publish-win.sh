@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+launcher_path="${1:-}"
+if [[ -n "$launcher_path" && "$launcher_path" != /* ]]; then launcher_path="$PWD/$launcher_path"; fi
 cd -- "$repo_root"
 if command -v dotnet >/dev/null 2>&1; then
   dotnet_path="$(command -v dotnet)"
@@ -10,7 +12,6 @@ else
   echo "정식 .NET 10 SDK가 필요합니다. docs/guides/MAC_DEVELOPMENT.md를 확인하세요." >&2
   exit 1
 fi
-launcher_path="${1:-}"
 if [[ -z "$launcher_path" || ! -f "$launcher_path" ]]; then
   echo "Windows에서 같은 소스로 빌드한 AirWaveAPMonitor.exe 경로를 첫 인수로 지정하세요. 배포용 ZIP은 Windows CI 산출물을 사용하세요." >&2
   exit 1

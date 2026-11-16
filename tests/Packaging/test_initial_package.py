@@ -110,11 +110,13 @@ class InitialPackageTests(unittest.TestCase):
         launcher = self.root / "compiled launcher.exe"
         launcher.write_bytes(b"synthetic launcher passed to publish wrapper")
         environment = dict(os.environ, PATH=str(fake_bin) + os.pathsep + os.environ["PATH"])
-        result = subprocess.run(["bash", str(scripts / "publish-win.sh"), str(launcher)], env=environment,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        self.assertEqual(42, result.returncode, result.stdout + result.stderr)
-        self.assertEqual(b"preserve previous validated package", previous.read_bytes())
-        self.assertEqual([previous], list(artifacts.iterdir()))
+        for argument in (str(launcher), launcher.name):
+            with self.subTest(launcher=argument):
+                result = subprocess.run(["bash", str(scripts / "publish-win.sh"), argument], env=environment,
+                                        cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                self.assertEqual(42, result.returncode, result.stdout + result.stderr)
+                self.assertEqual(b"preserve previous validated package", previous.read_bytes())
+                self.assertEqual([previous], list(artifacts.iterdir()))
 
 
 if __name__ == "__main__":
