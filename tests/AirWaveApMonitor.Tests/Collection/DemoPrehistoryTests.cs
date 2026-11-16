@@ -29,7 +29,7 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
     {
         await using var f = await DemoFixture.Create();
         var accepted = await f.Coordinator.RequestAsync(CollectionKind.ApStatus, RunTrigger.Startup, default);
-        await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle);
+        await WaitForDemoIdle(f);
         var snapshot = await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1), default);
         Assert.Equal(accepted.RunId, snapshot.RunId);
         Assert.Equal(3, f.RunCount());
@@ -64,7 +64,7 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
             var idleObserved = false;
             try
             {
-                await Eventually(() => fixture.Health.GetSnapshot().Phase == CollectorPhase.Idle,
+                await WaitForDemoIdle(fixture,
                     () => $"{stage} Idle wait after {timer.Elapsed.TotalMilliseconds:F3} ms; {HealthText()}");
                 idleObserved = true;
             }
@@ -98,7 +98,7 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
         Assert.Equal(0, f.RunCount());
         Assert.Null(await f.Checkpoint());
         await f.Coordinator.SetPausedAsync(false, default);
-        await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle);
+        await WaitForDemoIdle(f);
         Assert.Equal(3, f.RunCount());
         AssertNormal((await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1), default)).Summary);
         await app.StopAsync();
@@ -139,7 +139,7 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
         var idleObserved = false;
         try
         {
-            await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle,
+            await WaitForDemoIdle(f,
                 () => $"pause-resume Idle wait after {timer.Elapsed.TotalMilliseconds:F3} ms; {HealthText()}");
             idleObserved = true;
         }
@@ -179,7 +179,7 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
         Assert.Equal(0, f.RunningCount());
         source.Release.TrySetResult();
         var accepted = await f.Coordinator.RequestAsync(CollectionKind.ApStatus, RunTrigger.Manual, default);
-        await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle);
+        await WaitForDemoIdle(f);
         Assert.Equal(4, f.RunCount());
         Assert.Equal(accepted.RunId, (await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1), default)).RunId);
         AssertNormal((await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1), default)).Summary);
@@ -217,7 +217,7 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
         Assert.Equal(1, source.Calls);
         wrapper.FailWrites = false;
         await f.Coordinator.RequestAsync(CollectionKind.ApStatus, RunTrigger.Manual, default);
-        await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle);
+        await WaitForDemoIdle(f);
         Assert.Equal(4, source.Calls);
         Assert.Equal(0, f.RunningCount());
         Assert.Equal(RunLifecycle.Interrupted, (await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1, first.RunId), default)).Lifecycle);
@@ -229,7 +229,7 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
     {
         await using var f = await DemoFixture.Create(decorateStore: store => new FailingStore(store) { LoseFirstResponse = true });
         await f.Coordinator.StartAsync(default);
-        await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle);
+        await WaitForDemoIdle(f);
         Assert.Equal(3, f.RunCount());
         Assert.Equal(2, await f.Checkpoint());
         Assert.False(f.Health.GetSnapshot().StorageRecoveryPending);
@@ -257,7 +257,7 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
         var idleObserved = false;
         try
         {
-            await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle,
+            await WaitForDemoIdle(f,
                 () => $"retry Idle wait after {timer.Elapsed.TotalMilliseconds:F3} ms; acceptedRun={retry.RunId}; {HealthText()}");
             idleObserved = true;
         }
@@ -330,7 +330,7 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
             var idleObserved = false;
             try
             {
-                await Eventually(() => f.Health.GetSnapshot().Phase == CollectorPhase.Idle,
+                await WaitForDemoIdle(f,
                     () => $"accepted-cancel Idle wait after {timer.Elapsed.TotalMilliseconds:F3} ms from browser.Cancel/Release; acceptedRun={accepted.RunId}; {HealthText()}");
                 idleObserved = true;
             }
@@ -364,6 +364,49 @@ public sealed class DemoPrehistoryTests(ITestOutputHelper output)
                 health.LastStorageError, lastCollectionError = health.LastCollectionError?.ToString(),
                 health.BlockedReason, health.LastDiagnosticFileError, health.Paused
             });
+        }
+    }
+
+    private async Task WaitForDemoIdle(DemoFixture fixture, Func<string>? diagnostics = null)
+    {
+        // These are full 2,048-AP parser/SQLite integration fixtures. Their functional
+        // completion deadline follows the actual run budget, not the small coordinator
+        // fixture's default 10 seconds. This is not a storage performance guarantee.
+        var deadline = fixture.Profiles.Current!.Settings.RunTimeout;
+        var timer = Stopwatch.StartNew();
+        var reportedTenSeconds = false;
+        var idleObserved = false;
+        string Diagnostic()
+        {
+            var health = fixture.Health.GetSnapshot();
+            return $"Demo Idle after {timer.Elapsed.TotalMilliseconds:F3} ms; functionalDeadlineSeconds={deadline.TotalSeconds:F0}; " +
+                (diagnostics?.Invoke() ?? JsonSerializer.Serialize(new
+                {
+                    phase = health.Phase.ToString(), activeKind = health.ActiveKind?.ToString(), health.ActiveRunId,
+                    health.LastAttemptRunId, health.LastFinalRunId, lastOutcome = health.LastOutcome?.ToString(),
+                    health.StorageRecoveryPending, health.LastStorageError,
+                    lastCollectionError = health.LastCollectionError?.ToString(), health.BlockedReason, health.Paused
+                }));
+        }
+        try
+        {
+            await Eventually(() =>
+            {
+                var health = fixture.Health.GetSnapshot();
+                if (health.StorageRecoveryPending || health.Phase == CollectorPhase.StorageRecovery)
+                    Assert.Fail("Demo entered storage recovery while waiting for normal completion: " + Diagnostic());
+                if (!reportedTenSeconds && timer.Elapsed >= TimeSpan.FromSeconds(10))
+                {
+                    reportedTenSeconds = true;
+                    output.WriteLine("Demo crossed the former 10-second harness deadline: " + Diagnostic());
+                }
+                return health.Phase == CollectorPhase.Idle;
+            }, Diagnostic, seconds: checked((int)Math.Ceiling(deadline.TotalSeconds)));
+            idleObserved = true;
+        }
+        finally
+        {
+            output.WriteLine($"Demo Idle completion: passed={idleObserved}; {Diagnostic()}");
         }
     }
 

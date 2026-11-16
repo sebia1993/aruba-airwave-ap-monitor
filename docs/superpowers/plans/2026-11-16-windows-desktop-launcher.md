@@ -25,24 +25,24 @@
 
 **Files:** 새 `src/AirWaveApMonitor.Launcher/`, App Program/Runtime, 관련 common 테스트.
 **Interfaces:** root `AirWaveAPMonitor.exe` → app executable `--desktop true` + forwarded CLI. `--no-browser true` 생략 시 브라우저/실패 안내. health product+dataset identity.
-- [ ] 먼저 desktop CLI 및 identity/브라우저 동작 실패 테스트 작성·실행.
-- [ ] Win32 bootstrap 및 C# desktop 흐름 구현; 기존 RuntimeOptions와 모니터링 동작 보존.
-- [ ] 관련 테스트 green 및 독립 코드 검토.
+- [x] 먼저 desktop CLI 및 identity/브라우저 동작 실패 테스트 작성·실행.
+- [x] Win32 bootstrap 및 C# desktop 흐름 구현; 기존 RuntimeOptions와 모니터링 동작 보존.
+- [x] 관련 테스트 green 및 독립 코드 검토.
 
 ### Task 2: 목적별 ZIP 및 운영 경로
 
 **Files:** scripts/package_initial.py, package_core.py, scripts/windows/*.ps1, tests/Packaging.
 **Interfaces:** core packaging에 별도 compiled launcher 경로 입력. 위 spec 트리, metadata 내부 루트기준 체크섬. initial-diagnostics 기존 계약 유지.
-- [ ] 새 트리/필수 EXE/상대 링크/기존 아카이브 보존 실패 테스트 작성·실행.
-- [ ] 버전0.1.1·폴더 구성·상대 링크·tools 기본 app경로 구현.
-- [ ] Python 전체 검사, PS 구문 및 기본경로 검사; 독립 코드 검토.
+- [x] 새 트리/필수 EXE/상대 링크/기존 아카이브 보존 실패 테스트 작성·실행.
+- [x] 버전0.1.1·폴더 구성·상대 링크·tools 기본 app경로 구현.
+- [x] Python 전체 검사, PS 구문 및 기본경로 검사; 독립 코드 검토. Windows 경로 별칭 비교 보정의 재검증은 Task 3에서 진행.
 
 ### Task 3: Windows 통합·문서·게시
 
 **Files:** .github/workflows/windows-ci.yml, scripts/ci/*, scripts/publish-win.sh, docs/guides/*, 시작안내 원본, docs/LAUNCHER_RELEASE_STATUS.md.
 **Interfaces:** Windows MSVC build가 launcher EXE 생성 → package_core.py 입력 → 실제 extracted ZIP native launcher smoke 및 기존 운영 smoke.
-- [ ] native EXE CI/추출ZIP launch·재실행·실패 검사 및 diagnostics 추가.
-- [ ] 간결한 시작 안내와 새 tools 명령/폴더 설명·업데이트 가이드 작성.
+- [x] native EXE CI/추출ZIP launch·재실행·실패 검사 및 diagnostics 추가.
+- [x] 간결한 시작 안내와 새 tools 명령/폴더 설명·업데이트 가이드 작성.
 - [ ] 로컬 관련 검사 및 전체 Windows CI 결과 확인, 실제 ZIP inventory/hash/링크 확인.
 - [ ] v0.1.1 릴리즈에 기능 변경·검증·미확인 항목과 ZIP 하나 게시하고 실제 다운로드 해시 확인.
 

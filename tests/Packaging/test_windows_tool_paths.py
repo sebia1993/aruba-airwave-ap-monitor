@@ -49,9 +49,19 @@ class WindowsToolPathTests(unittest.TestCase):
                                             capture_output=True, text=True, encoding="utf-8", timeout=30)
                     self.assertEqual(0, result.returncode, result.stdout + result.stderr)
                     launch = json.loads(result.stdout)
-                    self.assertEqual(str(exe), launch["Executable"])
-                    self.assertEqual(str(app), launch["WorkingDirectory"])
-                    self.assertEqual(str(data), launch["DataDirectory"])
+                    # Windows TEMP can use an 8.3 alias (RUNNER~1) while .NET
+                    # returns its long name. Compare existing filesystem objects.
+                    for field, expected in (("Executable", exe), ("WorkingDirectory", app)):
+                        actual = Path(launch[field])
+                        self.assertTrue(actual.is_absolute(), field)
+                        self.assertTrue(expected.samefile(actual), f"{field}: {expected} != {actual}")
+                    # Data does not exist yet: resolve its existing ancestors while
+                    # preserving the missing suffix, and verify the probe wrote nothing.
+                    actual_data = Path(launch["DataDirectory"])
+                    self.assertTrue(actual_data.is_absolute())
+                    self.assertEqual(data.resolve(strict=False), actual_data.resolve(strict=False))
+                    self.assertFalse(data.exists())
+                    self.assertFalse(actual_data.exists())
                     self.assertEqual("AirWaveAPMonitor managed registration v1", launch["OwnershipMarker"])
 
 
