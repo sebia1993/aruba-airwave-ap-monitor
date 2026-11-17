@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Security;
 using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Infrastructure.Security;
 
@@ -13,6 +14,9 @@ public sealed class AirWaveSession(Func<ProxySettings, HttpMessageHandler>? fact
     private string? transportBinding;
     private AuthenticationBinding? identity;
     private bool stopNeedsPersistence;
+    private string? lastTlsValidationCode;
+    internal string? LastTlsValidationCode => lastTlsValidationCode;
+    internal void ClearTlsValidationCode() => lastTlsValidationCode = null;
     internal HttpClient? Client { get; private set; }
     internal CookieContainer Cookies { get; set; } = new();
     internal string? Token { get; set; }
@@ -63,10 +67,11 @@ public sealed class AirWaveSession(Func<ProxySettings, HttpMessageHandler>? fact
             ? new AuthenticationState(AuthenticationStop, CredentialRegistrationPending)
             : await states.ReadAsync(nextIdentity, ct);
         // Nothing becomes active until the durable state has been read successfully.
-        var nextClient = new HttpClient(factory?.Invoke(profile.Proxy) ?? CreateHandler(profile.Proxy)) { Timeout = Timeout.InfiniteTimeSpan };
+        var nextClient = new HttpClient(factory?.Invoke(profile.Proxy) ?? CreateHandler(profile.Proxy, code => lastTlsValidationCode = code)) { Timeout = Timeout.InfiniteTimeSpan };
         Client?.Dispose();
         Client = nextClient;
         InvalidateSession();
+        ClearTlsValidationCode();
         if (identity != nextIdentity) stopNeedsPersistence = false;
         AuthenticationStop = state.Stop;
         CredentialRegistrationPending = state.CredentialRegistrationPending;
@@ -106,7 +111,7 @@ public sealed class AirWaveSession(Func<ProxySettings, HttpMessageHandler>? fact
         Cookies = new();
     }
 
-    public static HttpClientHandler CreateHandler(ProxySettings proxy)
+    public static HttpClientHandler CreateHandler(ProxySettings proxy, Action<string>? tlsFailureObserver = null)
     {
         var handler = new HttpClientHandler
         {
@@ -115,9 +120,44 @@ public sealed class AirWaveSession(Func<ProxySettings, HttpMessageHandler>? fact
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
             MaxConnectionsPerServer = 1
         };
+        // Keep ordinary Windows/.NET certificate validation active. The callback only
+        // records a safe reason and returns the same accept/reject decision as the OS.
+        handler.ServerCertificateCustomValidationCallback = (_, certificate, _, errors) =>
+        {
+            if (errors != SslPolicyErrors.None)
+                tlsFailureObserver?.Invoke(TlsCertificateDiagnostics.Classify(errors, DateTimeOffset.UtcNow,
+                    certificate is null ? null : new DateTimeOffset(certificate.NotBefore.ToUniversalTime()),
+                    certificate is null ? null : new DateTimeOffset(certificate.NotAfter.ToUniversalTime())));
+            return errors == SslPolicyErrors.None;
+        };
         if (proxy.Mode == ProxyMode.Direct) handler.UseProxy = false;
         else if (proxy.Mode == ProxyMode.Fixed) handler.Proxy = new WebProxy(proxy.Address!);
         return handler;
+    }
+
+    /// <summary>
+    /// Reports the .NET default proxy resolver's current selection, not a packet
+    /// trace or proof of the path used by an individual request. No proxy URL is exposed.
+    /// </summary>
+    public static string ProxyRouteHint(ProxySettings proxy, Uri origin)
+    {
+        if (proxy.Mode == ProxyMode.Direct) return "direct-selected";
+        if (proxy.Mode == ProxyMode.Fixed) return "fixed-proxy-selected";
+        try
+        {
+            var resolver = HttpClient.DefaultProxy;
+            var selected = resolver.GetProxy(origin);
+            if (resolver.IsBypassed(origin) || selected is null ||
+                selected.Scheme == origin.Scheme &&
+                selected.IdnHost.Equals(origin.IdnHost, StringComparison.OrdinalIgnoreCase) &&
+                selected.Port == origin.Port)
+                return "system-direct-selected";
+            return "system-proxy-selected";
+        }
+        catch (Exception error) when (error is InvalidOperationException or UriFormatException or NotSupportedException or System.Net.WebException)
+        {
+            return "system-unresolved";
+        }
     }
 
     public void Dispose()
