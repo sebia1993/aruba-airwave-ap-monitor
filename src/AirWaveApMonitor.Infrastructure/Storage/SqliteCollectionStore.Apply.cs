@@ -93,7 +93,9 @@ public sealed partial class SqliteCollectionStore
         }
         targets.ExceptWith(policyExcluded.Keys);
         var errors = batch.Errors.ToBuilder();
-        if (appliedValidCount == 0 && lifecycle != RunLifecycle.Interrupted)
+        // A network/TLS failure has no AP payload. Only a received but unusable AP list
+        // warrants the zero-valid-state warning; preserve the original failure reason.
+        if (appliedValidCount == 0 && lifecycle != RunLifecycle.Interrupted && batch.Outcome != RunOutcome.Failed)
         {
             errors.Add(new(CollectionErrorCategory.Unverified, 1, "유효한 AP 상태가 0대입니다. 대상·권한·응답 확인이 필요합니다."));
         }
