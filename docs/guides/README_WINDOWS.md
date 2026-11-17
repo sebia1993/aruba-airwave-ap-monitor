@@ -6,7 +6,7 @@
 
 기본값은 Live, `http://127.0.0.1:8765`, `%ProgramData%\AirWaveAPMonitor\live`입니다. 이전과 다른 사용자 계정으로 실행하면 DPAPI 자격 증명을 다시 등록해야 할 수 있습니다. 사용자 지정 경로·포트 또는 Demo는 [Windows 실행 옵션](WINDOWS_RUN.md)을 따릅니다.
 
-이 안내는 AP 현황·장애/복구 이력·자동 수집·Windows 실행·백업을 위한 핵심 패키지의 운영 절차다. 패키지의 `metadata/VERSION.json`과 개발 검증 기록으로 실제 포함 범위를 확인한다. 운영 이력·수동 대장·CSV 등록은 `OPERATIONS.md`를 따른다. 조건부 연결·전력 화면과 Demo 검증 절차는 [ENRICHMENT.md](ENRICHMENT.md)를 따른다. Live LLDP/PoE 어댑터는 미구현·미검증이며 비활성이다. [개발 검증 기록](../DEVELOPMENT_STATUS.md)에서 실제 Windows 검사 결과와 완료 범위를 확인한다.
+이 안내는 AP 현황·장애/복구 이력·자동 수집·Windows 실행·백업을 위한 핵심 패키지의 운영 절차다. 패키지의 `metadata/VERSION.json`과 개발 검증 기록으로 실제 포함 범위를 확인한다. 운영 이력·수동 대장·CSV 등록은 `OPERATIONS.md`를 따른다. 조건부 연결·전력 화면과 Demo 검증 절차는 [ENRICHMENT.md](ENRICHMENT.md)를 따른다. Live LLDP/PoE 어댑터는 미구현·미검증이며 비활성이다. HTTPS 인증서·PAC·프록시 오류는 [연결 장애 진단](TLS_PROXY_TROUBLESHOOTING.md)을 참고한다. [개발 검증 기록](../DEVELOPMENT_STATUS.md)에서 실제 Windows 검사 결과와 완료 범위를 확인한다.
 
 [A01–A20 인수 근거표](../ACCEPTANCE_EVIDENCE.md)는 자동 검사가 확인한 동작과 현장에 남은 확인을 연결한다.
 
