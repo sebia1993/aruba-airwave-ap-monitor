@@ -80,7 +80,7 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
         scripts = ("Start-Monitor.ps1", "Monitor-Common.ps1", "Monitor-ServiceRecovery.ps1", "Install-Service.ps1",
                    "Remove-Service.ps1", "Install-ScheduledTask.ps1",
                    "Remove-ScheduledTask.ps1", "Backup-Restore.ps1")
-        documents = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "ONSITE_VALIDATION.md", "OPERATIONS.md",
+        documents = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "ONSITE_VALIDATION.md", "TLS_PROXY_TROUBLESHOOTING.md", "OPERATIONS.md",
                      "ENRICHMENT.md", "DATA_DICTIONARY.md", "CONFIGURATION_EXAMPLE.json", "MAC_DEVELOPMENT.md")
         guides = {"scripts/windows/" + name: name for name in scripts}
         guides.update({"docs/guides/" + name: name for name in documents})
@@ -112,7 +112,7 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
 
     destination.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
-    version = "0.1.1" if core else "0.1.0-diagnostics"
+    version = "0.1.2" if core else "0.1.0-diagnostics"
     name = "AirWaveAPMonitor-{}-{}-{}-{}".format(
         version, commit[:12], now.strftime("%Y%m%dT%H%M%SZ"), uuid.uuid4().hex[:6])
     with tempfile.TemporaryDirectory(prefix=".bundle-", dir=destination) as temporary:
