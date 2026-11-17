@@ -606,9 +606,31 @@ function renderDiagnostic(report) {
   byId("diagnostic-summary").textContent = `${state.mode === "demo" ? "가상 파서 진단" : "연결 진단"}: ${["읽기 성공","부분 유효 · 확인 필요","실패"][report.outcome] || "결과 미확인"}`;
   const tls = ({"not-applicable-demo":"해당 없음 · 가상 자료","validated":"HTTPS 연결 검증 통과","failed":"실패","not-observed":"미관측"})[report.tlsResult] || report.tlsResult;
   const route = ({"synthetic-memory":"가상 메모리","system-execution-account":"실행 계정의 시스템 프록시","direct":"직접 연결","fixed-proxy":"선택한 고정 프록시"})[report.connectionPath] || report.connectionPath;
-  const details = pairs([["진단 ID",report.diagnosticId],["프로세스 실행 계정",report.executionAccount],["연결 경로",route],["TLS",tls],["HTTP_STATUS",report.httpStatus ?? "미수신"],["로그인 / AP 요청 수",`${report.loginRequests} / ${report.apRequests}`],["파싱 / 제외 레코드",`${report.parsedRecords} / ${report.excludedRecords}`],["소요 시간",`${report.elapsedMilliseconds} ms`]]); byId("diagnostic-details").replaceChildren(...details.childNodes);
+  const tlsCodes = {
+    "certificate-name-mismatch":"서버 인증서 이름 불일치",
+    "certificate-expired":"인증서 기간 만료",
+    "certificate-not-yet-valid":"인증서 유효기간 시작 전",
+    "certificate-missing":"서버 인증서 미제공",
+    "certificate-trust-chain":"신뢰 체인/사내 CA 확인 필요",
+    "certificate-validation-failed":"인증서 검증 실패",
+    "tls-handshake-or-certificate":"TLS 협상 또는 인증서 검증 실패"
+  };
+  const proxyHints = {
+    "direct-selected":"설정상 직접 연결",
+    "fixed-proxy-selected":"설정된 고정 프록시",
+    "system-proxy-selected":"실행 계정의 기본 프록시 선택",
+    "system-direct-selected":"실행 계정의 기본 프록시 우회/직접 연결 선택",
+    "system-unresolved":"실행 계정의 기본 프록시 경로 판정 실패"
+  };
+  const detailsRows = [["진단 ID",report.diagnosticId],["프로세스 실행 계정",report.executionAccount],["연결 경로",route]];
+  if (report.proxyRouteHint) detailsRows.push(["프록시 경로 추정",proxyHints[report.proxyRouteHint] || "확인 불가"]);
+  detailsRows.push(["TLS",tls]);
+  if (report.tlsFailureCode) detailsRows.push(["TLS 실패 원인",tlsCodes[report.tlsFailureCode] || "TLS 상세 원인 미확인"]);
+  detailsRows.push(["HTTP_STATUS",report.httpStatus ?? "미수신"],["로그인 / AP 요청 수",`${report.loginRequests} / ${report.apRequests}`],
+    ["파싱 / 제외 레코드",`${report.parsedRecords} / ${report.excludedRecords}`],["소요 시간",`${report.elapsedMilliseconds} ms`]);
+  const details = pairs(detailsRows); byId("diagnostic-details").replaceChildren(...details.childNodes);
   const stages = byId("diagnostic-stages"); stages.replaceChildren(); (report.stages || []).forEach(stage => stages.append(el("li","",`${stage.name} · ${stage.status} · ${stage.elapsedMilliseconds} ms · ${stage.message}`)));
-  const notes = byId("diagnostic-notes"); notes.replaceChildren(); [...(report.errors || []).map(error => error.safeMessage),...(report.verificationNotes || [])].forEach(text => notes.append(el("li","",text)));
+  const notes = byId("diagnostic-notes"); notes.replaceChildren(); [...(report.errors || []).map(error => error.safeMessage),...(report.verificationNotes || []),...(report.proxyRouteHint?.startsWith("system-") ? ["프록시 경로는 .NET 기본 선택값을 나타내며 실제 네트워크 경유 성공을 보증하지 않습니다. Windows/PAC 및 수집기 실행 계정을 확인하세요."] : [])].forEach(text => notes.append(el("li","",text)));
 }
 async function exportCsv() {
   if (!state.snapshot || state.dashboardLoading || state.exportBusy) return;
