@@ -26,6 +26,7 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
         var apRequests = 0;
         int? status = null;
         var tls = "not-observed";
+        string? tlsFailureCode = null;
         var stage = "credentials";
         ApCollectionBatch batch;
         using var budget = new CancellationTokenSource(profile.Settings.RunTimeout, clock);
@@ -101,18 +102,37 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
         catch (CredentialUnavailableException) { batch = Fail(CollectionErrorCategory.CredentialUnavailable); }
         catch (PlatformNotSupportedException) { batch = Fail(CollectionErrorCategory.Unsupported); }
         catch (ResponseLimitException) { batch = Fail(CollectionErrorCategory.ResponseTooLarge); }
-        catch (HttpRequestException error) { var category = error.HttpRequestError == HttpRequestError.SecureConnectionError || error.InnerException is AuthenticationException ? CollectionErrorCategory.Tls : CollectionErrorCategory.Transport; if (category == CollectionErrorCategory.Tls) tls = "failed"; batch = Fail(category); }
+        catch (HttpRequestException error)
+        {
+            var isTls = error.HttpRequestError == HttpRequestError.SecureConnectionError ||
+                error.InnerException is AuthenticationException || session.LastTlsValidationCode is not null;
+            if (isTls)
+            {
+                tls = "failed";
+                tlsFailureCode = session.LastTlsValidationCode ?? "tls-handshake-or-certificate";
+                batch = Fail(CollectionErrorCategory.Tls, TlsCertificateDiagnostics.SafeMessage(tlsFailureCode));
+            }
+            else batch = Fail(CollectionErrorCategory.Transport);
+        }
+        catch (AuthenticationException)
+        {
+            tls = "failed";
+            tlsFailureCode = session.LastTlsValidationCode ?? "tls-handshake-or-certificate";
+            batch = Fail(CollectionErrorCategory.Tls, TlsCertificateDiagnostics.SafeMessage(tlsFailureCode));
+        }
         catch (AuthenticationStateStoreException) { batch = Fail(CollectionErrorCategory.Storage); }
         catch (IOException) { batch = Fail(CollectionErrorCategory.Transport); }
         catch (CookieException) { batch = Fail(CollectionErrorCategory.InvalidResponse); }
         finally { if (acquired) { authenticationBlocked = session.AuthenticationBlocked; session.Gate.Release(); } }
         return new(batch, new(Guid.NewGuid(), started, ExecutionIdentity.Current, ConnectionPath(profile.Proxy), tls, status, loginRequests, apRequests, batch.Observations.Length, batch.ExcludedRecords.Length, elapsed.ElapsedMilliseconds, batch.Outcome, authenticationBlocked, stages.ToImmutable(), batch.Errors,
-            [$"미검증 필드 {batch.Observations.SelectMany(ap => ap.Fields).Where(field => field.Value.Availability == FieldAvailability.Unverified).Select(field => field.Key).Distinct(StringComparer.Ordinal).Count()}종: 실제 지원·단위 확인 필요.", "문서·fixture 기반 어댑터. 실제 AirWave 버전·계정·필드는 현장 미검증.", "원천 숫자 시각의 단위 미확인: 원문 값만 보존하며 장애 시각으로 사용하지 않음.", "이력 DB·운영 RunId·장애/복구 기록은 아직 제공하지 않음."]));
+            [$"미검증 필드 {batch.Observations.SelectMany(ap => ap.Fields).Where(field => field.Value.Availability == FieldAvailability.Unverified).Select(field => field.Key).Distinct(StringComparer.Ordinal).Count()}종: 실제 지원·단위 확인 필요.", "문서·fixture 기반 어댑터. 실제 AirWave 버전·계정·필드는 현장 미검증.", "원천 숫자 시각의 단위 미확인: 원문 값만 보존하며 장애 시각으로 사용하지 않음.", "이력 DB·운영 RunId·장애/복구 기록은 아직 제공하지 않음."]) { TlsFailureCode = tlsFailureCode });
 
-        ApCollectionBatch Fail(CollectionErrorCategory category)
+        ApCollectionBatch Fail(CollectionErrorCategory category, string? message = null)
         {
-            stages.Add(new(stage, "failed", status, elapsed.ElapsedMilliseconds, SafeMessages.For(category)));
-            return ApListParser.Failure(category, clock.GetUtcNow());
+            var safeMessage = message ?? SafeMessages.For(category);
+            stages.Add(new(stage, "failed", status, elapsed.ElapsedMilliseconds, safeMessage));
+            var failed = ApListParser.Failure(category, clock.GetUtcNow());
+            return message is null ? failed : failed with { Errors = [new(category, 1, safeMessage)] };
         }
         bool IsExpired(int responseStatus, Uri? location) => responseStatus == 401 ||
             responseStatus is 301 or 302 or 303 or 307 or 308 && location is not null &&
@@ -122,6 +142,7 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
             bool isLogin = false, bool stopOnExpiry = false)
         {
             status = null;
+            session.ClearTlsValidationCode();
             using var requestBudget = new CancellationTokenSource(profile.Settings.RequestTimeout, clock);
             using var requestToken = CancellationTokenSource.CreateLinkedTokenSource(cancellation, requestBudget.Token);
             var cookie = session.Cookies.GetCookieHeader(request.RequestUri!);
