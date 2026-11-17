@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Security;
 using System.Text;
 using System.Text.Json;
 using AirWaveApMonitor.Core.Contracts;
@@ -198,8 +199,61 @@ public sealed class AirWaveClientTests
         var r = await new AirWaveClient(s, new MemoryCredentials(), TimeProvider.System).ReadAsync(Profile(), default);
         Assert.Null(r.Report.HttpStatus);
         Assert.Equal("failed", r.Report.TlsResult);
+        Assert.Equal("tls-handshake-or-certificate", r.Report.TlsFailureCode);
         Assert.Contains(r.Batch.Errors, e => e.Category == CollectionErrorCategory.Tls);
+        Assert.DoesNotContain("unsafe", JsonSerializer.Serialize(r));
     }
+    [Theory]
+    [InlineData(SslPolicyErrors.RemoteCertificateNameMismatch, "certificate-name-mismatch")]
+    [InlineData(SslPolicyErrors.RemoteCertificateNotAvailable, "certificate-missing")]
+    [InlineData(SslPolicyErrors.RemoteCertificateChainErrors, "certificate-trust-chain")]
+    [InlineData(SslPolicyErrors.RemoteCertificateNameMismatch | SslPolicyErrors.RemoteCertificateChainErrors, "certificate-name-mismatch")]
+    public void TlsClassifier_UsesSafeCertificateFailureCodes(SslPolicyErrors policyErrors, string expected)
+    {
+        var code = TlsCertificateDiagnostics.Classify(policyErrors, DateTimeOffset.UtcNow);
+        Assert.Equal(expected, code);
+        Assert.Contains("HTTP_STATUS=미수신", TlsCertificateDiagnostics.SafeMessage(code));
+    }
+
+    [Fact]
+    public void TlsClassifier_DifferentiatesCertificateTimeErrors()
+    {
+        var now = DateTimeOffset.UtcNow;
+        Assert.Equal("certificate-expired",
+            TlsCertificateDiagnostics.Classify(SslPolicyErrors.RemoteCertificateChainErrors,
+                now, now.AddDays(-20), now.AddDays(-1)));
+        Assert.Equal("certificate-not-yet-valid",
+            TlsCertificateDiagnostics.Classify(SslPolicyErrors.RemoteCertificateChainErrors,
+                now, now.AddDays(1), now.AddDays(40)));
+        Assert.Equal("validated", TlsCertificateDiagnostics.Classify(SslPolicyErrors.None, now));
+    }
+
+    [Fact]
+    public void CertificateCallback_NeverAcceptsNameMismatchOrMissingCertificate()
+    {
+        string? observed = null;
+        using var handler = AirWaveSession.CreateHandler(new ProxySettings(ProxyMode.Direct), reason => observed = reason);
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri("https://airwave.example.invalid/"));
+        var callback = Assert.IsType<Func<HttpRequestMessage, System.Security.Cryptography.X509Certificates.X509Certificate2?,
+            System.Security.Cryptography.X509Certificates.X509Chain?, SslPolicyErrors, bool>>(
+            handler.ServerCertificateCustomValidationCallback);
+
+        Assert.False(handler.UseProxy);
+        Assert.False(callback(request, null, null, SslPolicyErrors.RemoteCertificateNameMismatch));
+        Assert.Equal("certificate-name-mismatch", observed);
+        Assert.False(callback(request, null, null, SslPolicyErrors.RemoteCertificateNotAvailable));
+        Assert.Equal("certificate-missing", observed);
+    }
+
+    [Fact]
+    public void ProxySelectionHint_DoesNotExposeFixedProxyUrl()
+    {
+        var origin = new Uri("https://airwave.example.invalid/");
+        Assert.Equal("direct-selected", AirWaveSession.ProxyRouteHint(new(ProxyMode.Direct), origin));
+        Assert.Equal("fixed-proxy-selected",
+            AirWaveSession.ProxyRouteHint(new(ProxyMode.Fixed, new Uri("http://proxy.example.invalid:8080")), origin));
+    }
+
     [Fact]
     public async Task Cancellation_StopsBodyRead()
     {
