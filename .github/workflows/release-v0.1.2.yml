@@ -1,0 +1,89 @@
+name: Publish v0.1.2 from verified Windows build
+
+on:
+  workflow_run:
+    workflows: ["Windows verification"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download only the previously verified Windows ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERIFIED_RUN: ${{ github.event.workflow_run.id }}
+        run: |
+          mkdir -p verified
+          gh run download "$VERIFIED_RUN" --repo "$GH_REPO" --name windows-core-package --dir verified
+
+      - name: Verify artifact, source commit and publish one release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          VERIFIED_RUN: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # A newer push supersedes this verification; do not publish stale binaries.
+          current_sha="$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "$current_sha" != "$VERIFIED_SHA" ]]; then
+            echo "Main moved since the verified run; release skipped"
+            exit 0
+          fi
+          if gh release view v0.1.2 --repo "$GH_REPO" >/dev/null 2>&1; then
+            echo "v0.1.2 already published"
+            exit 0
+          fi
+
+          archives=(verified/*.zip)
+          [[ "${#archives[@]}" -eq 1 ]] || { echo "Expected exactly one verified ZIP"; exit 1; }
+          archive="${archives[0]}"
+          checksum_file="${archive}.sha256"
+          [[ -f "$checksum_file" ]] || { echo "Missing CI checksum"; exit 1; }
+          expected="$(awk 'NR==1 {print $1}' "$checksum_file")"
+          actual="$(sha256sum "$archive" | awk '{print $1}')"
+          [[ "$expected" == "$actual" ]] || { echo "CI ZIP checksum mismatch"; exit 1; }
+
+          manifest="$(unzip -p "$archive" metadata/VERSION.json)"
+          version="$(jq -r '.version' <<< "$manifest")"
+          source_sha="$(jq -r '.source_commit' <<< "$manifest")"
+          dirty="$(jq -r '.working_tree_dirty' <<< "$manifest")"
+          [[ "$version" == "0.1.2" && "$source_sha" == "$VERIFIED_SHA" && "$dirty" == "false" ]] ||
+            { echo "CI ZIP version/source mismatch"; exit 1; }
+
+          output="verified/AirWaveAPMonitor-v0.1.2-win-x64.zip"
+          cp "$archive" "$output"
+          cat > release-notes.md <<'NOTES'
+          ## Aruba AirWave AP Monitor v0.1.2
+
+          - TLS 인증서 이름 불일치, 유효기간, 신뢰 체인, 인증서 미제공과 기타 TLS 실패를 안전한 오류 코드로 구분
+          - Windows 실행 계정 기준 시스템 프록시 선택 경로를 연결 진단에 표시 (추정 경로이며 실제 통신 증명은 아님)
+          - TLS/전송 실패 회차에 잘못 추가되던 '유효 AP 상태 0대' 안내 제거
+          - 기존 AP 장애/복구 이력, 미복구 사건 및 보안 기본값 보존
+          - 사내 인증서 검증 우회·신뢰 저장소 자동 변경 없음
+          - ZIP 전체 압축 해제 후 최상위 AirWaveAPMonitor.exe 실행
+          - 실제 AirWave/PAC/인증서/AD/Windows 11 현장 연동은 사용자가 별도 검증
+
+          NOTES
+          printf 'Windows CI: https://github.com/%s/actions/runs/%s\n\nZIP SHA-256: `%s`\n' \
+            "$GH_REPO" "$VERIFIED_RUN" "$actual" >> release-notes.md
+          gh release create v0.1.2 "$output" \
+            --repo "$GH_REPO" \
+            --target "$VERIFIED_SHA" \
+            --title "v0.1.2 — TLS 진단·AP 0대 경고 개선" \
+            --notes-file release-notes.md \
+            --latest
