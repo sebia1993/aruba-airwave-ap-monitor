@@ -35,7 +35,7 @@ class CorePackageTests(unittest.TestCase):
         self.scripts = ("Start-Monitor.ps1", "Monitor-Common.ps1", "Monitor-ServiceRecovery.ps1", "Install-Service.ps1",
                         "Remove-Service.ps1", "Install-ScheduledTask.ps1",
                         "Remove-ScheduledTask.ps1", "Backup-Restore.ps1")
-        self.guides = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "ONSITE_VALIDATION.md", "OPERATIONS.md",
+        self.guides = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "ONSITE_VALIDATION.md", "TLS_PROXY_TROUBLESHOOTING.md", "OPERATIONS.md",
                        "ENRICHMENT.md", "DATA_DICTIONARY.md", "CONFIGURATION_EXAMPLE.json", "MAC_DEVELOPMENT.md")
         for relative in [*("scripts/windows/" + name for name in self.scripts),
                          *("docs/guides/" + name for name in self.guides)]:
