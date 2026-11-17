@@ -23,7 +23,7 @@ const functions=source.split('\ndocument.querySelectorAll("[data-view]")')[0].re
 function app(transport=async()=>{throw Error('Unexpected network request');}){
   const nodes=new Map(),document={getElementById(id){if(!ids.has(id))throw Error('Missing rendered HTML element: '+id);if(!nodes.has(id))nodes.set(id,new Node());return nodes.get(id);},createElement:tag=>new Node(tag),querySelectorAll:()=>[],addEventListener:()=>{}};
   const context={...ui,document,Node,URLSearchParams,AbortController,setTimeout,clearTimeout,transport,createOperationsController:()=>({}),createEnrichmentController:()=>({})};
-  runInNewContext(`${functions}\napi=transport;globalThis.subject={state,dateText,loadIncidents,loadRuns,loadDashboard,applyPeriod:(...args)=>applyPeriod(...args),loadScope:(...args)=>loadScope(...args),saveScope:(...args)=>saveScope(...args),confirmBaseline:(...args)=>confirmBaseline(...args),scopeDraftChanged:(...args)=>scopeDraftChanged(...args),applySettings};`,context);
+  runInNewContext(`${functions}\napi=transport;globalThis.subject={state,dateText,loadIncidents,loadRuns,loadDashboard,applyPeriod:(...args)=>applyPeriod(...args),loadScope:(...args)=>loadScope(...args),saveScope:(...args)=>saveScope(...args),confirmBaseline:(...args)=>confirmBaseline(...args),scopeDraftChanged:(...args)=>scopeDraftChanged(...args),applySettings,renderDiagnostic};`,context);
   return {...context.subject,nodes,document,bind(){const rest=source.slice(source.indexOf('\ndocument.querySelectorAll("[data-view]")')).split('\nupdateControls();\nvoid loadDashboard')[0];runInNewContext(rest,context);}};
 }
 const selection={datasetId:'demo',runId:17,scopeVersion:3,startedAtUtc:'2026-11-15T00:00:00Z',finalizedAtUtc:'2026-11-15T00:05:00Z'};
@@ -33,6 +33,22 @@ const settings=config=>({mode:'demo',profile:{datasetId:'demo',origin:'https://d
 const scopeView=(config=1)=>({profile:{...settings(config).profile,monitoringScope:null,scopeRevisions:[],baselineStatus:'Unverified'},knownTargets:[{sourceApId:'ap-1',name:'first',ipAddress:null,lastValidRunId:11},{sourceApId:'ap-2',name:'second',ipAddress:null,lastValidRunId:11}],comparisonRun:{runId:10+config,configurationVersion:config,scopeVersion:config,targetCount:2,outcome:'Succeeded',baselineStatus:'Unverified',sourceApIds:['ap-1','ap-2']}});
 const flush=async()=>{for(let i=0;i<6;i++)await new Promise(resolve=>setTimeout(resolve,0));};
 const cases=[
+  ['TLS diagnostics show safe specific cause, proxy hint and no credential material',async()=>{
+    const x=app();x.state.mode='live';
+    x.renderDiagnostic({
+      outcome:'Failed',diagnosticId:'safe-id',executionAccount:'test-user',connectionPath:'system-execution-account',
+      tlsResult:'failed',tlsFailureCode:'certificate-trust-chain',proxyRouteHint:'system-proxy-selected',
+      httpStatus:null,loginRequests:1,apRequests:0,parsedRecords:0,excludedRecords:0,elapsedMilliseconds:5,
+      stages:[{name:'login',status:'failed',elapsedMilliseconds:5,message:'TLS 인증서 신뢰 체인 실패'}],
+      errors:[{safeMessage:'TLS 인증서 신뢰 체인 실패. HTTP_STATUS=미수신'}],verificationNotes:[]
+    });
+    const details=x.document.getElementById('diagnostic-details').textContent;
+    assert.match(details,/신뢰 체인.*사내 CA/);
+    assert.match(details,/기본 프록시 선택/);
+    assert.match(details,/미수신/);
+    assert.match(x.document.getElementById('diagnostic-notes').textContent,/실제 네트워크 경유 성공을 보증하지 않습니다/);
+    assert.doesNotMatch(details,/secret-token|password=/);
+  }],
   ['Partial baseline with an unobserved target stays disabled and cannot submit',async()=>{
     let posts=0;const value=scopeView();value.comparisonRun.outcome='Partial';value.comparisonRun.sourceApIds=['ap-1'];
     const x=app(async(url,options)=>{if(options?.method==='POST')posts++;return value;});await x.loadScope();
