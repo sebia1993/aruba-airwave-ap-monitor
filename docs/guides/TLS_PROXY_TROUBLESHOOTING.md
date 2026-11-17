@@ -1,0 +1,43 @@
+# AirWave HTTPS·프록시 연결 장애 진단 (v0.1.2)
+
+이 안내는 사내 Windows 11에서 수집 시작 시 `TLS 보안 연결 실패 / HTTP_STATUS=미수신`이 나타나는 경우에 사용한다.
+실환경 AirWave·프록시·인증서는 개발 환경에서 검증하지 않았다.
+
+## 연결 진단 순서
+
+1. `연결 설정`에서 **실제 프로세스 실행 계정**, AirWave HTTPS 출처(FQDN 또는 IP), 연결 경로(System/Direct/Fixed)를 확인한다.
+2. 연결 방식이 **System**이면 Windows 실행 계정의 프록시/PAC 정책이 적용되는지 담당자와 확인한다. **프록시 경로 추정**은 .NET 기본 프록시 선택 결과일 뿐 실제 통신 경유나 인증 성공의 증명이 아니다. 웹브라우저 계정과 수집기 실행 계정이 다르면 결과도 다를 수 있다.
+3. **연결 진단 실행** 후 실패 단계, TLS 실패 원인, HTTP_STATUS, 로그인/AP 요청 수를 차례로 확인한다.
+4. HTTP_STATUS가 **미수신**이면 HTTP 인증/403·AP 목록 파싱·유효 AP 0대가 주된 오류가 아니다. 프록시 또는 인증서/보안 연결을 먼저 해결한다.
+5. TLS가 정상이고 HTTP 상태가 수신되면 **로그인 → AP 목록 읽기 → XML 파싱 → 감시 범위** 순서로 확인한다. 정식 수집과 진단은 별도 작업이다.
+
+## TLS 실패 원인별 판단
+
+| 코드 | 안내 | 현장 확인 |
+|---|---|---|
+| certificate-name-mismatch | 인증서 서버 이름 불일치 | 입력한 AirWave 주소와 인증서 SAN/호스트 이름을 일치시키는지 확인 |
+| certificate-expired | 인증서 만료 | 서버 인증서 갱신과 수집 PC 시각 확인 |
+| certificate-not-yet-valid | 인증서 유효기간 시작 전 | 수집 PC 시각·인증서 시작 날짜 확인 |
+| certificate-trust-chain | 신뢰 체인 오류 | 승인된 사내 루트/중간 CA, SSL 검사 프록시의 발행자 확인 |
+| certificate-missing | 인증서를 받지 못함 | 서버·프록시 TLS 종단 확인 |
+| certificate-validation-failed | 그 외 인증서 검증 오류 | Windows 인증서 정책·체인 상태 확인 |
+| tls-handshake-or-certificate | 협상 또는 인증서 검증 실패(원인 미확정) | TLS 버전·암호군·PAC 및 프록시·인증서 모두 확인 |
+
+일부 Windows TLS 실패는 세부 인증서 검증 이벤트 없이 종료된다. 이 경우 원인을 임의로 신뢰 체인·이름 불일치라고 확정하지 않는다.
+
+## AP 0대 표시 정책
+
+- **TLS/전송/인증 오류로 전체 수집이 실패**하면 `유효한 AP 상태가 0대`라는 추가 경고를 만들지 않는다.
+- **HTTP 응답을 수신한 뒤 AP 목록이 빈 상태이거나 상태 자료가 유효하지 않다면** AP 0대/대상 점검 안내를 유지한다.
+- 전체 실패 중 기존 미복구 사건은 닫지 않으며 마지막 정상 상태를 보존하고 이번 회차를 확인 불가로 기록한다.
+- 실제 운영 AP 전체가 Down인지 여부는 프로그램의 통신 실패로 판단하지 않는다.
+
+## 보안 및 운영 제한
+
+- **인증서 검증 비활성화(accept-all), 프록시 우회, Windows 전역 CA 변경을 자동으로 하지 않는다.**
+- 사내 인증서를 승인된 경로로 배포하거나 관리자의 정책 승인을 받은 후에만 설정을 수정한다.
+- 비밀번호, X-BISCOTTI, 세션 쿠키, 원문 AP 응답, 인증서 원본, 내부 프록시 주소를 GitHub 이슈나 공개 로그에 업로드하지 않는다.
+- 배포 버전과 데이터 디렉터리는 분리하고, 변경 전에 백업한다.
+- 실환경 결과는 `ONSITE_VALIDATION.md`에 **미확인/실패/통과**로 구분해 기록한다.
+
+관련 코드: `AirWaveSession.cs`, `TlsCertificateDiagnostics.cs`, `AirWaveClient.cs`, `ConnectionDiagnostics.cs`, `SqliteCollectionStore.Apply.cs`.

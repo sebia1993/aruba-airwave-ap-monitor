@@ -2,13 +2,19 @@
 
 **핵심 목표는 AirWave를 주기적으로 조회하여 Down AP 현황을 추적하는 것입니다.** 수집 PC 한 대에서 이번 Down, 신규 Down, 미복구, 복구 확인과 반복 이력을 조회합니다. 정보·연결 변경, 장비 교체와 작업·조치 기록은 이 감시와 조사를 지원합니다.
 
-**현재 상태: MacBook의 Codex에서 개발할 실행용 작업 지시서를 작성했습니다. 실제 수집 제품이나 Windows 릴리즈는 아직 없습니다.**
+**최신 v0.1.1:** [Windows ZIP 하나 다운로드](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/download/v0.1.1/AirWaveAPMonitor-v0.1.1-win-x64.zip) → 전체 압축 해제 → **최상위 `AirWaveAPMonitor.exe` 더블클릭**. 실행기와 목적별 폴더를 추가했고 Windows 전체 CI·공개 다운로드 파일 대조를 완료했습니다. [업데이트·검증 완료 기록](docs/LAUNCHER_RELEASE_STATUS.md)에 작업별 결과와 실환경 미확인 항목을 기록했습니다.
+
+**기존 v0.1.0 상태: 계획의 Task 1–10 구현·자동 검증·인수 산출물 범위를 완료했으며 개발 진행률은100%입니다. Mac 공통891·화면100·패키지11개 검사와 최신 Windows 전체 실행, 정확한 CI ZIP 해시/소스 대조를 완료했습니다. 실제 AirWave와 사내 Windows11/AD 운영은 미확인이며 Live 연결·LLDP·PoE 전송 어댑터는 미구현·미검증·비활성입니다.**
+
+v0.1.0 반입본의 소스·SHA256·실제 검증과 미확인 항목은 [최종 결과](docs/DEVELOPMENT_STATUS.md)를 확인하세요. ZIP은 Windows에서 실행한 원본이며, 포함 문서는 검증 전92% 시점으로 보존됩니다.
+
+실행: `./scripts/dev-mac.sh` → `http://127.0.0.1:8765`. [Mac 개발 안내](docs/guides/MAC_DEVELOPMENT.md)와 [작업별 진행·검증 기록](docs/DEVELOPMENT_STATUS.md)을 확인하세요. 초기 화면은 수집하지 않은 상태를 정상이나 Down 0대로 표시하지 않습니다.
 
 ## MacBook의 Codex에서 개발 시작
 
 [MacBook Codex 작업 지시서](docs/superpowers/plans/2026-11-15-macos-codex-implementation.md)를 실행 기준으로 사용합니다. 기존 설계·모의화면을 연결하고, 파일 구성·인터페이스·10단계 구현 순서·20개 수용 검증·Windows 반입 패키지·보고 형식을 정리했습니다.
 
-MacBook에서 이 저장소를 연 Codex에게 적용되는 `AGENTS.md`, 이 README, 작업 지시서, 설계 문서와 모의화면을 읽고 Task 1부터 구현하도록 지시하면 됩니다. 지시서에 나오는 실행 명령은 앞으로 만들 코드의 기준이며, 현재 실행 가능한 제품이 있다는 뜻은 아닙니다.
+자동 감시·현황·장애/운영 이력·수동 대장·CSV와 조건부 부가 관측의 구현 및 검증 수준은 [진행 기록](docs/DEVELOPMENT_STATUS.md)을 기준으로 확인합니다. `./scripts/verify-mac.sh`로 로컬 검증하고 Windows CI에서 네이티브 실행기를 포함한 Windows ZIP을 생성·검증합니다. Mac 패키징은 `./scripts/package-win.sh /path/to/AirWaveAPMonitor.exe`처럼 같은 소스로 Windows에서 빌드한 실행기를 지정합니다. [Windows 실행 안내](docs/guides/README_WINDOWS.md)와 [A01–A20 인수 근거표](docs/ACCEPTANCE_EVIDENCE.md)를 함께 보세요. [초기 진단 안내](docs/guides/INITIAL_DIAGNOSTICS.md)는 보존된 Task 2 패키지의 설명입니다.
 
 사내 접속 없이 실제 저장·상태 처리 코드를 사용하는 Demo 모드로 개발합니다. Mac 검증, Windows용 게시, Windows 실행, 사내 AirWave 확인을 나누어 기록하며, 실환경 확인을 기다리는 동안 가능한 구현은 계속합니다.
 
@@ -61,7 +67,7 @@ AirWave 8.2.14.0 공식 문서에는 AP의 연결 장비·포트와 전원·소�
 - AP 상태, 연결·이웃, PoE는 수집 결과·성공 시각을 분리합니다. 부가 조회 실패로 AP 상태를 Down으로 바꾸지 않습니다.
 - 전력·이웃 데이터의 실제 API 제공 여부는 아직 미확인입니다. 설계의 저장·표시 지원과 연동 검증 완료를 구분합니다.
 
-정확한 근거와 판정 규칙은 아래 설계 문서의 AirWave 연동 및 LLDP·포트·PoE 절에 정리했습니다.
+조건부 저장·수집·조회·화면은 공통/Demo 경로로 구현했습니다. Live 연결·LLDP·PoE 전송 어댑터는 미구현·미검증·비활성이며, 현장 확인표 작성만으로 이 버전에서 활성화되지 않습니다. [부가 관측 안내](docs/guides/ENRICHMENT.md)를 확인하세요. 정확한 근거와 판정 규칙은 아래 설계 문서의 AirWave 연동 및 LLDP·포트·PoE 절에 정리했습니다.
 
 ## 검토 문서
 
@@ -82,10 +88,10 @@ AirWave 8.2.14.0 공식 문서에는 AP의 연결 장비·포트와 전원·소�
 | 단계 | 수행 범위 |
 | --- | --- |
 | 집의 MacBook에서 개발 | 가상 AirWave 응답으로 수집 처리, 상태 전환, 실제 이력·DB·화면과 오류 처리를 구현·검증 |
-| 반입 전 Windows 확인 — 권장 | Windows용 배포물의 실행, 계정 보호, 자동 시작과 DB·로그 저장 확인 |
+| 반입 전 Windows 자동 검증 | 기존 GitHub Actions에서 Windows 테스트·게시·정확한 ZIP 실행·계정 보호·자동 시작·복원 확인 |
 | 사내에서 사용자 검증 | 실제 API 로그인·대수·필드, PAC/프록시·인증서, 운영 계정과 상시 수집 확인 |
 
-공통 앱은 Mac에서 실행되게 만들고, Windows DPAPI·서비스·예약 작업은 플랫폼 경계 뒤에 둡니다. Windows 확인 환경이 없으면 해당 실행 검증만 미실행으로 기록하고 구현을 계속합니다. Windows용 파일 생성과 Windows에서의 실행은 별도이며, 집의 Windows 확인도 사내 네트워크·인증서·운영 정책 확인을 대신하지 않습니다.
+공통 앱은 Mac에서 실행되게 만들고, Windows DPAPI·서비스·예약 작업은 플랫폼 경계 뒤에 둡니다. Windows CI 결과와 별도 Windows 11/사내 수동 검증의 미실행 항목을 구분해 기록합니다. Windows용 파일 생성과 Windows에서의 실행은 별도이며, 집의 Windows 확인도 사내 네트워크·인증서·운영 정책 확인을 대신하지 않습니다.
 
 실제 사내 접속이나 원문 자료 제공을 집에서의 개발 선행 조건으로 요구하지 않는다. 개발용 가상 데이터와 사내 운영 데이터는 분리한다. 첫 사내 검증은 연결 진단과 한 회차 AP 수집을 우선 대상으로 삼아 실제 연동 차이를 확인한다. 반입 패키지에는 런타임·화면 자원과 버전·실행 안내를 포함하는 방향으로 준비한다.
 
@@ -99,7 +105,7 @@ AirWave 8.2.14.0 공식 문서에는 AP의 연결 장비·포트와 전원·소�
 | 설계 문서 | 이력 확대 및 PoE·LLDP 조건 반영, 기술 제안값과 실환경 확인 구분 |
 | MacBook Codex 작업 지시서 | 작성 완료, 10단계 작업과 수용 검증·반입 기준 포함 |
 | 사용자 흐름 모의화면 | 가상 데이터 기반 클릭형 HTML 작성, 실제 연동 없음 |
-| 제품 구현·Windows 실행 파일 | 미착수 |
+| 제품 구현·Windows 실행 파일 | 개발100%. 최종7bbecb4/Windows43775283731 전체·정확한 ZIP 통과. Windows 공통887+전용9·Node100·Python9 통과(플랫폼 제외 별도), Mac 공통891·Node100·Python11 통과 |
 | 실환경 AirWave API 로그인·AP 목록 조회 | 미확인 |
 | 스위치·포트 매핑, PoE·LLDP API 필드·최신성 | 미확인 |
 | 사내 상시 운영 | 미확인 |
@@ -113,3 +119,9 @@ AirWave 8.2.14.0 공식 문서에는 AP의 연결 장비·포트와 전원·소�
 AP 기본 연결 → 상태·장애·회차별 현황 저장 → Down 우선 화면·검색·CSV → 자동 시작·백업·배포 순서로 핵심 감시를 먼저 완성합니다.
 
 이미 승인된 운영 이력·작업 화면과 스위치·PoE·LLDP의 부가 수집은 공통 기반 위에서 병행·후속 구현합니다. 핵심 감시가 동작하는 상태와 전체 승인 범위의 완료를 구분합니다. 구체적인 구현 작업과 완료 기준은 MacBook Codex 작업 지시서에 정리했습니다.
+
+## Windows에서 시작하기
+
+[최신 릴리즈](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/latest)의 Windows ZIP 하나를 받고 **전체 압축 해제 → 최상위 `AirWaveAPMonitor.exe` 더블클릭**으로 실행합니다. 준비되면 기본 브라우저가 열립니다. `app/`은 실행 파일, `tools/`는 관리 도구, `docs/`는 안내, `metadata/`는 버전과 체크섬입니다.
+
+v0.1.1 EXE 실행·구성 변경의 게시 결과, 실제 검증과 실환경 미확인 항목은 [추가 작업 기록](docs/LAUNCHER_RELEASE_STATUS.md)을 확인하세요.

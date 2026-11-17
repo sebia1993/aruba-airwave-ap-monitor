@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal synthetic values using documented AP Detail element shape, HPE AirWave 8.3.0.6 API guide. RF nodes intentionally cannot become wired observations. -->
+<amp:amp_ap_detail version="1" xmlns:amp="http://www.airwave.com">
+ <ap id="79"><interface id="88"><admin_status>Up</admin_status><oper_status>Dormant</oper_status><port_index>34</port_index><name>example-port</name><description>documented-shape fixture</description></interface>
+ <radio index="1"><transmit_power>18 dBm</transmit_power><neighbor_ap id="3644"><neighbor_type>managed</neighbor_type><signal>-64</signal></neighbor_ap></radio>
+ </ap>
+</amp:amp_ap_detail>

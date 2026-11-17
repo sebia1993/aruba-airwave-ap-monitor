@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="ISO-8859-1" standalone="yes"?>
+
+<amp:amp_ap_list version="1" xmlns:amp="http://www.airwave.com"
+
+     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:schemaLocation="http://www.airwave.com amp_ap_list.xsd">
+<ap id="98893"> <controller_id>98847</controller_id> <device_category>thin_ap</device_category> <firmware>8.6.0.0</firmware> <folder id="1">Top</folder> <group id="10414">AOSCLUSTER1</group> <is_remote_ap>true</is_remote_ap> <is_up>false</is_up> <lan_ip>1.1.1.155</lan_ip> <lan_mac>B4:5D:50:CE:14:0C</lan_mac> <last_contacted>1573276692</last_contacted> <last_reboot>1573270685</last_reboot> <mesh_mode>0</mesh_mode> <mfgr>Aruba</mfgr> <model id="701">AP 305</model> <monitor_only>true</monitor_only> <name>b4:5d:50:ce:14:0c</name> <operating_mode>ap</operating_mode> <planned_maintenance_mode>false</planned_maintenance_mode> <radio index="1"> <antenna/> <antenna_gain/> <channel>11</channel> <display_channel>1</display_channel> <display_enabled>false</display_enabled> <display_transmit_power>18 dBm</display_transmit_power> <enabled>true</enabled> <operational_mode>n</operational_mode> <radio_interface>2</radio_interface> <radio_mac>B4:5D:50:61:40:C0</radio_mac> <radio_role>ap</radio_role> <radio_type>bgn</radio_type> <transmit_power>18 dBm</transmit_power> </radio> <radio index="2"> <antenna/> <antenna_gain/> <channel>149</channel> <display_channel>149</display_channel> <display_enabled>false</display_enabled> <display_transmit_power>18 dBm</display_transmit_power> <enabled>true</enabled> <operational_mode>ac</operational_mode> <radio_interface>1</radio_interface> <radio_mac>B4:5D:50:61:40:D0</radio_mac> <radio_role>ap</radio_role> <radio_type>ac</radio_type> <transmit_power>18 dBm</transmit_power> </radio> <reboot_count>26</reboot_count> <remote_lan_ip>192.168.1.8</remote_lan_ip> <remote_outer_ip>123.112.107.133</remote_outer_ip> <serial_number>CNCFJSS15T</serial_number> <snmp_uptime>0</snmp_uptime>
+<ssid> ethersphere-bridge, ethersphere-voip, ethersphere-wpa2-arubaos </ssid> <syscontact/> <syslocation/> <upstream_device_id/> <upstream_port_index/> </ap>
+
+</amp:amp_ap_list>

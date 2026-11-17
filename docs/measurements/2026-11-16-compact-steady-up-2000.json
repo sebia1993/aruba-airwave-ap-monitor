@@ -1,0 +1,498 @@
+{
+  "kind": "synthetic-ap-parse-aggregate-storage",
+  "sourceCommit": "ecca1d2a20e26f7142dfba9de2d67cb18b716ce2",
+  "count": 2000,
+  "scenario": "steady-up",
+  "executedAssemblies": [
+    {
+      "file": "AirWaveApMonitor.Performance.dll",
+      "sha256": "fe7bbb1486ed85abcca6c500fa26519393afe30796eed2e961e8e5447b87f834"
+    },
+    {
+      "file": "AirWaveApMonitor.Infrastructure.dll",
+      "sha256": "00d54fad0d9bf7fd691173a3dc5da778bc6107e59072230fb5e43003f3b8ca8f"
+    },
+    {
+      "file": "AirWaveApMonitor.Core.dll",
+      "sha256": "6a089a4a1a43cc4c9cd4d3f4a4fc73908a7ebc97c03f987f19bbff60ca078fe1"
+    }
+  ],
+  "createdAtUtc": "2026-11-15T22:00:34.442662+00:00",
+  "operatingSystem": "macOS 27.2.0",
+  "processArchitecture": "Arm64",
+  "runtime": ".NET 10.0.15",
+  "source": "generated Demo XML with reserved documentation addresses; no network requests",
+  "frames": [
+    {
+      "name": "baseline-all-up",
+      "RunId": 1,
+      "xmlBytes": 536099,
+      "parseMilliseconds": 45.7636,
+      "beginMilliseconds": 229.009,
+      "applyAggregateAndStoreMilliseconds": 1815.0702,
+      "first500QueryMilliseconds": 328.6991,
+      "totalFrameMilliseconds": 2418.5777,
+      "allocatedBytes": 976163720,
+      "completeListVerificationMilliseconds": 619.18,
+      "verifiedListRows": 2000,
+      "databaseBytes": 47509504,
+      "databaseGrowthBytes": 46817280,
+      "processMemory": {
+        "workingSetBytes": 167952384,
+        "processLifetimePeakWorkingSetBytes": null,
+        "managedHeapBytes": 78141736,
+        "managedTotalAllocatedBytes": 1460256640
+      },
+      "storageShape": {
+        "DetailedRows": 0,
+        "UpDetailedRows": 0,
+        "HistoryVersions": 2000,
+        "HistorySets": 1,
+        "HistoryMembers": 2000,
+        "Frames": 1
+      },
+      "summary": {
+        "ConfirmedUp": 2000,
+        "ConfirmedDown": 0,
+        "Unknown": 0,
+        "NewDown": 0,
+        "InitialDown": 0,
+        "ExistingDown": 0,
+        "Recovered": 0,
+        "OpenIncidents": 0,
+        "TargetCount": 2000,
+        "ExcludedCount": 0,
+        "BaselineStatus": 0
+      },
+      "outcome": "Succeeded"
+    },
+    {
+      "name": "unchanged-up-1",
+      "RunId": 2,
+      "xmlBytes": 536099,
+      "parseMilliseconds": 22.6921,
+      "beginMilliseconds": 352.6068,
+      "applyAggregateAndStoreMilliseconds": 686.012,
+      "first500QueryMilliseconds": 140.881,
+      "totalFrameMilliseconds": 1202.1944,
+      "allocatedBytes": 970577120,
+      "completeListVerificationMilliseconds": 332.95,
+      "verifiedListRows": 2000,
+      "databaseBytes": 49172480,
+      "databaseGrowthBytes": 1662976,
+      "processMemory": {
+        "workingSetBytes": 186859520,
+        "processLifetimePeakWorkingSetBytes": null,
+        "managedHeapBytes": 88247032,
+        "managedTotalAllocatedBytes": 2913901648
+      },
+      "storageShape": {
+        "DetailedRows": 0,
+        "UpDetailedRows": 0,
+        "HistoryVersions": 2000,
+        "HistorySets": 1,
+        "HistoryMembers": 2000,
+        "Frames": 2
+      },
+      "summary": {
+        "ConfirmedUp": 2000,
+        "ConfirmedDown": 0,
+        "Unknown": 0,
+        "NewDown": 0,
+        "InitialDown": 0,
+        "ExistingDown": 0,
+        "Recovered": 0,
+        "OpenIncidents": 0,
+        "TargetCount": 2000,
+        "ExcludedCount": 0,
+        "BaselineStatus": 1
+      },
+      "outcome": "Succeeded"
+    },
+    {
+      "name": "unchanged-up-2",
+      "RunId": 3,
+      "xmlBytes": 536099,
+      "parseMilliseconds": 25.9726,
+      "beginMilliseconds": 188.1104,
+      "applyAggregateAndStoreMilliseconds": 602.8323,
+      "first500QueryMilliseconds": 81.4164,
+      "totalFrameMilliseconds": 898.3353,
+      "allocatedBytes": 969445368,
+      "completeListVerificationMilliseconds": 278.9838,
+      "verifiedListRows": 2000,
+      "databaseBytes": 50823168,
+      "databaseGrowthBytes": 1650688,
+      "processMemory": {
+        "workingSetBytes": 188940288,
+        "processLifetimePeakWorkingSetBytes": null,
+        "managedHeapBytes": 64485120,
+        "managedTotalAllocatedBytes": 4366647248
+      },
+      "storageShape": {
+        "DetailedRows": 0,
+        "UpDetailedRows": 0,
+        "HistoryVersions": 2000,
+        "HistorySets": 1,
+        "HistoryMembers": 2000,
+        "Frames": 3
+      },
+      "summary": {
+        "ConfirmedUp": 2000,
+        "ConfirmedDown": 0,
+        "Unknown": 0,
+        "NewDown": 0,
+        "InitialDown": 0,
+        "ExistingDown": 0,
+        "Recovered": 0,
+        "OpenIncidents": 0,
+        "TargetCount": 2000,
+        "ExcludedCount": 0,
+        "BaselineStatus": 1
+      },
+      "outcome": "Succeeded"
+    },
+    {
+      "name": "unchanged-up-3",
+      "RunId": 4,
+      "xmlBytes": 536099,
+      "parseMilliseconds": 12.3907,
+      "beginMilliseconds": 187.391,
+      "applyAggregateAndStoreMilliseconds": 593.902,
+      "first500QueryMilliseconds": 87.064,
+      "totalFrameMilliseconds": 880.7493,
+      "allocatedBytes": 969372432,
+      "completeListVerificationMilliseconds": 270.577,
+      "verifiedListRows": 2000,
+      "databaseBytes": 52498432,
+      "databaseGrowthBytes": 1675264,
+      "processMemory": {
+        "workingSetBytes": 182091776,
+        "processLifetimePeakWorkingSetBytes": null,
+        "managedHeapBytes": 80194416,
+        "managedTotalAllocatedBytes": 5818987704
+      },
+      "storageShape": {
+        "DetailedRows": 0,
+        "UpDetailedRows": 0,
+        "HistoryVersions": 2000,
+        "HistorySets": 1,
+        "HistoryMembers": 2000,
+        "Frames": 4
+      },
+      "summary": {
+        "ConfirmedUp": 2000,
+        "ConfirmedDown": 0,
+        "Unknown": 0,
+        "NewDown": 0,
+        "InitialDown": 0,
+        "ExistingDown": 0,
+        "Recovered": 0,
+        "OpenIncidents": 0,
+        "TargetCount": 2000,
+        "ExcludedCount": 0,
+        "BaselineStatus": 1
+      },
+      "outcome": "Succeeded"
+    },
+    {
+      "name": "unchanged-up-4",
+      "RunId": 5,
+      "xmlBytes": 536099,
+      "parseMilliseconds": 10.1694,
+      "beginMilliseconds": 192.2244,
+      "applyAggregateAndStoreMilliseconds": 626.0361,
+      "first500QueryMilliseconds": 81.8305,
+      "totalFrameMilliseconds": 910.263,
+      "allocatedBytes": 969371304,
+      "completeListVerificationMilliseconds": 280.9282,
+      "verifiedListRows": 2000,
+      "databaseBytes": 54177792,
+      "databaseGrowthBytes": 1679360,
+      "processMemory": {
+        "workingSetBytes": 199884800,
+        "processLifetimePeakWorkingSetBytes": null,
+        "managedHeapBytes": 108144352,
+        "managedTotalAllocatedBytes": 7271333016
+      },
+      "storageShape": {
+        "DetailedRows": 0,
+        "UpDetailedRows": 0,
+        "HistoryVersions": 2000,
+        "HistorySets": 1,
+        "HistoryMembers": 2000,
+        "Frames": 5
+      },
+      "summary": {
+        "ConfirmedUp": 2000,
+        "ConfirmedDown": 0,
+        "Unknown": 0,
+        "NewDown": 0,
+        "InitialDown": 0,
+        "ExistingDown": 0,
+        "Recovered": 0,
+        "OpenIncidents": 0,
+        "TargetCount": 2000,
+        "ExcludedCount": 0,
+        "BaselineStatus": 1
+      },
+      "outcome": "Succeeded"
+    },
+    {
+      "name": "unchanged-up-5",
+      "RunId": 6,
+      "xmlBytes": 536099,
+      "parseMilliseconds": 11.3411,
+      "beginMilliseconds": 213.873,
+      "applyAggregateAndStoreMilliseconds": 614.0169,
+      "first500QueryMilliseconds": 81.2137,
+      "totalFrameMilliseconds": 920.4456,
+      "allocatedBytes": 969362216,
+      "completeListVerificationMilliseconds": 274.0838,
+      "verifiedListRows": 2000,
+      "databaseBytes": 55844864,
+      "databaseGrowthBytes": 1667072,
+      "processMemory": {
+        "workingSetBytes": 192217088,
+        "processLifetimePeakWorkingSetBytes": null,
+        "managedHeapBytes": 89720448,
+        "managedTotalAllocatedBytes": 8723669568
+      },
+      "storageShape": {
+        "DetailedRows": 0,
+        "UpDetailedRows": 0,
+        "HistoryVersions": 2000,
+        "HistorySets": 1,
+        "HistoryMembers": 2000,
+        "Frames": 6
+      },
+      "summary": {
+        "ConfirmedUp": 2000,
+        "ConfirmedDown": 0,
+        "Unknown": 0,
+        "NewDown": 0,
+        "InitialDown": 0,
+        "ExistingDown": 0,
+        "Recovered": 0,
+        "OpenIncidents": 0,
+        "TargetCount": 2000,
+        "ExcludedCount": 0,
+        "BaselineStatus": 1
+      },
+      "outcome": "Succeeded"
+    },
+    {
+      "name": "unchanged-up-6",
+      "RunId": 7,
+      "xmlBytes": 536099,
+      "parseMilliseconds": 10.0682,
+      "beginMilliseconds": 184.6953,
+      "applyAggregateAndStoreMilliseconds": 619.2125,
+      "first500QueryMilliseconds": 111.188,
+      "totalFrameMilliseconds": 925.1649,
+      "allocatedBytes": 969366176,
+      "completeListVerificationMilliseconds": 255.0783,
+      "verifiedListRows": 2000,
+      "databaseBytes": 57503744,
+      "databaseGrowthBytes": 1658880,
+      "processMemory": {
+        "workingSetBytes": 208683008,
+        "processLifetimePeakWorkingSetBytes": null,
+        "managedHeapBytes": 108721552,
+        "managedTotalAllocatedBytes": 10176000288
+      },
+      "storageShape": {
+        "DetailedRows": 0,
+        "UpDetailedRows": 0,
+        "HistoryVersions": 2000,
+        "HistorySets": 1,
+        "HistoryMembers": 2000,
+        "Frames": 7
+      },
+      "summary": {
+        "ConfirmedUp": 2000,
+        "ConfirmedDown": 0,
+        "Unknown": 0,
+        "NewDown": 0,
+        "InitialDown": 0,
+        "ExistingDown": 0,
+        "Recovered": 0,
+        "OpenIncidents": 0,
+        "TargetCount": 2000,
+        "ExcludedCount": 0,
+        "BaselineStatus": 1
+      },
+      "outcome": "Succeeded"
+    },
+    {
+      "name": "unchanged-up-7",
+      "RunId": 8,
+      "xmlBytes": 536099,
+      "parseMilliseconds": 13.3802,
+      "beginMilliseconds": 185.9303,
+      "applyAggregateAndStoreMilliseconds": 594.8067,
+      "first500QueryMilliseconds": 82.1425,
+      "totalFrameMilliseconds": 876.2609,
+      "allocatedBytes": 969364576,
+      "completeListVerificationMilliseconds": 264.8329,
+      "verifiedListRows": 2000,
+      "databaseBytes": 59187200,
+      "databaseGrowthBytes": 1683456,
+      "processMemory": {
+        "workingSetBytes": 188579840,
+        "processLifetimePeakWorkingSetBytes": null,
+        "managedHeapBytes": 103959984,
+        "managedTotalAllocatedBytes": 11628328640
+      },
+      "storageShape": {
+        "DetailedRows": 0,
+        "UpDetailedRows": 0,
+        "HistoryVersions": 2000,
+        "HistorySets": 1,
+        "HistoryMembers": 2000,
+        "Frames": 8
+      },
+      "summary": {
+        "ConfirmedUp": 2000,
+        "ConfirmedDown": 0,
+        "Unknown": 0,
+        "NewDown": 0,
+        "InitialDown": 0,
+        "ExistingDown": 0,
+        "Recovered": 0,
+        "OpenIncidents": 0,
+        "TargetCount": 2000,
+        "ExcludedCount": 0,
+        "BaselineStatus": 1
+      },
+      "outcome": "Succeeded"
+    },
+    {
+      "name": "unchanged-up-8",
+      "RunId": 9,
+      "xmlBytes": 536099,
+      "parseMilliseconds": 10.0429,
+      "beginMilliseconds": 188.4697,
+      "applyAggregateAndStoreMilliseconds": 595.2011,
+      "first500QueryMilliseconds": 88.8672,
+      "totalFrameMilliseconds": 882.5823,
+      "allocatedBytes": 969371632,
+      "completeListVerificationMilliseconds": 269.3178,
+      "verifiedListRows": 2000,
+      "databaseBytes": 60854272,
+      "databaseGrowthBytes": 1667072,
+      "processMemory": {
+        "workingSetBytes": 188645376,
+        "processLifetimePeakWorkingSetBytes": null,
+        "managedHeapBytes": 103663280,
+        "managedTotalAllocatedBytes": 13080677272
+      },
+      "storageShape": {
+        "DetailedRows": 0,
+        "UpDetailedRows": 0,
+        "HistoryVersions": 2000,
+        "HistorySets": 1,
+        "HistoryMembers": 2000,
+        "Frames": 9
+      },
+      "summary": {
+        "ConfirmedUp": 2000,
+        "ConfirmedDown": 0,
+        "Unknown": 0,
+        "NewDown": 0,
+        "InitialDown": 0,
+        "ExistingDown": 0,
+        "Recovered": 0,
+        "OpenIncidents": 0,
+        "TargetCount": 2000,
+        "ExcludedCount": 0,
+        "BaselineStatus": 1
+      },
+      "outcome": "Succeeded"
+    },
+    {
+      "name": "unchanged-up-9",
+      "RunId": 10,
+      "xmlBytes": 536099,
+      "parseMilliseconds": 37.142,
+      "beginMilliseconds": 183.5919,
+      "applyAggregateAndStoreMilliseconds": 596.2907,
+      "first500QueryMilliseconds": 80.3075,
+      "totalFrameMilliseconds": 897.3335,
+      "allocatedBytes": 969386072,
+      "completeListVerificationMilliseconds": 267.7264,
+      "verifiedListRows": 2000,
+      "databaseBytes": 62525440,
+      "databaseGrowthBytes": 1671168,
+      "processMemory": {
+        "workingSetBytes": 191414272,
+        "processLifetimePeakWorkingSetBytes": null,
+        "managedHeapBytes": 64299256,
+        "managedTotalAllocatedBytes": 14533054008
+      },
+      "storageShape": {
+        "DetailedRows": 0,
+        "UpDetailedRows": 0,
+        "HistoryVersions": 2000,
+        "HistorySets": 1,
+        "HistoryMembers": 2000,
+        "Frames": 10
+      },
+      "summary": {
+        "ConfirmedUp": 2000,
+        "ConfirmedDown": 0,
+        "Unknown": 0,
+        "NewDown": 0,
+        "InitialDown": 0,
+        "ExistingDown": 0,
+        "Recovered": 0,
+        "OpenIncidents": 0,
+        "TargetCount": 2000,
+        "ExcludedCount": 0,
+        "BaselineStatus": 1
+      },
+      "outcome": "Succeeded"
+    }
+  ],
+  "initializeMilliseconds": 24.24,
+  "reopenAndTwoQueriesMilliseconds": 224.4281,
+  "initialDatabaseBytes": 692224,
+  "finalDatabaseBytes": 62492672,
+  "databaseGrowthBytes": 61800448,
+  "backupMilliseconds": 246.3197,
+  "backupBytes": 62492672,
+  "Sha256": "dc757c720a20663cdc3907f12b287c36d2030e029bc48d277db0a8b141eacf7c",
+  "retentionMilliseconds": 2.9521,
+  "retention": {
+    "ExecutionDetailsDeleted": 10,
+    "ClosedGapDetailsDeleted": 0,
+    "OperationalLogsDeleted": 0,
+    "FileLogLinesDeleted": 0,
+    "PowerSampleRetentionAvailable": true,
+    "PowerSamplesDeleted": 0
+  },
+  "totalMilliseconds": 14536.3445,
+  "processMemory": {
+    "workingSetBytes": 183779328,
+    "processLifetimePeakWorkingSetBytes": null,
+    "managedHeapBytes": 33385952,
+    "managedTotalAllocatedBytes": 15016151760
+  },
+  "storageShape": {
+    "DetailedRows": 0,
+    "UpDetailedRows": 0,
+    "HistoryVersions": 2000,
+    "HistorySets": 1,
+    "HistoryMembers": 2000,
+    "Frames": 10
+  },
+  "checksPassed": true,
+  "limitations": [
+    "one process per size; process peak includes previous frames and backup",
+    "synthetic local disk only",
+    "parsing and transactional aggregation/storage measured separately; no HTTP latency",
+    "first page query is up to 500 rows",
+    "database bytes include main/WAL/SHM when present; no VACUUM",
+    "no throughput or production SLA implied"
+  ]
+}

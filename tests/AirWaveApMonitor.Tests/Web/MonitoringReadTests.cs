@@ -1,0 +1,120 @@
+using AirWaveApMonitor.Core.Contracts;
+
+namespace AirWaveApMonitor.Tests.Web;
+
+public sealed class MonitoringReadTests
+{
+    [Fact]
+    public async Task UnknownAp_RemainsInOpenIncidentView()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        await f.Apply([], outcome: RunOutcome.Failed);
+        var view = await f.Dashboard(filter: DashboardFilter.OpenIncidents);
+        Assert.Equal("100", Assert.Single(view.Rows).SourceApId);
+        Assert.Null(view.Rows[0].CurrentState);
+        Assert.Null(view.Summary.ConfirmedDown);
+        Assert.Equal(2, (await f.Dashboard(filter: DashboardFilter.Unknown)).TotalRows);
+    }
+
+    [Theory]
+    [InlineData("site-100")]
+    [InlineData("building-100")]
+    [InlineData("floor-100")]
+    [InlineData("zone-100")]
+    [InlineData("detail-100")]
+    [InlineData("controller-100")]
+    [InlineData("198.51.100.1")]
+    [InlineData("switch-100")]
+    [InlineData("port-index-100")]
+    [InlineData("port-name-100")]
+    [InlineData("ap-interface-100")]
+    public async Task StructuredLocationControllerAndUpstreamSearch_UsesSelectedMetadata(string search)
+    {
+        using var f = new ReadFixture();
+        var first = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var view = await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1, first.RunId, search), default);
+        Assert.Equal("100", Assert.Single(view.Rows).SourceApId);
+    }
+
+    [Fact]
+    public async Task PlannedHide_CountsOnlyMatchingManualWork_WithoutChangingSummary()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        f.SetManualStatus("100", OperationalStatus.PlannedWork);
+        var run = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Down)]);
+        var view = await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1, run.RunId,
+            Filter: DashboardFilter.Down, HidePlanned: true), default);
+        Assert.Equal(1, view.HiddenPlannedCount);
+        Assert.Equal("200", Assert.Single(view.Rows).SourceApId); // source maintenance alone is not manual planned work.
+        Assert.Equal(2, view.Summary.ConfirmedDown);
+        var empty = await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1, run.RunId, "AP-100", HidePlanned: true), default);
+        Assert.Empty(empty.Rows); Assert.Equal(1, empty.HiddenPlannedCount);
+        var management = await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1, run.RunId,
+            ManagementStatus: OperationalStatus.PlannedWork), default);
+        Assert.Equal("100", Assert.Single(management.Rows).SourceApId);
+    }
+
+    [Fact]
+    public async Task PastDetail_DoesNotLeakFutureRecoveryOrGapClosure()
+    {
+        using var f = new ReadFixture();
+        var down = await f.Apply([f.Ap("100", ApState.Down, "original"), f.Ap("200", ApState.Up)]);
+        var ap = (await f.Dashboard()).Rows.Single(r => r.SourceApId == "100");
+        var gap = await f.Apply([], outcome: RunOutcome.Failed);
+        var up = await f.Apply([f.Ap("100", ApState.Up, "renamed"), f.Ap("200", ApState.Up)]);
+        var old = await f.Store.GetApDetailAsync(new(f.Location.DatasetId, 1, down.RunId, ap.ApId), default);
+        Assert.Equal("original", old.Row.Device.Name);
+        var incident = Assert.Single(old.Incidents);
+        Assert.Equal(IncidentStatus.Open, incident.Status); Assert.Null(incident.Recovery);
+        Assert.False(incident.Tracking.HasObservationGap); Assert.Empty(old.ObservationGaps);
+        var during = await f.Store.GetApDetailAsync(new(f.Location.DatasetId, 1, gap.RunId, ap.ApId), default);
+        Assert.Null(Assert.Single(during.ObservationGaps).ResumedRunId);
+        Assert.Null(Assert.Single(during.Incidents).Tracking.RecoveredRunId);
+        var recovered = await f.Store.GetApDetailAsync(new(f.Location.DatasetId, 1, up.RunId, ap.ApId), default);
+        Assert.Equal(up.RunId, Assert.Single(recovered.ObservationGaps).ResumedRunId);
+        Assert.Equal(IncidentStatus.Recovered, Assert.Single(recovered.Incidents).Status);
+        Assert.Equal(600, recovered.Incidents[0].ObservedElapsedSeconds);
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        Assert.Equal(600, (await f.Store.GetIncidentsAsync(new(f.Location.DatasetId, 1, up.RunId), default)).Rows[0].ObservedElapsedSeconds);
+    }
+
+    [Fact]
+    public async Task PastDetail_DoesNotLeakFutureReplacementOrTrackingEnd()
+    {
+        using var f = new ReadFixture();
+        var oldRun = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        var oldRow = (await f.Dashboard()).Rows.Single(r => r.SourceApId == "100");
+        var newer = await f.Apply([f.Ap("100", ApState.Up, serial: "REPLACEMENT"), f.Ap("200", ApState.Up)]);
+        var detail = await f.Store.GetApDetailAsync(new(f.Location.DatasetId, 1, oldRun.RunId, oldRow.ApId), default);
+        Assert.Equal(oldRow.DeviceGenerationId, detail.Row.DeviceGenerationId);
+        Assert.Null(Assert.Single(detail.Incidents).Tracking.TrackingEndedRunId);
+        Assert.Equal(IncidentStatus.Open, detail.Incidents[0].Status);
+        var current = await f.Store.GetApDetailAsync(new(f.Location.DatasetId, 1, newer.RunId, oldRow.ApId), default);
+        Assert.NotEqual(oldRow.DeviceGenerationId, current.Row.DeviceGenerationId);
+        Assert.Empty(current.Incidents);
+        var history = await f.Store.GetIncidentsAsync(new(f.Location.DatasetId, 1, newer.RunId), default);
+        Assert.Equal(IncidentStatus.TrackingEnded, Assert.Single(history.Rows).Status);
+    }
+
+    [Fact]
+    public async Task RunPages_IncludeFailedInterruptedAndRunning_KeepWatermarkAndScopes()
+    {
+        using var f = new ReadFixture();
+        var first = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var second = await f.Apply([], scope: 2, outcome: RunOutcome.Failed);
+        var interrupted = await f.Store.BeginRunAsync(f.Profile(2), CollectionKind.ApStatus, RunTrigger.Manual, default);
+        await f.Store.InterruptRunAsync(interrupted, default);
+        var page = await f.Store.GetRunsAsync(new(f.Location.DatasetId, PageSize: 2), default);
+        Assert.Equal(new[] { interrupted.RunId, second.RunId }, page.Rows.Select(r => r.RunId));
+        Assert.Equal(RunLifecycle.Interrupted, page.Rows[0].Lifecycle); Assert.Null(page.Rows[0].Summary!.ConfirmedDown);
+        Assert.Equal(new long[] { 2, 1 }, page.AvailableScopes);
+        var running = await f.Store.BeginRunAsync(f.Profile(2), CollectionKind.ApStatus, RunTrigger.Manual, default);
+        var oldPage = await f.Store.GetRunsAsync(new(f.Location.DatasetId, Page: 2, PageSize: 2, ThroughRunId: page.ThroughRunId), default);
+        Assert.Equal(first.RunId, Assert.Single(oldPage.Rows).RunId);
+        var current = await f.Store.GetRunAsync(f.Location.DatasetId, running.RunId, default);
+        Assert.Equal(RunLifecycle.Running, current.Lifecycle); Assert.Null(current.Summary); Assert.Null(current.Outcome);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => f.Store.GetApDetailAsync(new(f.Location.DatasetId, 1, second.RunId, Guid.NewGuid()), default));
+    }
+}

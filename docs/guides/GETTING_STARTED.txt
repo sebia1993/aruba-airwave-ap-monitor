@@ -1,0 +1,40 @@
+AirWave AP Monitor v0.1.1 — 시작하기
+
+1. ZIP 전체를 새 폴더에 압축 해제하세요.
+2. 바로 보이는 AirWaveAPMonitor.exe를 더블클릭하세요.
+3. 준비가 끝나면 기본 브라우저로 감시 화면이 열립니다.
+4. 처음에는 화면의 설정에서 AirWave 서버와 계정을 등록하세요.
+
+기본 화면 주소: http://127.0.0.1:8765
+기본 실행 모드: Live (실제 AirWave 연결용)
+데이터 폴더: C:\ProgramData\AirWaveAPMonitor\live
+실제 경로는 Windows의 ProgramData 위치를 따릅니다.
+
+실행 중 표시되는 수집기 창은 열어 두세요.
+브라우저만 닫아도 수집은 계속됩니다.
+수집기를 종료하려면 수집기 창에서 Ctrl+C를 누르거나 창을 닫으세요.
+AirWaveAPMonitor.exe를 다시 실행하면 같은 데이터의 실행 중인 화면을 다시 엽니다.
+서비스로 운영 중이면 서비스의 중지/제거 절차를 따르세요.
+
+폴더 안내
+- app        프로그램과 실행에 필요한 파일 (통째로 유지)
+- tools      서비스·예약 작업 등록, 백업·복원 등 관리자용 도구
+- docs       상세 사용 안내, 개발 검증 기록, 측정 자료
+- metadata   버전 정보와 내부 파일 SHA256 목록
+
+중요: EXE 하나만 다른 곳으로 옮기지 말고 압축을 푼 폴더 전체를 유지하세요.
+설치·런타임 다운로드·PowerShell 명령 없이 위 EXE로 시작할 수 있습니다.
+자동 시작이 필요할 때만 docs\guides\README_WINDOWS.md를 따라 설정하세요.
+
+기존 버전에서 업데이트할 때
+- 실행 중인 기존 수집기를 먼저 종료하세요. 서비스/예약 작업은 상세 업데이트 안내를 따릅니다.
+- 새 ZIP은 새 버전 폴더에 풀고 기존 데이터 폴더를 그대로 사용하세요.
+- 이전에 사용자 지정 데이터 경로/포트를 사용했다면 docs\guides\WINDOWS_RUN.md를 확인하세요.
+- DB·설정·자격 증명 폴더를 삭제하거나 새 프로그램 폴더 안으로 옮기지 마세요.
+
+실행에 문제가 있으면 표시된 오류와 docs\guides\WINDOWS_RUN.md를 확인하세요.
+상세 업데이트: docs\guides\UPDATE_AND_RECOVERY.md
+이번 변경과 검증: docs\development\LAUNCHER_RELEASE_STATUS.md
+
+실제 사내 AirWave·AD·프록시·인증서, Windows 기본 브라우저 GUI와 조직 정책은 현장 확인이 필요합니다.
+Live LLDP/PoE 어댑터는 미구현·미검증이며 비활성입니다.
