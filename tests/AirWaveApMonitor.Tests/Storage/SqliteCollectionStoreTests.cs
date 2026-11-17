@@ -182,6 +182,29 @@ public sealed partial class SqliteCollectionStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task TlsFailure_DoesNotAddMisleadingZeroApWarningOrCloseIncident()
+    {
+        await Apply(Observation("100", ApState.Down), Observation("200", ApState.Up));
+        var before = (await Dashboard()).Rows.Single(row => row.SourceApId == "100");
+        var run = await Begin();
+        var tlsFailure = new ApCollectionBatch(RunOutcome.Failed, [], [], clock.GetUtcNow(),
+            ObservationCompleteness.Unknown,
+            [new(CollectionErrorCategory.Tls, 1, "TLS 보안 연결 실패. HTTP_STATUS=미수신")]);
+        var receipt = await store.ApplyApBatchAsync(run, tlsFailure, default);
+        var snapshot = await Dashboard();
+
+        Assert.Equal(RunOutcome.Failed, receipt.Outcome);
+        Assert.Null(receipt.Summary.ConfirmedDown);
+        Assert.Equal(1, receipt.Summary.OpenIncidents);
+        Assert.Contains(snapshot.Errors, error => error.Category == CollectionErrorCategory.Tls);
+        Assert.DoesNotContain(snapshot.Errors,
+            error => error.SafeMessage.Contains("유효한 AP 상태가 0대", StringComparison.Ordinal));
+        var current = snapshot.Rows.Single(row => row.SourceApId == "100");
+        Assert.Equal(before.OpenIncidentId, current.OpenIncidentId);
+        Assert.Equal(ApState.Down, current.LastValidState);
+    }
+
+    [Fact]
     public async Task InitialZero_HasUnknownUniverseUntilTargetsDiscovered()
     {
         var run = await Begin(profile: Profile(ids: []));
