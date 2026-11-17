@@ -3,7 +3,7 @@ name: Windows verification
 on:
   workflow_dispatch:
   push:
-    branches: [codex/macos-v0.1]
+    branches: [codex/macos-v0.1, main]
     paths:
       - 'src/**'
       - 'tests/**'
@@ -100,6 +100,7 @@ jobs:
             artifacts/win-x64/bundles/*.zip
             artifacts/win-x64/bundles/*.zip.sha256
           if-no-files-found: error
+          retention-days: 1
       - name: Preserve Windows test diagnostics
         if: always()
         uses: actions/upload-artifact@v7.0.2
@@ -107,6 +108,7 @@ jobs:
           name: windows-test-results
           path: tests/**/TestResults/*.trx
           if-no-files-found: ignore
+          retention-days: 1
       - name: Preserve Windows native smoke diagnostics
         if: always()
         uses: actions/upload-artifact@v7.0.2
@@ -118,3 +120,4 @@ jobs:
             artifacts/windows-launcher-diagnostics/*.json
             artifacts/windows-launcher-diagnostics/*.log
           if-no-files-found: ignore
+          retention-days: 1
