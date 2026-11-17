@@ -128,7 +128,7 @@ public sealed class AirWaveSession(Func<ProxySettings, HttpMessageHandler>? fact
                 tlsFailureObserver?.Invoke(TlsCertificateDiagnostics.Classify(errors, DateTimeOffset.UtcNow,
                     certificate is null ? null : new DateTimeOffset(certificate.NotBefore.ToUniversalTime()),
                     certificate is null ? null : new DateTimeOffset(certificate.NotAfter.ToUniversalTime())));
-            return errors == SslPolicyErrors.None;
+            return errors == SslPolicyErrors.None && certificate is not null;
         };
         if (proxy.Mode == ProxyMode.Direct) handler.UseProxy = false;
         else if (proxy.Mode == ProxyMode.Fixed) handler.Proxy = new WebProxy(proxy.Address!);
@@ -154,7 +154,7 @@ public sealed class AirWaveSession(Func<ProxySettings, HttpMessageHandler>? fact
                 return "system-direct-selected";
             return "system-proxy-selected";
         }
-        catch (Exception error) when (error is InvalidOperationException or UriFormatException or NotSupportedException or System.Net.WebException)
+        catch (Exception error) when (error is not OutOfMemoryException && error is not OperationCanceledException)
         {
             return "system-unresolved";
         }
