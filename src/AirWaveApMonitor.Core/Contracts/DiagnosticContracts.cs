@@ -30,4 +30,10 @@ public sealed record ProxySettings
 public sealed record DiagnosticStage(string Name, string Status, int? HttpStatus, long ElapsedMilliseconds, string Message);
 public sealed record DiagnosticReport(Guid DiagnosticId, DateTimeOffset StartedAtUtc, string ExecutionAccount, string ConnectionPath, string TlsResult, int? HttpStatus,
     int LoginRequests, int ApRequests, int ParsedRecords, int ExcludedRecords, long ElapsedMilliseconds, RunOutcome Outcome, bool AuthenticationBlocked,
-    ImmutableArray<DiagnosticStage> Stages, ImmutableArray<CollectionError> Errors, ImmutableArray<string> VerificationNotes);
+    ImmutableArray<DiagnosticStage> Stages, ImmutableArray<CollectionError> Errors, ImmutableArray<string> VerificationNotes)
+{
+    // Stable safe codes only; never include a certificate, hostname, exception, or proxy URL.
+    public string? TlsFailureCode { get; init; }
+    // Resolved/default proxy selection is a hint, never an observed packet path.
+    public string? ProxyRouteHint { get; init; }
+}
