@@ -10,7 +10,12 @@ public sealed class ConnectionDiagnostics(AppMode mode, AirWaveClient live, Time
     public async Task<DiagnosticReport> RunAsync(ProfileSnapshot profile, CancellationToken ct)
     {
         if (mode == AppMode.Live)
-            return (await live.ReadAsync(profile, ct)).Report;
+        {
+            var report = (await live.ReadAsync(profile, ct)).Report;
+            // Resolver hint is read only for an explicit diagnostic, never every
+            // scheduled AP polling pass. Do not mistake it for an observed route.
+            return report with { ProxyRouteHint = AirWaveSession.ProxyRouteHint(profile.Proxy, profile.Origin) };
+        }
         if (profile.Origin != ScenarioApSource.DemoOrigin)
             throw new InvalidOperationException("Demo 출처가 올바르지 않습니다.");
         ct.ThrowIfCancellationRequested();
