@@ -1,6 +1,7 @@
 "use strict";
 import { countText, createRequestGate, dashboardQuery, observationStatus, incidentElapsed, settingsIdentity, shouldFollowLatest, authenticationUiState, kstDateText, kstPeriod, addHistoryFilters } from "./ui-state.js";
 
+import { determineSetupStage, connectionSteps } from "./setup-guide.js";
 import { createOperationsController } from "./operations.js";
 import { createEnrichmentController } from "./enrichment.js";
 
@@ -22,7 +23,8 @@ const state = {
   runs: { kind: "", scopeVersion: "", fromUtc: null, toUtc: null, page: 1, pageSize: 50, throughRunId: null },
   health: null, maintenance: null, settings: null, mode: null, mutationBusy: false, settingsDirty: false, draftRevision: 0, pinDraftBase: null, pinProbe: null,
   scope: {data:null,dirty:false,revision:0,baseVersion:null,baselineDirty:false,baselineRevision:0,baselineBase:null},
-  token: null, tokenPromise: null, diagnosticIdentity: null, lastDashboardRead: null
+  token: null, tokenPromise: null, diagnosticIdentity: null, lastDiagnosticReport: null, guideRequiresFreshDiagnostic: false,
+  setupGuideOpen: false, setupAutoHandled: false, lastDashboardRead: null
 };
 const gates = { dashboard: createRequestGate(), incidents: createRequestGate(), runs: createRequestGate(), detail: createRequestGate(), settings: createRequestGate(), scope: createRequestGate(), health: createRequestGate() };
 let searchTimer, incidentSearchTimer;
@@ -162,7 +164,7 @@ async function loadDashboard(latest = false, automatic = false) {
     notice(byId("dashboard-notice"), noRun ? "아직 확정된 AP 수집 회차가 없습니다" : "현황을 읽지 못했습니다", noRun ? "첫 수집이 저장되면 여기에 AP 목록이 표시됩니다." : error.message, noRun ? "warning" : "error");
     empty(container, noRun ? "저장된 현황 없음" : "현재 조회 실패", "이 상태를 Down 0대 또는 전체 정상으로 표시하지 않습니다.");
     byId("list-count").textContent = ""; byId("dashboard-footnotes").replaceChildren(); updatePager("ap", 0, 1, state.filters.pageSize);
-  } finally { if (gates.dashboard.isCurrent(ticket)) { container.removeAttribute("aria-busy"); state.dashboardLoading = false; } updateControls(); }
+  } finally { if (gates.dashboard.isCurrent(ticket)) { container.removeAttribute("aria-busy"); state.dashboardLoading = false; } updateControls(); maybeAutoStartGuide(); }
 }
 function setIncidentMode(mode) {
   const work = mode === "work";
@@ -666,7 +668,7 @@ async function loadHealth() {
     if (!gates.health.isCurrent(ticket)) return;
     state.health = null; renderHomeHealth(null,"수집기 상태 조회 실패"); enrichment?.renderHealth(null); byId("collector-status").textContent = "수집기 상태 미확인"; byId("collector-status").className = "collector-badge amber";
     notice(byId("health-notice"),"수집기 상태 조회 실패",error.message,"error"); byId("health-details").replaceChildren(); byId("health-read-time").textContent = "· 마지막 조회 실패";
-  } finally { healthInFlight = false; updateControls(); }
+  } finally { healthInFlight = false; updateControls(); maybeAutoStartGuide(); }
 }
 function renderMode() {
   byId("mode").textContent = state.mode === "demo" ? "DEMO · 가상 자료" : state.mode === "live" ? "LIVE 모드" : "모드 미확인";
@@ -705,6 +707,78 @@ function renderHealth(health) {
   while (details.firstChild) { const group = el("div"); group.append(details.firstChild); if (details.firstChild) group.append(details.firstChild); groups.push(group); }
   byId("health-details").replaceChildren(...groups);
 }
+function connectionGuideState() {
+  if (typeof determineSetupStage !== "function") return null;
+  const identity = state.settings?.profile && settingsIdentity(state.settings.profile);
+  return determineSetupStage({
+    mode:state.mode,settings:state.settings,health:state.health,
+    report:state.lastDiagnosticReport,diagnosticValid:!!identity && state.diagnosticIdentity === identity,
+    settingsDirty:state.settingsDirty,credentialsDirty:state.credentialsDirty,
+    pinDirty:state.pinDraftBase !== null,requireDiagnostic:state.guideRequiresFreshDiagnostic
+  });
+}
+function renderConnectionGuide() {
+  const panel=byId("setup-guide");
+  if (!panel) return;
+  panel.hidden=!state.setupGuideOpen;
+  const toggle=byId("setup-guide-toggle");
+  toggle.setAttribute("aria-expanded",String(state.setupGuideOpen));
+  toggle.textContent=state.setupGuideOpen ? "연결 안내 닫기" : "처음 연결 안내";
+  if (!state.setupGuideOpen) return;
+  const result=connectionGuideState();
+  if (!result) return;
+  const steps=byId("setup-guide-steps"); steps.replaceChildren();
+  connectionSteps.forEach((label,index)=>{
+    const item=el("li","setup-step",String(index+1)+" · "+label);
+    const status=index<result.number ? "done" : index===result.number ? "current" : "pending";
+    item.dataset.status=status;
+    if (status==="current") item.setAttribute("aria-current","step");
+    steps.append(item);
+  });
+  byId("setup-guide-stage-title").textContent=result.title;
+  byId("setup-guide-stage-description").textContent=result.description;
+  const action=byId("setup-guide-action");
+  action.textContent=result.button;
+  action.disabled=state.mutationBusy || result.action==="none" ||
+    (result.action==="collect" && (!state.health || !state.health.configured || state.health.paused || state.health.authenticationBlocked || state.health.storageRecoveryPending));
+  byId("setup-guide-progress").textContent=result.key==="done" ? "완료 · 실제 저장 회차 확인" :
+    result.key==="partial" ? "일부 확인 · 수집 기록 검토" : "안내 "+Math.min(5,result.number+1)+" / 5";
+}
+function focusGuideField(id) {
+  const node=byId(id);
+  if (!node) return;
+  const parent=node.closest?.("details");
+  if (parent) parent.open=true;
+  node.scrollIntoView?.({block:"center",behavior:"smooth"});
+  node.focus?.({preventScroll:true});
+}
+async function openConnectionGuide() {
+  state.setupAutoHandled=true;
+  state.setupGuideOpen=true;
+  await show("settings");
+  renderConnectionGuide();
+  byId("setup-guide-stage-title").focus({preventScroll:true});
+}
+function maybeAutoStartGuide() {
+  if (state.setupAutoHandled || state.view!=="dashboard" || state.noFinalRun!==true ||
+      !state.health || !state.settings || state.mode!=="live") return;
+  state.setupAutoHandled=true;
+  if (state.settings.profile?.origin && state.settings.credentialStatus==="registered") return;
+  state.setupGuideOpen=true;
+  void show("settings");
+}
+async function connectionGuideAction() {
+  if (state.mutationBusy) return;
+  const step=connectionGuideState();
+  if (!step) return;
+  if (step.action==="jump") { focusGuideField(step.target); return; }
+  if (step.action==="diagnose") { await runDiagnostics(); renderConnectionGuide(); return; }
+  if (step.action==="collect") { await collectNow(); renderConnectionGuide(); return; }
+  if (step.action==="resume") { await togglePause(); renderConnectionGuide(); return; }
+  if (step.action==="records") { state.setupGuideOpen=false; await show("runs"); return; }
+  if (step.action==="dashboard") { state.setupGuideOpen=false; await currentDashboard(); }
+}
+
 function updateControls() {
   const health = state.health, stopping = health && ["Stopping","Stopped"].includes(health.phase);
   const setupMissing = health?.configured === false || state.settings?.credentialRegistrationPending === true
@@ -722,6 +796,7 @@ function updateControls() {
   byId("credentials-form").querySelector("button").disabled = state.mutationBusy || !state.settings?.profile;
   updateScopeControls();
   updateCertificatePinControls();
+  renderConnectionGuide();
 }
 async function perform(action) {
   if (state.mutationBusy) return;
@@ -746,6 +821,7 @@ function invalidateDiagnostic(reason) {
   state.diagnosticIdentity = null; byId("diagnostic-result").hidden = true; byId("diagnostic-summary").textContent = "";
   ["diagnostic-details","diagnostic-stages","diagnostic-notes"].forEach(id => byId(id).replaceChildren());
   byId("diagnostic-validity").textContent = reason;
+  state.lastDiagnosticReport = null; state.guideRequiresFreshDiagnostic = true;
 }
 function invalidateDataForSettingsChange() {
   gates.dashboard.invalidate(); gates.incidents.invalidate(); gates.detail.invalidate();
@@ -773,7 +849,7 @@ function applySettings(value,{fill = false} = {}) {
   byId("execution-account").textContent = value.executionAccount;
   byId("credential-status").textContent = ({ "synthetic-memory":"가상 메모리 자격 증명 · 실제 입력 안 받음","unsupported-platform":"현재 OS에서 Windows DPAPI 미지원 · Windows에서 등록 필요","missing":"미등록","registered":"현재 실행 계정에서 복호화 확인","reregistration-required":"복호화 실패 또는 재등록 필요" })[value.credentialStatus] || "상태 미확인";
   byId("credentials-form").hidden = state.mode !== "live" || value.credentialStatus === "unsupported-platform";
-  updateControls();
+  updateControls(); maybeAutoStartGuide();
 }
 async function loadSettings(fill = false) {
   const ticket = gates.settings.begin();
@@ -1069,7 +1145,7 @@ async function runDiagnostics() {
     if (revision !== state.draftRevision || identity !== settingsIdentity(current.profile) || identity !== settingsIdentity(state.settings?.profile)) {
       applySettings(current,{fill:false}); invalidateDiagnostic("진단 도중 설정 또는 입력이 변경되어 늦게 도착한 결과를 표시하지 않았습니다."); setMessage("설정을 저장·확인한 뒤 진단을 다시 실행하세요."); return;
     }
-    applySettings(current,{fill:false}); state.diagnosticIdentity = identity; renderDiagnostic(report);
+    applySettings(current,{fill:false}); state.diagnosticIdentity = identity; state.lastDiagnosticReport = report; state.guideRequiresFreshDiagnostic = false; renderDiagnostic(report);
     byId("diagnostic-validity").textContent = `현재 저장 설정과 일치 · 설정 버전 ${current.profile.configurationVersion} · 자격 증명 버전 ${current.profile.credentialsVersion}`;
     setMessage("진단이 끝났습니다. 진단 결과는 운영 수집 회차·장애 이력으로 저장하지 않았습니다."); void loadHealth();
   });
@@ -1219,7 +1295,7 @@ async function applyPeriod(target) {
     }
   } catch (error) { setMessage(error.message,true); }
 }
-document.querySelectorAll("[data-view]").forEach(node => node.addEventListener("click",() => { clearTimeout(searchTimer); clearTimeout(incidentSearchTimer); setMessage(""); void show(node.dataset.view); }));
+document.querySelectorAll("[data-view]").forEach(node => node.addEventListener("click",() => { state.setupAutoHandled = true; clearTimeout(searchTimer); clearTimeout(incidentSearchTimer); setMessage(""); void show(node.dataset.view); }));
 operations = createOperationsController({
   api,onMessage:setMessage,dateText,isCurrentView:view=>state.view === view,
   navigate:view=>{ navigate(view); if (view === "incidents") setIncidentMode("work"); },
@@ -1228,7 +1304,7 @@ operations = createOperationsController({
 enrichment = createEnrichmentController({api,onMessage:setMessage,navigate,dateText,isCurrentView:()=>state.view === "enrichment",onRuns:openUnifiedRuns,onHistory:selection=>operations?.show("timeline",{...selection,asOfRunId:selection.asOfRunId ?? (state.historical ? selection.runId : undefined)}),onSettingsSaved:()=>{void loadSettings(false);void loadScope();void loadHealth();}});
 document.querySelectorAll("[data-action='current']").forEach(node => node.addEventListener("click",() => { clearTimeout(searchTimer); clearTimeout(incidentSearchTimer); setMessage(""); void currentDashboard(); }));
 document.querySelectorAll("[data-filter]").forEach(node => node.addEventListener("click",() => quickFilter(node.dataset.filter)));
-byId("home-connect-setup").addEventListener("click",()=>{ void show("settings"); });
+byId("home-connect-setup").addEventListener("click",()=>{ void openConnectionGuide(); });
 byId("status-filter").addEventListener("change",event => filterChanged(event.target.value));
 byId("ap-search").addEventListener("input",event => {
   applySearch(event.target.value); gates.dashboard.invalidate(); state.dashboardLoading = true; updateControls();
@@ -1275,6 +1351,9 @@ byId("pin-form").addEventListener("submit",event => { event.preventDefault(); vo
 byId("pin-remove").addEventListener("click",() => { void saveCertificatePin(true); });
 byId("pin-reset").addEventListener("click",resetCertificatePinDraft);
 byId("refresh-settings").addEventListener("click",() => { void loadSettings(true); void loadScope(); if (state.settingsDirty) setMessage("서버 설정을 다시 읽습니다. 저장하지 않은 입력은 유지합니다."); });
+byId("setup-guide-toggle").addEventListener("click",() => { if (state.setupGuideOpen) { state.setupGuideOpen = false; renderConnectionGuide(); } else { void openConnectionGuide(); } });
+byId("setup-guide-close").addEventListener("click",() => { state.setupGuideOpen = false; renderConnectionGuide(); byId("setup-guide-toggle").focus(); });
+byId("setup-guide-action").addEventListener("click",() => { void connectionGuideAction(); });
 ["scope-mode","scope-ids","scope-reason"].forEach(id=>byId(id).addEventListener("input",()=>scopeDraftChanged("scope")));
 byId("scope-mode").addEventListener("change",()=>scopeDraftChanged("scope"));
 ["baseline-count","baseline-reason"].forEach(id=>byId(id).addEventListener("input",()=>scopeDraftChanged("baseline")));

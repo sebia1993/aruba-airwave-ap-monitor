@@ -1,0 +1,13 @@
+/* Compact optional guidance above existing settings. */
+.setup-guide { padding:17px 19px; margin-bottom:16px; border-left:3px solid var(--blue); }
+.setup-guide-header { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:13px; }
+.setup-guide-eyebrow { color:var(--muted); font-size:11px; margin:0 0 3px; }
+.setup-guide-header h2 { font-size:16px; }
+.setup-guide-steps { list-style:none; display:flex; flex-wrap:wrap; gap:6px; padding:0; margin:0 0 14px; }
+.setup-step { padding:5px 8px; border-radius:5px; background:var(--subtle); border:1px solid var(--line); font-size:11px; color:var(--muted); }
+.setup-step[data-status="done"] { color:var(--green); border-color:#b4dbc4; }
+.setup-step[data-status="current"] { color:var(--blue); border-color:var(--blue); font-weight:650; background:var(--blue-bg); }
+.setup-guide h3 { font-size:14px; margin:2px 0 8px; }
+.setup-guide-description { color:var(--ink); max-width:90ch; margin-bottom:12px; }
+.setup-guide-warning { color:var(--muted); font-size:11px; margin-top:13px; padding-top:10px; border-top:1px solid var(--line); }
+@media(max-width:620px) { .setup-guide { padding:14px 12px; } .setup-guide-header { flex-wrap:wrap; } .setup-step { flex:1 1 auto; } }
