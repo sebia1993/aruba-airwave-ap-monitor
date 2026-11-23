@@ -33,7 +33,7 @@ test("read-only update inspection does not mutate settings, stop services or bac
   },dateText:x=>x};
   runInNewContext(source+"\nglobalThis.render=renderUpdateSafety;",context);
   context.render();
-  assert.match(fields.get("update-ui-version").textContent,/0\.1\.3-preview\.8/);
+  assert.match(fields.get("update-ui-version").textContent,/버전 미확인/);
   assert.match(fields.get("update-collector-status").textContent,/실행 중/);
   assert.match(fields.get("update-backup-status").textContent,/백업 실패/);
   state.maintenance={backupStatus:"ready",lastBackupAtUtc:"2026-11-22T00:00:00Z"};

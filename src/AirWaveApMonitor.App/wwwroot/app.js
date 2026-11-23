@@ -3,6 +3,7 @@ import { countText, createRequestGate, dashboardQuery, observationStatus, incide
 
 import { determineSetupStage, connectionSteps } from "./setup-guide.js";
 import { summarizeCollectionWarnings } from "./run-warnings.js";
+import { buildSafeDiagnostic,serializeSafeDiagnostic } from "./safe-diagnostic.js";
 import { createOperationsController } from "./operations.js";
 import { createEnrichmentController } from "./enrichment.js";
 
@@ -25,7 +26,7 @@ const state = {
   health: null, maintenance: null, settings: null, mode: null, mutationBusy: false, settingsDirty: false, draftRevision: 0, pinDraftBase: null, pinProbe: null,
   scope: {data:null,dirty:false,revision:0,baseVersion:null,baselineDirty:false,baselineRevision:0,baselineBase:null},
   token: null, tokenPromise: null, diagnosticIdentity: null, lastDiagnosticReport: null, guideRequiresFreshDiagnostic: false,
-  setupGuideOpen: false, setupAutoHandled: false, lastDashboardRead: null
+  setupGuideOpen: false, setupAutoHandled: false, lastDashboardRead: null, buildInfo: null
 };
 const gates = { dashboard: createRequestGate(), incidents: createRequestGate(), runs: createRequestGate(), detail: createRequestGate(), settings: createRequestGate(), scope: createRequestGate(), health: createRequestGate() };
 let searchTimer, incidentSearchTimer;
@@ -795,9 +796,46 @@ async function connectionGuideAction() {
 }
 
 // Read-only update status. This does not back up, stop a process, or change a profile.
+function safeDiagnosticJson() {
+  const validReport=state.diagnosticIdentity && state.settings?.profile &&
+    state.diagnosticIdentity===settingsIdentity(state.settings.profile) ? state.lastDiagnosticReport : null;
+  return serializeSafeDiagnostic(buildSafeDiagnostic({
+    mode:state.mode,version:state.buildInfo,health:state.health,run:state.snapshot,report:validReport
+  }));
+}
+function renderSafeDiagnosticStatus() {
+  byId("safe-diagnostic-summary").textContent=state.snapshot
+    ? "현재 조회한 수집 회차의 상태·건수만 사용하며 원천 장비 식별자는 제외합니다."
+    : "조회한 수집 회차가 없습니다. 미확인 값은 Down 0대로 바꾸지 않습니다.";
+}
+async function safeDiagnosticCopy() {
+  try {
+    if(!navigator.clipboard?.writeText) throw Error("no permission");
+    await navigator.clipboard.writeText(safeDiagnosticJson());
+    byId("safe-diagnostic-result").textContent="안전 진단을 복사했습니다.";
+  } catch { byId("safe-diagnostic-result").textContent="복사 권한이 없습니다. JSON 저장을 사용하세요."; }
+}
+function safeDiagnosticSave() {
+  const blob=new Blob([safeDiagnosticJson()],{type:"application/json;charset=utf-8"});
+  const url=URL.createObjectURL(blob),link=el("a");
+  link.href=url; link.download="airwave-safe-diagnostic.json";
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  byId("safe-diagnostic-result").textContent="안전 진단 JSON 저장을 요청했습니다. 외부 공유 전 파일을 확인하세요.";
+}
+async function loadBuildInfo() {
+  try {
+    const info=await api("/api/build-info");
+    state.buildInfo=info?.packaged===true &&
+      /^\d+\.\d+\.\d+(?:-preview\.\d+)?$/.test(info.version) &&
+      /^[a-f0-9]{40}$/.test(info.sourceCommit)
+      ? {version:info.version,sourceCommit:info.sourceCommit,packaged:true}:null;
+  } catch { state.buildInfo=null; }
+  renderUpdateSafety();
+}
 function renderUpdateSafety() {
   const h=state.health,m=state.maintenance,s=state.settings;
-  byId("update-ui-version").textContent="v0.1.3-preview.8 · 실행 중 화면 파일 기준 (ZIP metadata/VERSION.json과 대조)";
+  byId("update-ui-version").textContent=state.buildInfo?.packaged===true ? `${state.buildInfo.version} · 소스 ${state.buildInfo.sourceCommit?.slice(0,12) || "미확인"}` : "실행 패키지 버전 미확인 · ZIP metadata/VERSION.json 별도 확인";
   byId("update-current-mode").textContent=state.mode==="demo" ? "Demo 전용 데이터 (Live와 분리)" : state.mode==="live" ? "Live · 사내 수집 PC 데이터" : "실행 모드 미확인";
   byId("update-account-status").textContent=s?.credentialStatus==="registered" ? "등록됨 · 현재 Windows 실행 계정에서 복호화 확인" :
     s?.credentialStatus==="missing" ? "미등록" : s?.credentialStatus==="reregistration-required" ? "재등록 필요" : "아직 확인되지 않음";
@@ -843,6 +881,7 @@ function updateControls() {
   updateCertificatePinControls();
   renderConnectionGuide();
   renderUpdateSafety();
+  renderSafeDiagnosticStatus();
 }
 async function perform(action) {
   if (state.mutationBusy) return;
@@ -1351,7 +1390,9 @@ enrichment = createEnrichmentController({api,onMessage:setMessage,navigate,dateT
 document.querySelectorAll("[data-action='current']").forEach(node => node.addEventListener("click",() => { clearTimeout(searchTimer); clearTimeout(incidentSearchTimer); setMessage(""); void currentDashboard(); }));
 document.querySelectorAll("[data-help-topic]").forEach(node => node.addEventListener("click",() => showHelp(node.dataset.helpTopic)));
 document.querySelectorAll("[data-help-go]").forEach(node => node.addEventListener("click",() => { void show(node.dataset.helpGo); }));
-byId("help-update-refresh").addEventListener("click",() => { void Promise.all([loadHealth(),loadSettings(false)]).then(renderUpdateSafety); });
+byId("help-update-refresh").addEventListener("click",() => { void Promise.all([loadHealth(),loadSettings(false),loadBuildInfo()]).then(renderUpdateSafety); });
+byId("safe-diagnostic-copy").addEventListener("click",safeDiagnosticCopy);
+byId("safe-diagnostic-save").addEventListener("click",safeDiagnosticSave);
 document.querySelectorAll("[data-filter]").forEach(node => node.addEventListener("click",() => quickFilter(node.dataset.filter)));
 byId("home-connect-setup").addEventListener("click",()=>{ void openConnectionGuide(); });
 byId("status-filter").addEventListener("change",event => filterChanged(event.target.value));
@@ -1414,7 +1455,7 @@ byId("retry-authentication").addEventListener("click",retryAuthentication); byId
 document.addEventListener("visibilitychange",() => { if (!document.hidden) void loadHealth(); });
 
 updateControls();
-void loadDashboard(true); void loadHealth(); void loadSettings(true);
+void loadDashboard(true); void loadHealth(); void loadSettings(true); void loadBuildInfo();
 void ensureToken().catch(error => setMessage(error.message,true));
 void api("/api/capabilities/windows").then(value => { byId("windows-detail").textContent = value.message; }).catch(() => { byId("windows-detail").textContent = "Windows 기능 정보를 읽지 못했습니다."; });
 // This timer only reads health. Collection schedules and persistence belong to the server worker.
