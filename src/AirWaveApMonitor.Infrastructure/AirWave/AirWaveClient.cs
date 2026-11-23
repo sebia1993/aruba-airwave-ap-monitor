@@ -27,6 +27,8 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
         int? status = null;
         var tls = "not-observed";
         string? tlsFailureCode = null;
+        TlsCertificateChecks? certificateChecks = null;
+        HttpRequestOptions? requestOptions = null;
         var stage = "credentials";
         ApCollectionBatch batch;
         using var budget = new CancellationTokenSource(profile.Settings.RunTimeout, clock);
@@ -102,30 +104,33 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
         catch (CredentialUnavailableException) { batch = Fail(CollectionErrorCategory.CredentialUnavailable); }
         catch (PlatformNotSupportedException) { batch = Fail(CollectionErrorCategory.Unsupported); }
         catch (ResponseLimitException) { batch = Fail(CollectionErrorCategory.ResponseTooLarge); }
-        catch (HttpRequestException error)
+        catch (HttpRequestException error) when (error.HttpRequestError == HttpRequestError.SecureConnectionError ||
+            error.InnerException is AuthenticationException || error.GetBaseException() is AirWaveSession.ProxyCertificateException ||
+            requestOptions?.TryGetValue(AirWaveSession.CertificateFailureKey, out _) == true)
         {
-            var isTls = error.HttpRequestError == HttpRequestError.SecureConnectionError ||
-                error.InnerException is AuthenticationException || session.LastTlsValidationCode is not null;
-            if (isTls)
-            {
-                tls = "failed";
-                tlsFailureCode = session.LastTlsValidationCode ?? "tls-handshake-or-certificate";
-                batch = Fail(CollectionErrorCategory.Tls, TlsCertificateDiagnostics.SafeMessage(tlsFailureCode));
-            }
-            else batch = Fail(CollectionErrorCategory.Transport);
+            batch = FailTls(error);
         }
-        catch (AuthenticationException)
-        {
-            tls = "failed";
-            tlsFailureCode = session.LastTlsValidationCode ?? "tls-handshake-or-certificate";
-            batch = Fail(CollectionErrorCategory.Tls, TlsCertificateDiagnostics.SafeMessage(tlsFailureCode));
-        }
+        catch (HttpRequestException) { batch = Fail(CollectionErrorCategory.Transport); }
+        catch (AuthenticationException error) { batch = FailTls(error); }
         catch (AuthenticationStateStoreException) { batch = Fail(CollectionErrorCategory.Storage); }
         catch (IOException) { batch = Fail(CollectionErrorCategory.Transport); }
         catch (CookieException) { batch = Fail(CollectionErrorCategory.InvalidResponse); }
         finally { if (acquired) { authenticationBlocked = session.AuthenticationBlocked; session.Gate.Release(); } }
         return new(batch, new(Guid.NewGuid(), started, ExecutionIdentity.Current, ConnectionPath(profile.Proxy), tls, status, loginRequests, apRequests, batch.Observations.Length, batch.ExcludedRecords.Length, elapsed.ElapsedMilliseconds, batch.Outcome, authenticationBlocked, stages.ToImmutable(), batch.Errors,
-            [$"미검증 필드 {batch.Observations.SelectMany(ap => ap.Fields).Where(field => field.Value.Availability == FieldAvailability.Unverified).Select(field => field.Key).Distinct(StringComparer.Ordinal).Count()}종: 실제 지원·단위 확인 필요.", "문서·fixture 기반 어댑터. 실제 AirWave 버전·계정·필드는 현장 미검증.", "원천 숫자 시각의 단위 미확인: 원문 값만 보존하며 장애 시각으로 사용하지 않음.", "이력 DB·운영 RunId·장애/복구 기록은 아직 제공하지 않음."]) { TlsFailureCode = tlsFailureCode });
+            [$"미검증 필드 {batch.Observations.SelectMany(ap => ap.Fields).Where(field => field.Value.Availability == FieldAvailability.Unverified).Select(field => field.Key).Distinct(StringComparer.Ordinal).Count()}종: 실제 지원·단위 확인 필요.", "문서·fixture 기반 어댑터. 실제 AirWave 버전·계정·필드는 현장 미검증.", "원천 숫자 시각의 단위 미확인: 원문 값만 보존하며 장애 시각으로 사용하지 않음.", "이력 DB·운영 RunId·장애/복구 기록은 아직 제공하지 않음."]) { TlsFailureCode = tlsFailureCode, TlsCertificateChecks = certificateChecks });
+
+        ApCollectionBatch FailTls(Exception error)
+        {
+            AirWaveSession.CertificateFailure? certificateFailure = null;
+            if (error.GetBaseException() is AirWaveSession.ProxyCertificateException proxyError)
+                certificateFailure = proxyError.Failure;
+            else
+                requestOptions?.TryGetValue(AirWaveSession.CertificateFailureKey, out certificateFailure);
+            tls = "failed";
+            tlsFailureCode = certificateFailure?.Code ?? "tls-handshake-or-certificate";
+            certificateChecks = certificateFailure?.Checks ?? TlsCertificateChecks.Unknown;
+            return Fail(CollectionErrorCategory.Tls, TlsCertificateDiagnostics.SafeMessage(tlsFailureCode, certificateChecks));
+        }
 
         ApCollectionBatch Fail(CollectionErrorCategory category, string? message = null)
         {
@@ -142,7 +147,9 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
             bool isLogin = false, bool stopOnExpiry = false)
         {
             status = null;
-            session.ClearTlsValidationCode();
+            tls = "not-observed";
+            requestOptions = request.Options;
+            certificateChecks = TlsCertificateChecks.Unknown;
             using var requestBudget = new CancellationTokenSource(profile.Settings.RequestTimeout, clock);
             using var requestToken = CancellationTokenSource.CreateLinkedTokenSource(cancellation, requestBudget.Token);
             var cookie = session.Cookies.GetCookieHeader(request.RequestUri!);
@@ -151,6 +158,7 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
             using var response = await session.Client!.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, requestToken.Token);
             status = (int)response.StatusCode;
             tls = "validated";
+            certificateChecks = TlsCertificateChecks.Validated;
             // A confirmed rejection belongs to the received headers. Body IO, timeout,
             // size failure, or caller cancellation must not erase that durable evidence.
             if (isLogin && status is 401 or 403)

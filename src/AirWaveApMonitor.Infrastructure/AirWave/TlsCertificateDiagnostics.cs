@@ -1,4 +1,7 @@
+using System.Collections.Immutable;
 using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+using AirWaveApMonitor.Core.Contracts;
 
 namespace AirWaveApMonitor.Infrastructure.AirWave;
 
@@ -25,6 +28,50 @@ public static class TlsCertificateDiagnostics
             return "certificate-trust-chain";
         }
         return "certificate-validation-failed";
+    }
+
+    public static TlsCertificateChecks DescribeChecks(SslPolicyErrors errors, X509ChainStatusFlags chainFlags,
+        DateTimeOffset nowUtc, DateTimeOffset? notBeforeUtc, DateTimeOffset? notAfterUtc)
+    {
+        if (notBeforeUtc is null || notAfterUtc is null || errors.HasFlag(SslPolicyErrors.RemoteCertificateNotAvailable))
+            return TlsCertificateChecks.Unknown;
+
+        var serverName = errors.HasFlag(SslPolicyErrors.RemoteCertificateNameMismatch) ? "mismatch" : "matched";
+        if (!errors.HasFlag(SslPolicyErrors.RemoteCertificateChainErrors))
+            return new(serverName, "valid", []);
+
+        var reasons = ImmutableArray.CreateBuilder<string>();
+        if (chainFlags.HasFlag(X509ChainStatusFlags.UntrustedRoot)) reasons.Add("untrusted-root");
+        if (chainFlags.HasFlag(X509ChainStatusFlags.PartialChain)) reasons.Add("partial-chain");
+        if (nowUtc >= notAfterUtc.Value) reasons.Add("expired");
+        else if (nowUtc < notBeforeUtc.Value) reasons.Add("not-yet-valid");
+        else if (chainFlags.HasFlag(X509ChainStatusFlags.NotTimeValid)) reasons.Add("time-invalid");
+
+        const X509ChainStatusFlags recognized = X509ChainStatusFlags.UntrustedRoot |
+            X509ChainStatusFlags.PartialChain | X509ChainStatusFlags.NotTimeValid;
+        if ((chainFlags & ~recognized) != 0 || reasons.Count == 0) reasons.Add("other-chain-error");
+        return new(serverName, "failed", reasons.ToImmutable());
+    }
+
+    public static string SafeMessage(string? reason, TlsCertificateChecks checks)
+    {
+        if (checks.Peer == "proxy")
+        {
+            var detail = reason switch
+            {
+                "certificate-name-mismatch" when checks.TrustChain == "failed" => "이름 불일치 및 신뢰 체인 실패",
+                "certificate-name-mismatch" => "이름 불일치",
+                "certificate-expired" => "유효기간 만료",
+                "certificate-not-yet-valid" => "유효기간 시작 전",
+                "certificate-missing" => "미수신",
+                "certificate-trust-chain" => "신뢰 체인 실패",
+                _ => "검증 실패"
+            };
+            return $"HTTPS 프록시 인증서 {detail}. 프록시 주소와 인증서 설정을 확인하세요. HTTP_STATUS=미수신";
+        }
+        if (checks is { ServerName: "mismatch", TrustChain: "failed" })
+            return "TLS 인증서 서버 이름 불일치 및 신뢰 체인 실패. 접속 이름과 인증서 체인을 함께 확인하세요. HTTP_STATUS=미수신";
+        return SafeMessage(reason);
     }
 
     public static string SafeMessage(string? reason) => reason switch

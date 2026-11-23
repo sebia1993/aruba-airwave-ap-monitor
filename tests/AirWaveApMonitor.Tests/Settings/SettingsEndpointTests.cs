@@ -29,6 +29,7 @@ public sealed class SettingsEndpointTests
         Assert.True(Guid.TryParse(report.GetProperty("diagnosticId").GetString(), out _));
         Assert.Equal(2048, report.GetProperty("parsedRecords").GetInt32());
         Assert.Equal("not-applicable-demo", report.GetProperty("tlsResult").GetString());
+        Assert.False(report.TryGetProperty("tlsCertificateChecks", out _));
         Assert.Equal(0, report.GetProperty("loginRequests").GetInt32());
         Assert.False(report.TryGetProperty("runId", out _));
         using var connection = new SqliteConnection(new SqliteConnectionStringBuilder

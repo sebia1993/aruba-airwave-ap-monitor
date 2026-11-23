@@ -1,5 +1,9 @@
 using System.Net;
 using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using AirWaveApMonitor.Core.Contracts;
@@ -8,7 +12,8 @@ namespace AirWaveApMonitor.Tests.AirWave;
 
 public sealed class AirWaveClientTests
 {
-    internal static ProfileSnapshot Profile() => new(Guid.NewGuid(), Guid.NewGuid(), new Uri("https://airwave.example.invalid"), 1, 1, [], BaselineStatus.Unverified, new());
+    internal static ProfileSnapshot Profile() => Profile(new Uri("https://airwave.example.invalid"));
+    private static ProfileSnapshot Profile(Uri origin) => new(Guid.NewGuid(), Guid.NewGuid(), origin, 1, 1, [], BaselineStatus.Unverified, new());
     private static HttpResponseMessage Login()
     {
         var r = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("synthetic login response") };
@@ -203,6 +208,149 @@ public sealed class AirWaveClientTests
         Assert.Contains(r.Batch.Errors, e => e.Category == CollectionErrorCategory.Tls);
         Assert.DoesNotContain("unsafe", JsonSerializer.Serialize(r));
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UntrustedTlsPeerWithWrongName_ReportsBothFailuresAndRejectsConnection(bool useHttpsProxy)
+    {
+        using var key = RSA.Create(2048);
+        var request = new CertificateRequest("CN=private-test.example.invalid", key,
+            HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var names = new SubjectAlternativeNameBuilder();
+        names.AddDnsName("private-test.example.invalid");
+        request.CertificateExtensions.Add(names.Build());
+        using var generated = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        // Import into the platform's default key provider for Windows Schannel server use.
+        using var certificate = X509CertificateLoader.LoadPkcs12(generated.Export(X509ContentType.Pfx), null,
+            X509KeyStorageFlags.DefaultKeySet);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var endpoint = new Uri($"https://127.0.0.1:{port}");
+        var profile = useHttpsProxy ? Profile() with { Proxy = new(ProxyMode.Fixed, endpoint) }
+            : Profile(endpoint) with { Proxy = new(ProxyMode.Direct) };
+        using var session = new AirWaveSession();
+        var client = new AirWaveClient(session, new MemoryCredentials(), TimeProvider.System);
+
+        var reading = client.ReadAsync(profile, timeout.Token);
+        using var peer = await listener.AcceptTcpClientAsync(timeout.Token);
+        await using var tls = new SslStream(peer.GetStream());
+        try
+        {
+            await tls.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = certificate }, timeout.Token);
+        }
+        catch (AuthenticationException) { } // The client may reject the certificate before the server's handshake returns.
+        catch (IOException) { }
+
+        var result = await reading;
+        Assert.Equal(RunOutcome.Failed, result.Batch.Outcome);
+        Assert.Null(result.Report.HttpStatus);
+        Assert.Equal("certificate-name-mismatch", result.Report.TlsFailureCode);
+        var report = JsonSerializer.SerializeToElement(result.Report, JsonSerializerOptions.Web);
+        var checks = report.GetProperty("tlsCertificateChecks");
+        Assert.Equal(useHttpsProxy ? "proxy" : "server", checks.GetProperty("peer").GetString());
+        Assert.Equal("mismatch", checks.GetProperty("serverName").GetString());
+        Assert.Equal("failed", checks.GetProperty("trustChain").GetString());
+        Assert.Contains(checks.GetProperty("chainReasons").EnumerateArray(), value => value.GetString() == "untrusted-root");
+        Assert.DoesNotContain("private-test.example.invalid", report.GetRawText());
+        Assert.DoesNotContain(endpoint.Authority, report.GetRawText());
+        var message = Assert.Single(result.Batch.Errors).SafeMessage;
+        Assert.Contains("신뢰 체인", message);
+        if (useHttpsProxy) Assert.Contains("프록시", message);
+        Assert.Equal(0, result.Report.ApRequests);
+    }
+
+    [Fact]
+    public async Task SecondRequestFailsWithoutCertificate_DoesNotKeepLoginTlsEvidence()
+    {
+        var handler = new ScriptedHandler((_, n) => n == 1 ? Task.FromResult(Login()) :
+            throw new HttpRequestException(HttpRequestError.SecureConnectionError, "sensitive", null));
+        using var session = new AirWaveSession(_ => handler);
+        var result = await new AirWaveClient(session, new MemoryCredentials(), TimeProvider.System).ReadAsync(Profile(), default);
+        Assert.Equal("failed", result.Report.TlsResult);
+        Assert.Null(result.Report.HttpStatus);
+        var checks = Assert.IsType<TlsCertificateChecks>(result.Report.TlsCertificateChecks);
+        Assert.Equal("unknown", checks.ServerName);
+        Assert.Equal("unknown", checks.TrustChain);
+        Assert.Empty(checks.ChainReasons);
+    }
+
+    [Fact]
+    public async Task LaterHandshakeFailureWithoutCallback_DoesNotReusePreviousCertificateFailure()
+    {
+        using var tlsHandler = AirWaveSession.CreateHandler(new(ProxyMode.Direct));
+        var handler = new ScriptedHandler((request, n) =>
+        {
+            if (n == 1)
+                Assert.False(tlsHandler.ServerCertificateCustomValidationCallback!(
+                    request, null, null, SslPolicyErrors.RemoteCertificateNotAvailable));
+            throw new HttpRequestException(HttpRequestError.SecureConnectionError, "sensitive", null);
+        });
+        using var session = new AirWaveSession(_ => handler);
+        var client = new AirWaveClient(session, new MemoryCredentials(), TimeProvider.System);
+        var profile = Profile();
+        var first = await client.ReadAsync(profile, default);
+        Assert.Equal("certificate-missing", first.Report.TlsFailureCode);
+        Assert.Equal(TlsCertificateChecks.Unknown with { Peer = "server" }, first.Report.TlsCertificateChecks);
+        var next = await client.ReadAsync(profile, default);
+        Assert.Equal("tls-handshake-or-certificate", next.Report.TlsFailureCode);
+        Assert.Equal(TlsCertificateChecks.Unknown, next.Report.TlsCertificateChecks);
+    }
+
+    [Fact]
+    public async Task SuccessfulHttpsResponse_ReportsValidatedChecksEvenWhenConnectionIsReused()
+    {
+        using var session = new AirWaveSession(_ => new ScriptedHandler((_, n) => Task.FromResult(n == 1 ? Login() : Ap())));
+        var client = new AirWaveClient(session, new MemoryCredentials(), TimeProvider.System);
+        var profile = Profile();
+        await client.ReadAsync(profile, default);
+        var result = await client.ReadAsync(profile, default);
+        Assert.Equal(0, result.Report.LoginRequests);
+        var checks = Assert.IsType<TlsCertificateChecks>(result.Report.TlsCertificateChecks);
+        Assert.Equal("matched", checks.ServerName);
+        Assert.Equal("valid", checks.TrustChain);
+        Assert.Empty(checks.ChainReasons);
+    }
+
+    [Theory]
+    [InlineData(X509ChainStatusFlags.UntrustedRoot | X509ChainStatusFlags.PartialChain, "untrusted-root,partial-chain")]
+    [InlineData(X509ChainStatusFlags.PartialChain, "partial-chain")]
+    [InlineData(X509ChainStatusFlags.NotTimeValid, "time-invalid")]
+    [InlineData(X509ChainStatusFlags.Revoked, "other-chain-error")]
+    [InlineData(X509ChainStatusFlags.UntrustedRoot | X509ChainStatusFlags.Revoked, "untrusted-root,other-chain-error")]
+    [InlineData(X509ChainStatusFlags.NoError, "other-chain-error")]
+    public void ChainReasons_DistinguishOnlyObservedStatuses(X509ChainStatusFlags flags, string expected)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var checks = TlsCertificateDiagnostics.DescribeChecks(SslPolicyErrors.RemoteCertificateChainErrors,
+            flags, now, now.AddDays(-1), now.AddDays(1));
+        Assert.Equal("matched", checks.ServerName);
+        Assert.Equal("failed", checks.TrustChain);
+        Assert.Equal(expected.Split(','), checks.ChainReasons.ToArray());
+    }
+
+    [Fact]
+    public void PolicyFlags_ReportNameOnlyAndLeafValiditySeparately()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var nameOnly = TlsCertificateDiagnostics.DescribeChecks(SslPolicyErrors.RemoteCertificateNameMismatch,
+            X509ChainStatusFlags.NoError, now, now.AddDays(-1), now.AddDays(1));
+        Assert.Equal("mismatch", nameOnly.ServerName);
+        Assert.Equal("valid", nameOnly.TrustChain);
+        Assert.Empty(nameOnly.ChainReasons);
+
+        const SslPolicyErrors both = SslPolicyErrors.RemoteCertificateNameMismatch | SslPolicyErrors.RemoteCertificateChainErrors;
+        var expired = TlsCertificateDiagnostics.DescribeChecks(both, X509ChainStatusFlags.NotTimeValid,
+            now, now.AddDays(-2), now.AddDays(-1));
+        Assert.Equal("mismatch", expired.ServerName);
+        Assert.Equal("failed", expired.TrustChain);
+        Assert.Equal("expired", Assert.Single(expired.ChainReasons));
+        var future = TlsCertificateDiagnostics.DescribeChecks(both, X509ChainStatusFlags.NotTimeValid,
+            now, now.AddDays(1), now.AddDays(2));
+        Assert.Equal("not-yet-valid", Assert.Single(future.ChainReasons));
+    }
+
     [Theory]
     [InlineData(SslPolicyErrors.RemoteCertificateNameMismatch, "certificate-name-mismatch")]
     [InlineData(SslPolicyErrors.RemoteCertificateNotAvailable, "certificate-missing")]
