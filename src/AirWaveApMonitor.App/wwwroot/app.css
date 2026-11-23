@@ -188,7 +188,7 @@ summary { cursor:pointer; color:var(--blue); font-size:12px; padding:7px 0; over
   .console-ap-rows { max-height:235px; }
 }
 
-.admin-nav summary { cursor:pointer; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; }
+.admin-nav summary { cursor:pointer; color:#d9e7e7; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; }
 .admin-nav summary:hover, .admin-nav summary:focus-visible { background:#24514e; color:#fff; }
 .admin-links { padding-left:12px; margin-left:14px; border-left:1px solid #54706f; }
 .admin-nav[open] > summary { color:white; }
