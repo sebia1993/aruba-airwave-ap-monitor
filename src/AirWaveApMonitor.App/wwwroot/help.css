@@ -1,0 +1,23 @@
+/* Read-only help and upgrade safety checklist. */
+.help-start {margin-bottom:14px;}
+.help-start-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:10px;}
+.help-start-grid>div {padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--subtle);}
+.help-start-grid strong {font-size:13px;}
+.help-start-grid p {font-size:12px;color:var(--muted);margin:9px 0;}
+.help-start-grid button {font-size:11px;}
+.help-topics {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px;}
+.help-topics details {min-width:0;}
+.help-topics summary {color:var(--ink);font-size:13px;font-weight:650;}
+.help-topics p {color:var(--muted);font-size:12px;margin:8px 0 11px;}
+.help-update-header {display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;}
+.help-update-facts {grid-template-columns:minmax(8rem,1fr) minmax(0,2fr);}
+.help-update-list {margin:8px 0 15px;padding-left:19px;}
+.help-update-list li {padding:3px 0;}
+.run-warning-breakdown {margin-top:8px;padding-top:5px;border-top:1px solid var(--line);}
+.run-warning-breakdown summary {font-size:11px;font-weight:550;}
+.run-warning-breakdown ul {padding-left:15px;margin:5px 0;}
+.run-warning-breakdown li {margin:6px 0;}
+.run-warning-breakdown small {font-size:10px;}
+.run-warning-breakdown .footnote {font-size:10px;}
+@media(max-width:900px){.help-start-grid,.help-topics {grid-template-columns:1fr;}}
+@media(max-width:620px){.help-update-facts {grid-template-columns:minmax(0,1fr);}.help-update-facts dd {margin-bottom:7px;}}
