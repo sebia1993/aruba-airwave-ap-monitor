@@ -56,6 +56,15 @@ function editPin(x, sha256, hours="24") {
   fingerprint.listeners.input();
 }
 const cases=[
+  ['Integrated AP console starts with all APs, and collection kinds filter the unified list before paging',async()=>{
+    const calls=[];const x=app(async url=>{calls.push(new URL(url,'http://localhost'));return runs({});});
+    assert.equal(x.state.filters.filter,'All');
+    assert.match(html,/id="ap-console-detail"/);
+    x.state.view='runs'; x.state.runs.kind='Power'; await x.loadRuns();
+    assert.equal(calls.at(-1).searchParams.get('kind'),'Power');
+    x.state.runs.kind='connectionpower'; await x.loadRuns();
+    assert.equal(calls.at(-1).searchParams.get('enrichmentOnly'),'true');
+  }],
   ['The pin panel is disabled for Demo, unsaved servers and DNS; saved IPs expose the exact TLS endpoint',async()=>{
     const x=app(); x.bind();
     const node=id=>x.document.getElementById(id);

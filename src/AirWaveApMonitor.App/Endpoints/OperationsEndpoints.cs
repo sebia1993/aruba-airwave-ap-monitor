@@ -35,7 +35,8 @@ public static class OperationsEndpoints
                 GuidQuery(http, "installationPointId"), MonitoringHttp.EnumValue<OperationHistoryKind>(http, "kind"),
                 MonitoringHttp.Time(http, "fromUtc"), MonitoringHttp.Time(http, "toUtc"),
                 MonitoringHttp.Long(http, "throughEventId"), MonitoringHttp.Int(http, "page", 1),
-                MonitoringHttp.Int(http, "pageSize", 50, 500)), http.RequestAborted))));
+                MonitoringHttp.Int(http, "pageSize", 50, 500), GuidQuery(http, "incidentId"),
+                MonitoringHttp.Long(http, "asOfRunId")), http.RequestAborted))));
         routes.MapPost("/api/operations/inventory", (HttpContext http, ProfileStore profiles) => Write(http, profiles,
             async _ => await Store(http).SaveInventoryAsync(await Body<InventoryEdit>(http), http.RequestAborted)));
         routes.MapPost("/api/operations/tracking", (HttpContext http, ProfileStore profiles) => Write(http, profiles,

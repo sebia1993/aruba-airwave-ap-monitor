@@ -47,11 +47,40 @@ public sealed partial class SqliteCollectionStore
         var result = ImmutableArray.CreateBuilder<T>(); while (reader.Read()) result.Add(Decode<T>(reader.GetString(0))); return result.ToImmutable();
     }
 
+    private long LatestOperationEventId(SqliteConnection connection, SqliteTransaction transaction)
+        => Convert.ToInt64(Scalar(connection, transaction,
+            "SELECT COALESCE(MAX(event_id),0) FROM operation_events WHERE dataset_id=$dataset", ("$dataset", location.DatasetId)));
+
+    private (long EventId, long? LegacyCommit) TimelineBoundary(SqliteConnection connection,
+        SqliteTransaction transaction, long? runId)
+    {
+        if (runId is null) return (LatestOperationEventId(connection, transaction), null);
+        using var cmd = Command(connection, transaction, """
+            SELECT json_extract(rr.source_evidence_json,'$.OperationsThroughEventId'), c.commit_sequence
+            FROM run_results rr JOIN collection_commits c USING(run_id)
+            WHERE rr.run_id=$run AND rr.dataset_id=$dataset AND rr.kind=$apKind
+            """, ("$run", runId), ("$dataset", location.DatasetId), ("$apKind", CollectionKind.ApStatus));
+        long legacyCommit;
+        using (var reader = cmd.ExecuteReader())
+        {
+            if (!reader.Read()) throw new KeyNotFoundException("확정된 AP 회차가 없습니다.");
+            if (!reader.IsDBNull(0)) return (reader.GetInt64(0), null);
+            legacyCommit = reader.GetInt64(1);
+        }
+        // Older runs did not capture a manual-event watermark. Only events with a known
+        // collection commit can be placed at that boundary; a work or wall-clock time cannot.
+        var maximum = Convert.ToInt64(Scalar(connection, transaction, """
+            SELECT COALESCE(MAX(e.event_id),0) FROM operation_events e JOIN collection_commits c USING(run_id)
+            WHERE e.dataset_id=$dataset AND c.commit_sequence<=$commit
+            """, ("$dataset", location.DatasetId), ("$commit", legacyCommit)));
+        return (maximum, legacyCommit);
+    }
+
     public Task<OperationsTimelinePage> GetTimelineAsync(OperationsTimelineQuery query, CancellationToken ct)
         => ReadOperationsAsync((connection, transaction) =>
         {
             ValidatePage(query.Page, query.PageSize); ValidateRange(query.FromUtc, query.ToUtc);
-            if (query.Kind is { } kind && !Enum.IsDefined(kind) || query.ThroughEventId is < 0) throw new ArgumentException("이력 조회 조건을 확인하세요.");
+            if (query.Kind is { } kind && !Enum.IsDefined(kind) || query.ThroughEventId is < 0 || query.AsOfRunId is <= 0) throw new ArgumentException("이력 조회 조건을 확인하세요.");
             if (query.ApId is { } ap) _ = ReadOperationAp(connection, transaction, ap);
             if (query.InstallationPointId is { } point) _ = ReadPoint(connection, transaction, point);
             if (query.DeviceGenerationId is { } generation)
@@ -60,23 +89,43 @@ public sealed partial class SqliteCollectionStore
                 if (Scalar(connection, transaction, "SELECT g.generation_id FROM generations g JOIN aps a ON a.ap_id=g.ap_id WHERE g.generation_id=$gen AND a.dataset_id=$dataset AND ($ap IS NULL OR a.ap_id=$ap)", ("$gen", generation), ("$dataset", location.DatasetId), ("$ap", query.ApId)) is null)
                     throw new KeyNotFoundException("대상 세대가 없습니다.");
             }
-            var maximum = Convert.ToInt64(Scalar(connection, transaction, "SELECT COALESCE(MAX(event_id),0) FROM operation_events WHERE dataset_id=$dataset", ("$dataset", location.DatasetId)));
+            Guid? apId = query.ApId;
+            if (query.IncidentId is { } incidentId)
+            {
+                RequireId(incidentId, nameof(query.IncidentId));
+                var incidentAp = Scalar(connection, transaction, """
+                    SELECT i.ap_id FROM incidents i JOIN aps a USING(ap_id)
+                    WHERE i.incident_id=$id AND a.dataset_id=$dataset
+                    """, ("$id", incidentId), ("$dataset", location.DatasetId)) as string
+                    ?? throw new KeyNotFoundException("대상 사건이 없습니다.");
+                apId ??= Guid.Parse(incidentAp);
+            }
+            var boundary = TimelineBoundary(connection, transaction, query.AsOfRunId);
+            var maximum = boundary.EventId;
             if (query.ThroughEventId > maximum) throw new OperationsConflictException("이력 조회 기준이 현재 저장 이력과 다릅니다. 첫 페이지부터 다시 조회하세요.");
             var through = query.ThroughEventId ?? maximum;
-            const string predicate = """
+            var predicate = """
                 FROM operation_events e WHERE e.dataset_id=$dataset AND e.event_id<=$through
                 AND ($kind IS NULL OR e.kind=$kind) AND ($from IS NULL OR e.recorded_at_utc>=$from) AND ($to IS NULL OR e.recorded_at_utc<=$to)
-                AND (($ap IS NULL AND $gen IS NULL AND $point IS NULL) OR EXISTS(
-                    SELECT 1 FROM operation_event_targets t WHERE t.event_id=e.event_id
-                    AND ($ap IS NULL OR t.ap_id=$ap) AND ($gen IS NULL OR t.generation_id=$gen) AND ($point IS NULL OR t.point_id=$point)))
                 """;
+            if (boundary.LegacyCommit is not null)
+                predicate += " AND e.run_id IN (SELECT run_id FROM collection_commits WHERE commit_sequence<=$legacyCommit)";
+            var targets = new List<string>();
+            if (apId is not null) targets.Add("t.ap_id=$ap");
+            if (query.DeviceGenerationId is not null) targets.Add("t.generation_id=$gen");
+            if (query.InstallationPointId is not null) targets.Add("t.point_id=$point");
+            if (query.IncidentId is not null) targets.Add("t.incident_id=$incident");
+            if (targets.Count > 0)
+                predicate += " AND e.event_id IN (SELECT t.event_id FROM operation_event_targets t WHERE " + string.Join(" AND ", targets) + ")";
             (string, object?)[] parameters = [("$dataset", location.DatasetId), ("$through", through), ("$kind", query.Kind),
-                ("$from", query.FromUtc), ("$to", query.ToUtc), ("$ap", query.ApId), ("$gen", query.DeviceGenerationId), ("$point", query.InstallationPointId),
+                ("$from", query.FromUtc), ("$to", query.ToUtc), ("$ap", apId), ("$gen", query.DeviceGenerationId),
+                ("$point", query.InstallationPointId), ("$incident", query.IncidentId), ("$legacyCommit", boundary.LegacyCommit),
                 ("$limit", query.PageSize), ("$offset", (query.Page - 1L) * query.PageSize)];
             var count = Convert.ToInt32(Scalar(connection, transaction, "SELECT COUNT(*) " + predicate, parameters));
             using var command = Command(connection, transaction, "SELECT e.event_id,e.event_json " + predicate + " ORDER BY e.event_id DESC LIMIT $limit OFFSET $offset", parameters);
             using var reader = command.ExecuteReader(); var rows = ImmutableArray.CreateBuilder<OperationEventRecord>();
             while (reader.Read()) { ct.ThrowIfCancellationRequested(); rows.Add(Decode<OperationEventRecord>(reader.GetString(1)) with { EventId = reader.GetInt64(0) }); }
-            return new OperationsTimelinePage(rows.ToImmutable(), count, through, query.Page, query.PageSize);
+            return new OperationsTimelinePage(rows.ToImmutable(), count, through, query.Page, query.PageSize)
+            { HistoricalManualBoundaryUnavailable = boundary.LegacyCommit is not null };
         }, ct);
 }

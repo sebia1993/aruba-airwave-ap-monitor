@@ -17,11 +17,63 @@ const ap='11111111-1111-1111-1111-111111111111',old='22222222-2222-2222-2222-222
 const registration=()=>({registration:{apId:ap,currentDeviceGenerationId:current,pendingNextCollection:true,inventory:{version:3,source:'Manual',recordedAtUtc:'2026-11-16T00:00:00Z',values:{Name:'saved'},manualPreferredFields:['Name']},trackingPolicy:null,placement:null},placementVersion:0,automatic:{device:{name:'automatic'},location:{},controller:{}},automaticRunId:8,automaticObservedAtUtc:'2026-11-16T00:00:00Z'});
 const pause=()=>new Promise(resolve=>setTimeout(resolve,0));async function flush(){for(let i=0;i<5;i++)await pause();}
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {resolve,reject,promise};}
-function harness(responder,version=()=>0){const root=new Element(),calls=[],messages=[],navigations=[];let view='operations';globalThis.document={getElementById:()=>root,createElement:tag=>new Element(tag)};const controller=createOperationsController({api:async(path,options={})=>{if(path==="/api/operations/version")return {restoreEpoch:version()};calls.push({path,options});return responder(path,options);},onMessage:(...args)=>messages.push(args),navigate:value=>{view=value;navigations.push(value);},dateText:x=>x||'미확인',isCurrentView:()=>view==='operations'});return {root,calls,messages,navigations,controller,leave:()=>{view='dashboard';controller.leave();}};}
+function harness(responder,version=()=>0){const root=new Element(),calls=[],messages=[],navigations=[];let view='operations';globalThis.document={getElementById:()=>root,createElement:tag=>new Element(tag)};const controller=createOperationsController({api:async(path,options={})=>{if(path==="/api/operations/version")return {restoreEpoch:version()};calls.push({path,options});return responder(path,options);},onMessage:(...args)=>messages.push(args),navigate:value=>{view=value;navigations.push(value);},dateText:x=>x||'미확인',isCurrentView:screen=>view===(screen||'operations')});return {root,calls,messages,navigations,controller,leave:()=>{view='dashboard';controller.leave();}};}
 const findButton=(root,label)=>{const result=root.querySelectorAll('button').find(n=>n.textContent===label);assert.ok(result,`button ${label}`);return result;};
 const input=(root,name)=>{const result=root.querySelectorAll('[name]').find(n=>n.name===name);assert.ok(result,`input ${name}`);return result;};
 const formOf=node=>{while(node&&node.tagName!=='form')node=node.parent;return node;};
 const cases=[
+ ['Global work and ledger use separate menus and registration lists searchable APs',async()=>{
+    const h=harness(path=>path.startsWith('/api/dashboard?')?{rows:[{apId:ap,deviceGenerationId:old,sourceApId:'10',device:{name:'가상 AP'}}],totalRows:1,runId:9,scopeVersion:2}:path.endsWith('registration')?registration():{rows:[],totalRows:0});
+    await h.controller.show('timeline',null);
+    assert.equal(h.navigations.at(-1),'incidents');
+    assert.ok(findButton(h.root,'작업·메모'));
+    assert.equal(h.root.querySelectorAll('button').some(b=>b.textContent==='CSV 가져오기'),false);
+    await h.controller.show('registration',null);
+    assert.equal(h.navigations.at(-1),'operations');
+    assert.equal(h.root.querySelectorAll('button').some(b=>b.textContent==='작업·메모'),false);
+    assert.ok(h.calls.find(c=>c.path.includes('filter=All')));
+    await findButton(h.root,'가상 AP').fire('click');await flush();
+    assert.ok(h.calls.some(c=>c.path.endsWith('/'+ap+'/registration')));
+  }],
+ ['Incident history and manual notes retain exact target, historical fence, and return path',async()=>{
+    const calls=[], ctx={apId:ap,deviceGenerationId:old,incidentId:workId,asOfRunId:11,returnTo:()=>calls.push('back')};
+    const h=harness((path,options)=>path.startsWith('/api/operations/timeline?')?{rows:[{kind:'WorkAction',action:'WorkRegistered',recordedAtUtc:'2026-11-16T08:00:00Z',source:'Manual',work:{version:1,workId,content:{content:'exact field action',notes:'확인 메모',status:'Completed'}}}],totalRows:1,historicalManualBoundaryUnavailable:true}:options.method==='POST'?new Promise(()=>{}):{});
+    const panel=await h.controller.incidentEventsPanel(ctx);
+    const query=new URL(h.calls.at(-1).path,'http://local').searchParams;
+    assert.equal(query.get('incidentId'),workId);assert.equal(query.get('asOfRunId'),'11');
+    assert.match(panel.textContent,/exact field action/);assert.match(panel.textContent,/확인 메모/);assert.match(panel.textContent,/수동.*경계/);
+    await h.controller.show('timeline',ctx);
+    await formOf(input(h.root,'kind')).fire('submit');await flush();
+    const scoped=new URL(h.calls.at(-1).path,'http://local').searchParams;
+    assert.equal(scoped.get('incidentId'),workId);assert.equal(scoped.get('asOfRunId'),'11');
+    await h.controller.writeWork(ctx);
+    assert.equal(input(h.root,'target0-incidentId').value,workId);
+    await findButton(h.root,'선택한 상세로 돌아가기').fire('click');assert.deepEqual(calls,['back']);
+    await h.controller.show('timeline',null);const all=new URL(h.calls.at(-1).path,'http://local').searchParams;
+    assert.ok(!all.has('incidentId')&&!all.has('asOfRunId'));
+  }],
+ ['Multi-AP work picks inventory names and submits exact server AP and generation IDs',async()=>{
+    const rows=[{apId:ap,sourceApId:'1',deviceGenerationId:old,device:{name:'A'}},{apId:point,sourceApId:'2',deviceGenerationId:current,device:{name:'B'}}];
+    const h=harness((path,options)=>path.startsWith('/api/dashboard?')?{rows,totalRows:2,runId:5,scopeVersion:1}:options.method==='POST'?new Promise(()=>{}):{});
+    await h.controller.writeWork(null);
+    await findButton(h.root,'AP 검색').fire('click');await flush();
+    const options=h.root.querySelectorAll('input').filter(node=>node.type==='checkbox'&&node.dataset.pickAp);
+    assert.equal(options.length,2);
+    for(const option of options){option.checked=true;await option.fire('change');}
+    await findButton(h.root,'선택 AP 추가 (2대)').fire('click');
+    const content=input(h.root,'content');content.value='두 장비 현장 점검';await content.fire('input');await formOf(content).fire('submit');await flush();
+    const body=h.calls.find(c=>c.options.method==='POST').options.body;
+    assert.deepEqual(body.content.targets.map(t=>[t.apId,t.deviceGenerationId,t.incidentId]),[[ap,old,null],[point,current,null]]);
+  }],
+ ['Opening the global work area cannot resume another AP’s work edit',async()=>{
+    const record={workId,version:1,content:{workType:'기존 작업',status:'Planned',content:'이전 사건 작업',causeStatus:'Unknown',targets:[{apId:ap,deviceGenerationId:old}]}};
+    const h=harness(path=>path.includes('/work/')?{current:record,versions:[]}:{rows:[],totalRows:0});
+    await h.controller.writeWork({apId:ap,deviceGenerationId:old});
+    const lookup=input(h.root,'workLookup');lookup.value=workId;await formOf(lookup).fire('submit');await flush();
+    assert.equal(input(h.root,'content').value,'이전 사건 작업');
+    await h.controller.show('timeline',null);await findButton(h.root,'작업·메모').fire('click');await flush();
+    assert.equal(input(h.root,'content').value,'');assert.equal(input(h.root,'target0-apId').value,'');
+  }],
  ['Stored work times load as KST and edited KST times are sent as UTC',async()=>{const wait=deferred(),record={workId,version:1,content:{workType:'test',status:'Planned',content:'work',causeStatus:'Unknown',plannedStartAtUtc:'2026-11-14T15:00:00Z',targets:[{apId:ap,deviceGenerationId:old}]}};const h=harness((path,options)=>options.method==='POST'?wait.promise:{current:record,versions:[]});await h.controller.show('work');input(h.root,'workLookup').value=workId;await formOf(input(h.root,'workLookup')).fire('submit');await flush();assert.equal(input(h.root,'plannedStart').value,'2026-11-15T00:00');assert.match(input(h.root,'plannedStart').parent.textContent,/KST/);input(h.root,'plannedStart').value='2026-11-15T00:10';input(h.root,'actual').value='2026-11-15T10:20';input(h.root,'correctionReason').value='schedule changed';await input(h.root,'plannedStart').fire('input');await formOf(input(h.root,'content')).fire('submit');await flush();const body=h.calls.find(call=>call.options.method==='POST').options.body;assert.equal(body.content.plannedStartAtUtc,'2026-11-14T15:10:00.000Z');assert.equal(body.content.actualWorkAtUtc,'2026-11-15T01:20:00.000Z');assert.equal(body.expectedVersion,1);h.leave();wait.resolve({});await flush();}],
  ['Timeline shows the recorded point version and Korean location without serialized internals',async()=>{const before=JSON.stringify({InstallationPointId:point,Version:1,Name:'가상 지점',InventoryKey:'POINT-A',Location:{Site:'서울',Floor:'1층'}}),after=JSON.stringify({InstallationPointId:point,Version:2,Name:'가상 지점',InventoryKey:'POINT-A',Location:{Site:'서울',Floor:'2층',Detail:'<img src=x onerror=alert(1)>'}});const h=harness(()=>({rows:[{eventId:3,kind:'BasicInformation',action:'PointCorrected',field:'installationPoint',beforeValue:before,afterValue:after,targets:[{installationPointId:point}],source:'Manual'}],totalRows:1,throughEventId:3}));await h.controller.show('timeline');assert.match(h.root.textContent,/설치 지점 정정/);assert.match(h.root.textContent,/가상 지점 · 버전 1/);assert.match(h.root.textContent,/층: 1층/);assert.match(h.root.textContent,/층: 2층/);assert.match(h.root.textContent,/<img src=x onerror=alert\(1\)>/);assert.doesNotMatch(h.root.textContent,/InstallationPointId|\"Location\"/);assert.equal(h.root.querySelectorAll('img').length,0);} ],
  ['Resetting an unsaved point after restore reads a fresh epoch before the replacement draft',async()=>{let epoch=0;const sent=[];const h=harness((path,options)=>{if(options.method==='POST'){sent.push(options.body.expectedRestoreEpoch);throw Object.assign(new Error('restored'),{status:409});}return {rows:[],totalRows:0};},()=>epoch);await h.controller.show('points');await findButton(h.root,'새 지점 등록').fire('click');let name=input(h.root,'name');name.value='before restore';await name.fire('input');epoch=1;await formOf(name).fire('submit');await flush();await findButton(h.root,'새 지점 입력 다시 작성').fire('click');await findButton(h.root,'서버 값으로 다시 채우기').fire('click');await flush();name=input(h.root,'name');name.value='after restore';await name.fire('input');await formOf(name).fire('submit');await flush();assert.deepEqual(sent,[0,1]);} ],

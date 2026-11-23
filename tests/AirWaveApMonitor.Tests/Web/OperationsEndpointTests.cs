@@ -132,6 +132,8 @@ public sealed class OperationsEndpointTests
 
     [Theory]
     [InlineData("?apId=not-guid")]
+    [InlineData("?incidentId=not-guid")]
+    [InlineData("?asOfRunId=0")]
     [InlineData("?kind=123")]
     [InlineData("?pageSize=501")]
     [InlineData("?throughEventId=-1")]
@@ -144,10 +146,11 @@ public sealed class OperationsEndpointTests
     [Fact]
     public async Task TimelineCarriesStableSelectionAndReturnsStringEnums()
     {
-        await using var host = await Host.Start(); var id = Guid.NewGuid();
-        var response = await host.Client.GetAsync($"/api/operations/timeline?apId={id}&kind=WorkAction&throughEventId=12&page=2&pageSize=5");
+        await using var host = await Host.Start(); var id = Guid.NewGuid(); var incident = Guid.NewGuid();
+        var response = await host.Client.GetAsync($"/api/operations/timeline?apId={id}&incidentId={incident}&asOfRunId=9&kind=WorkAction&throughEventId=12&page=2&pageSize=5");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(id, host.Store.Query!.ApId); Assert.Equal(12, host.Store.Query.ThroughEventId); Assert.Equal(2, host.Store.Query.Page);
+        Assert.Equal(incident, host.Store.Query!.IncidentId); Assert.Equal(9, host.Store.Query.AsOfRunId);
+        Assert.Equal(id, host.Store.Query.ApId); Assert.Equal(12, host.Store.Query.ThroughEventId); Assert.Equal(2, host.Store.Query.Page);
         Assert.Contains("\"kind\":\"WorkAction\"", await response.Content.ReadAsStringAsync());
     }
 

@@ -1,0 +1,27 @@
+#ap-console-detail{min-width:0;scroll-margin-top:1rem}
+#ap-console-detail .ap-identity{padding:16px 18px 10px}
+#ap-console-detail .detail-heading{display:flex;align-items:center;gap:10px}
+#ap-console-detail .detail-heading h2{font-size:21px;overflow-wrap:anywhere}
+#ap-console-detail .detail-meta{margin:5px 0}
+.ap-console-tabs{display:flex;flex-wrap:wrap;gap:4px;padding:4px 12px 10px;border-bottom:1px solid var(--line)}
+.ap-console-tabs [aria-pressed=true],.ap-cases [aria-pressed=true]{background:var(--blue-bg);color:var(--blue);border-color:var(--blue);font-weight:650}
+.ap-console-content{display:grid;gap:12px;padding:12px;min-width:0}
+.ap-console-content>*{min-width:0}
+.ap-console-content .panel,.ap-saved-evidence .panel{box-shadow:none}
+.ap-console-content .pairs{grid-template-columns:minmax(6.5rem,auto) minmax(0,1fr);align-items:baseline}
+.ap-console-content .pairs dd{min-width:0;overflow-wrap:anywhere}
+.ap-cases{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.ap-panel-actions,.ap-primary-action{margin-top:10px}
+.ap-panel-actions button{white-space:normal}
+.ap-observations{display:flex;gap:2px;min-height:55px;margin-top:12px;align-items:stretch;background:var(--subtle);padding:4px;border-radius:6px}
+.ap-sample{flex:1;min-width:1px;position:relative}
+.ap-sample::after{content:"";position:absolute;left:0;right:0;height:8px;border-radius:3px}
+.ap-sample.up::after{top:4px;background:var(--green)}
+.ap-sample.down::after{bottom:4px;background:var(--red)}
+.ap-sample.unknown::after{top:calc(50% - 4px);border:1px dashed var(--amber);background:var(--amber-bg)}
+.ap-strip-legend{display:flex;flex-wrap:wrap;justify-content:space-between;gap:3px 8px;font-size:12px;color:var(--muted);margin:5px 0 12px}
+.ap-saved-evidence{min-width:0;padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.ap-saved-evidence summary,.ap-observation-list summary{cursor:pointer;font-weight:650;overflow-wrap:anywhere}
+.ap-saved-evidence[open]>.panel{margin-top:10px}
+@media(max-width:700px){#ap-console-detail .ap-identity{padding:12px}.ap-console-content{padding:8px;gap:8px}.ap-console-tabs{padding-inline:8px}.ap-console-tabs button,.ap-cases button{min-height:40px}}
+.ap-case-activity{min-width:0}.ap-case-controls{justify-content:space-between;gap:8px;margin:4px 0 10px}

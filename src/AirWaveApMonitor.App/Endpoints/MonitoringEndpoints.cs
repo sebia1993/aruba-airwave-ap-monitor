@@ -25,7 +25,8 @@ public static class MonitoringEndpoints
             var query = new RunListQuery(location.DatasetId, MonitoringHttp.Long(http, "scopeVersion"),
                 MonitoringHttp.EnumValue<CollectionKind>(http, "kind"), MonitoringHttp.Time(http, "fromUtc"),
                 MonitoringHttp.Time(http, "toUtc"), MonitoringHttp.Int(http, "page", 1),
-                MonitoringHttp.Int(http, "pageSize", 50, 500), MonitoringHttp.Long(http, "throughRunId"));
+                MonitoringHttp.Int(http, "pageSize", 50, 500), MonitoringHttp.Long(http, "throughRunId"),
+                MonitoringHttp.Boolean(http, "enrichmentOnly", false));
             return MonitoringHttp.Json(await reads.GetRunsAsync(query, ct));
         }));
 
@@ -104,7 +105,7 @@ internal static class MonitoringHttp
         var run = RequiredLong(http, "asOfRunId"); var scope = await Scope(http, reads, location.DatasetId, run, ct);
         return new(location.DatasetId, scope, run, GuidValue(http, "apId"), EnumValue<IncidentStatus>(http, "status"),
             Text(http, "search", 512), Time(http, "fromUtc"), Time(http, "toUtc"), Int(http, "page", 1), Int(http, "pageSize", 50, 500),
-            MinimumOpenElapsedSeconds: Long(http, "minimumOpenElapsedSeconds"));
+            DeviceGenerationId: GuidValue(http, "deviceGenerationId"), MinimumOpenElapsedSeconds: Long(http, "minimumOpenElapsedSeconds"));
     }
     internal static string? Text(HttpContext http, string key, int maximum = 128)
     {
@@ -134,7 +135,7 @@ internal static class MonitoringHttp
             Enum.TryParse<T>(value, true, out var parsed)
             ? parsed : throw new ArgumentException("지원하지 않는 조회 분류입니다.");
     }
-    private static bool Boolean(HttpContext http, string key, bool fallback)
+    internal static bool Boolean(HttpContext http, string key, bool fallback)
     {
         var value = Text(http, key);
         return value is null ? fallback : bool.TryParse(value, out var parsed) ? parsed : throw new ArgumentException("참/거짓 값이 필요합니다.");

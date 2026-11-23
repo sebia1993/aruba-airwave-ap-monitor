@@ -15,7 +15,7 @@ public sealed record RunSelection(Guid DatasetId, long ScopeVersion, long RunId,
     DateTimeOffset FinalizedAtUtc, RunLifecycle Lifecycle, RunOutcome? Outcome);
 public sealed record RunListQuery(Guid DatasetId, long? ScopeVersion = null, CollectionKind? Kind = null,
     DateTimeOffset? FromUtc = null, DateTimeOffset? ToUtc = null, int Page = 1, int PageSize = 50,
-    long? ThroughRunId = null);
+    long? ThroughRunId = null, bool EnrichmentOnly = false);
 public sealed record RunListItem(long RunId, long ScopeVersion, CollectionKind Kind, RunTrigger Trigger,
     RunLifecycle Lifecycle, DateTimeOffset StartedAtUtc, DateTimeOffset? FinalizedAtUtc, RunOutcome? Outcome,
     RunSummary? Summary, ObservationCompleteness? Completeness, ImmutableArray<CollectionError> Errors,

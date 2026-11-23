@@ -19,7 +19,8 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
         var rows = ReadRuns(connection, transaction, query.DatasetId, watermark, ct);
         var scopes = rows.Select(row => row.ScopeVersion).Distinct().OrderDescending().ToImmutableArray();
         var filtered = rows.Where(row => (query.ScopeVersion is null || row.ScopeVersion == query.ScopeVersion) &&
-            (query.Kind is null || row.Kind == query.Kind) && (query.FromUtc is null || row.StartedAtUtc >= query.FromUtc) &&
+            (query.Kind is null || row.Kind == query.Kind) && (!query.EnrichmentOnly || IsEnrichmentKind(row.Kind)) &&
+            (query.FromUtc is null || row.StartedAtUtc >= query.FromUtc) &&
             (query.ToUtc is null || row.StartedAtUtc <= query.ToUtc)).ToList();
         return new(query.DatasetId, Page(filtered, query.Page, query.PageSize), filtered.Count, scopes, query.Page, query.PageSize, watermark);
     }
