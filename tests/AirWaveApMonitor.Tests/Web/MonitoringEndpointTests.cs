@@ -13,6 +13,51 @@ public sealed class MonitoringEndpointTests
         => JsonDocument.Parse(await client.GetStringAsync(path)).RootElement;
 
     [Fact]
+    public async Task NeedsAttention_GroupsCurrentDownBeforeUnknownBeforePagingAndExport()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Down), f.Ap("300", ApState.Up), f.Ap("400", ApState.Up)]);
+        var run = await f.Apply([f.Ap("100", ApState.Down, "Z"), f.Ap("200", null, "A"),
+            f.Ap("300", ApState.Down, "Z"), f.Ap("400", ApState.Up, "B")]);
+        await using var host = await ReadApiHost.Start(f);
+        var query = $"runId={run.RunId}&filter=NeedsAttention&sort=Name&descending=false&pageSize=2";
+        var first = await Json(host.Client, $"/api/dashboard?{query}");
+        Assert.Equal(3, first.GetProperty("totalRows").GetInt32());
+        Assert.Equal(new[] { "100", "300" }, first.GetProperty("rows").EnumerateArray().Select(row => row.GetProperty("sourceApId").GetString()));
+        var second = await Json(host.Client, $"/api/dashboard?{query}&page=2");
+        var unknown = Assert.Single(second.GetProperty("rows").EnumerateArray());
+        Assert.Equal("200", unknown.GetProperty("sourceApId").GetString());
+        Assert.Equal("Unknown", unknown.GetProperty("classification").GetString());
+        Assert.Equal(JsonValueKind.Null, unknown.GetProperty("currentState").ValueKind);
+        Assert.Equal("Down", unknown.GetProperty("lastValidState").GetString());
+
+        using var response = await host.Client.GetAsync($"/api/export.csv?{query}&page=2");
+        response.EnsureSuccessStatusCode();
+        var bytes = await response.Content.ReadAsByteArrayAsync();
+        using var parser = new TextFieldParser(new StringReader(Encoding.UTF8.GetString(bytes.AsSpan(3))));
+        parser.SetDelimiters(",");
+        var header = parser.ReadFields()!;
+        Assert.Equal("QueryContext", parser.ReadFields()![Array.IndexOf(header, "RecordType")]);
+        var ids = new List<string>();
+        while (!parser.EndOfData) ids.Add(parser.ReadFields()![Array.IndexOf(header, "원천 AP ID")]);
+        Assert.Equal(new[] { "100", "300", "200" }, ids);
+    }
+
+    [Fact]
+    public async Task NeedsAttention_FailedRunKeepsAllUnconfirmedTargetsAndNullDownCount()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        await f.Apply([], outcome: RunOutcome.Failed);
+        await using var host = await ReadApiHost.Start(f);
+        var view = await Json(host.Client, "/api/dashboard?filter=NeedsAttention");
+        Assert.Equal("Failed", view.GetProperty("outcome").GetString());
+        Assert.Equal(JsonValueKind.Null, view.GetProperty("summary").GetProperty("confirmedDown").ValueKind);
+        Assert.Equal(2, view.GetProperty("totalRows").GetInt32());
+        Assert.All(view.GetProperty("rows").EnumerateArray(), row => Assert.Equal("Unknown", row.GetProperty("classification").GetString()));
+    }
+
+    [Fact]
     public async Task ConsoleSourceIdSearch_SelectsOnlyTheExactAP()
     {
         using var f = new ReadFixture();

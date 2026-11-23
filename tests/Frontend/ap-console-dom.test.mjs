@@ -40,13 +40,13 @@ function harness(load){
     createElement:tag=>new Element(tag),querySelectorAll:()=>[]};
   const tag=(text)=>{const n=new Element('section');n.textContent=text;return n;};
   const ops={displayValue:(r,k,v)=>v,snapshotPanel:()=>tag('선택 회차의 대장'),actions:()=>tag('운영 작업'),show(){},
-    writeWork:c=>work.push(c),async incidentEventsPanel(c){contexts.push(c);return tag('조치 메모 '+c.incidentId);}};
+    writeWork:c=>work.push(c),hasSavedIncidentDraft:()=>false,incidentMemoForm:c=>tag('빠른 조치 입력 '+c.incidentId),async incidentEventsPanel(c){contexts.push(c);return tag('조치 메모 '+c.incidentId);}};
   const enrich={snapshotPanel:()=>tag('전력 측정 근거'),actions:()=>tag('전력 표본'),show(){}};
   const context={...ui,document:doc,Node:Element,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,transport:load,ops,enrich,
     createOperationsController:()=>ops,createEnrichmentController:()=>enrich};
   runInNewContext(functions+'\napi=transport; operations=ops; enrichment=enrich; globalThis.subject={showAp,showIncident,state};',context);
   const h=context.subject;h.state.selection=selection;
-  return {...h,nodes,contexts,work,panel:doc.getElementById('ap-console-detail')};
+  return {...h,nodes,contexts,work,ops,panel:doc.getElementById('ap-console-detail')};
 }
 test('AP selection stays with the list; each of four tabs uses the same saved AP run',async()=>{
   const calls=[];const h=harness(path=>{calls.push(path);return detail('AP-A');});
@@ -72,6 +72,19 @@ test('two incidents of one AP have distinct notes and stable historical bounds',
   await other.click();await wait();
   assert.match(h.panel.textContent,/조치 메모 previous-AP-A/);assert.doesNotMatch(h.panel.textContent,/조치 메모 current-AP-A/);
   await find(h.panel,'button','이 사건에 작업·메모 기록').click();assert.equal(h.work.at(-1).incidentId,'previous-AP-A');
+});
+
+test('an open incident leads with a directly editable note bound to the selected AP and incident',async()=>{
+  const h=harness(()=>detail('AP-A'));await h.showAp('AP-A',selection,'incident',false,'current-AP-A');
+  assert.ok(h.panel.textContent.includes('AP-A · 미복구'));
+  assert.ok(h.panel.textContent.indexOf('빠른 조치 입력 current-AP-A')<h.panel.textContent.indexOf('조치 메모 current-AP-A'));
+  h.state.historical=true;await h.showAp('AP-A',selection,'incident',false,'current-AP-A');
+  assert.doesNotMatch(h.panel.textContent,/빠른 조치 입력/);
+  const recovered=detail('AP-A');recovered.incidents[0].status='Recovered';
+  const other=harness(()=>recovered);await other.showAp('AP-A',selection,'incident');
+  assert.doesNotMatch(other.panel.textContent,/빠른 조치 입력/);
+  other.ops.hasSavedIncidentDraft=c=>c.incidentId==='current-AP-A';
+  await other.showAp('AP-A',selection,'incident');assert.match(other.panel.textContent,/빠른 조치 입력 current-AP-A/);
 });
 
 test('a deep link picks the exact case even when older than the first page of cases',async()=>{

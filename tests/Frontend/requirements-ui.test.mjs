@@ -56,14 +56,35 @@ function editPin(x, sha256, hours="24") {
   fingerprint.listeners.input();
 }
 const cases=[
-  ['Integrated AP console starts with all APs, and collection kinds filter the unified list before paging',async()=>{
+  ['Integrated AP console starts with attention APs, and collection kinds filter the unified list before paging',async()=>{
     const calls=[];const x=app(async url=>{calls.push(new URL(url,'http://localhost'));return runs({});});
-    assert.equal(x.state.filters.filter,'All');
+    assert.equal(x.state.filters.filter,'NeedsAttention');
     assert.match(html,/id="ap-console-detail"/);
     x.state.view='runs'; x.state.runs.kind='Power'; await x.loadRuns();
     assert.equal(calls.at(-1).searchParams.get('kind'),'Power');
     x.state.runs.kind='connectionpower'; await x.loadRuns();
     assert.equal(calls.at(-1).searchParams.get('enrichmentOnly'),'true');
+  }],
+  ['Dashboard never selects an arbitrary AP and a Down row opens its exact incident',async()=>{
+    const row={apId:'a',sourceApId:'one',currentState:'Down',openIncidentId:'case-a',device:{name:'A'},location:{}};
+    const requests=[];const snap={...selection,summary:{targetCount:1,confirmedDown:1,unknown:0},outcome:'Succeeded',rows:[row],totalRows:1};
+    const x=app(async url=>{requests.push(url);if(url.startsWith('/api/dashboard'))return snap;throw Error('detail stopped at test boundary');});
+    await x.loadDashboard(true);
+    assert.equal(x.state.selectedApId,null);assert.equal(requests.length,1);
+    const rowButton=x.document.getElementById('ap-table').firstChild.firstChild;
+    await rowButton.listeners.click();
+    assert.equal(x.state.selectedApId,'a');assert.equal(x.state.apTab,'incident');assert.equal(x.state.apIncidentId,'case-a');
+    snap.rows=[{...row,apId:'b'}];await x.loadDashboard(true);
+    assert.equal(x.state.selectedApId,null);
+  }],
+  ['Typing a search includes normal APs and clearing restores the original filter set',async()=>{
+    const x=app();x.bind();const node=x.document.getElementById('ap-search');
+    Object.assign(x.state.filters,{filter:'Down',hidePlanned:true});
+    node.listeners.input({target:{value:'192.0.2.8'}});
+    assert.equal(x.state.filters.filter,'All');assert.equal(x.state.filters.hidePlanned,false);
+    node.listeners.input({target:{value:''}});
+    assert.equal(x.state.filters.filter,'Down');assert.equal(x.state.filters.hidePlanned,true);
+    x.state.view='settings';
   }],
   ['The pin panel is disabled for Demo, unsaved servers and DNS; saved IPs expose the exact TLS endpoint',async()=>{
     const x=app(); x.bind();
