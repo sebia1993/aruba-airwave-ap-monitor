@@ -804,12 +804,12 @@ function renderUpdateSafety() {
   byId("update-collector-status").textContent=!h ? "수집기 상태 미확인" :
     h.storageRecoveryPending ? "저장소 복구 대기 · 교체 금지" :
     h.phase==="Stopped" ? "프로세스 중단" :
-    h.activeRunId ? \`수집 진행 중 · 회차 \${h.activeRunId} (종료 전 완료 확인)\` :
+    h.activeRunId ? `수집 진행 중 · 회차 ${h.activeRunId} (종료 전 완료 확인)` :
     h.paused ? "일시정지 · 프로세스 종료가 아님" :
     h.phase==="Idle" ? "실행 중 · 수집 대기" : (h.phase || "진행 상태 미확인");
   byId("update-last-valid").textContent=h?.lastValidCommittedAtUtc ? dateText(h.lastValidCommittedAtUtc) : "미확인 · 수집 성공으로 간주하지 않음";
   byId("update-backup-status").textContent=m?.backupStatus==="ready" && m.lastBackupAtUtc
-    ? \`마지막 자동 백업 확인 \${dateText(m.lastBackupAtUtc)} · 업데이트 전 별도 백업 필요\`
+    ? `마지막 자동 백업 확인 ${dateText(m.lastBackupAtUtc)} · 업데이트 전 별도 백업 필요`
     : m?.backupStatus==="failed" ? "백업 실패 · 데이터 확인 전 교체 금지" :
     "업데이트 전 검증된 백업 미확인 · 별도 백업 필요";
 }
