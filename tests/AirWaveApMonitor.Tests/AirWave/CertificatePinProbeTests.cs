@@ -58,8 +58,15 @@ public sealed partial class TemporaryCertificatePinTests
         var relay = ForwardConnectAsync(listener, server.Origin.Port, timeout.Token);
 
         Assert.Equal(server.Fingerprint, await CertificatePinProbe.ProbeAsync(profile, timeout.Token));
-        await relay;
-
+        try
+        {
+            await relay;
+        }
+        catch (IOException error) when (OperatingSystem.IsWindows() &&
+            error.GetBaseException() is SocketException { SocketErrorCode: SocketError.ConnectionReset })
+        {
+            // After observing the leaf, the probe aborts TLS. Windows may reset the CONNECT socket.
+        }
         Assert.Empty(server.Paths);
     }
 

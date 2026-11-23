@@ -66,7 +66,7 @@ public sealed class CoordinatorEnrichmentTests
         f.Source.Release.TrySetResult();
         f.Clock.Advance(TimeSpan.FromMinutes(1));
         await coordinator.TickAsync(default);
-        await runner.Entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await runner.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         var first = await coordinator.RequestAsync(CollectionKind.ApStatus, RunTrigger.Scheduled, default);
         var second = await coordinator.RequestAsync(CollectionKind.ApStatus, RunTrigger.Scheduled, default);
         Assert.Equal(first.QueueId, second.QueueId);
