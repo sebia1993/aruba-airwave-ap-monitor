@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {runInNewContext} from 'node:vm';
 import * as ui from '../../src/AirWaveApMonitor.App/wwwroot/ui-state.js';
+import {summarizeCollectionWarnings} from '../../src/AirWaveApMonitor.App/wwwroot/run-warnings.js';
 import {powerQuery} from '../../src/AirWaveApMonitor.App/wwwroot/enrichment.js';
 
 // Execute production query/render actions with only the network and DOM boundary replaced.
@@ -22,7 +23,7 @@ const ids=new Set([...html.matchAll(/id="([^"]+)"/g)].map(match=>match[1]));
 const functions=source.split('\ndocument.querySelectorAll("[data-view]")')[0].replace(/^import .*;$/gm,'');
 function app(transport=async()=>{throw Error('Unexpected network request');}){
   const nodes=new Map(),document={getElementById(id){if(!ids.has(id))throw Error('Missing rendered HTML element: '+id);if(!nodes.has(id))nodes.set(id,new Node());return nodes.get(id);},createElement:tag=>new Node(tag),querySelectorAll:()=>[],addEventListener:()=>{}};
-  const context={...ui,document,Node,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,transport,createOperationsController:()=>({}),createEnrichmentController:()=>({})};
+  const context={...ui,summarizeCollectionWarnings,document,Node,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,transport,createOperationsController:()=>({}),createEnrichmentController:()=>({})};
   runInNewContext(`${functions}\napi=transport;globalThis.subject={state,dateText,loadIncidents,loadRuns,loadDashboard,applyPeriod:(...args)=>applyPeriod(...args),loadScope:(...args)=>loadScope(...args),saveScope:(...args)=>saveScope(...args),confirmBaseline:(...args)=>confirmBaseline(...args),scopeDraftChanged:(...args)=>scopeDraftChanged(...args),applySettings,renderDiagnostic};`,context);
   return {...context.subject,nodes,document,bind(){const rest=source.slice(source.indexOf('\ndocument.querySelectorAll("[data-view]")')).split('\nupdateControls();\nvoid loadDashboard')[0];runInNewContext(rest,context);}};
 }
