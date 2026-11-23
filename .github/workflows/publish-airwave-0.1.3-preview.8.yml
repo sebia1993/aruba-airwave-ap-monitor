@@ -1,0 +1,68 @@
+name: Publish verified AirWave v0.1.3-preview.8 ZIP
+on:
+  push:
+    branches: [release/airwave-0.1.3-preview.8]
+    paths: [.github/workflows/publish-airwave-0.1.3-preview.8.yml]
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency: airwave-publish-0.1.3-preview.8
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      TESTED_COMMIT: c6968308bc02f122f4b4529701d8c450c9eb0da6
+    steps:
+      - name: Publish verified package only after complete Windows CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p verified
+          complete=no
+          for attempt in $(seq 1 55); do
+            state=$(gh api "repos/$GH_REPO/actions/runs/45179038176" --jq '.status')
+            result=$(gh api "repos/$GH_REPO/actions/runs/45179038176" --jq '.conclusion // ""')
+            if [[ "$state" == completed ]]; then
+              [[ "$result" == success ]] || { echo "Windows CI conclusion: $result"; exit 1; }
+              complete=yes
+              break
+            fi
+            sleep 10
+          done
+          [[ "$complete" == yes ]] || { echo 'Windows verification not complete'; exit 1; }
+          gh api "repos/$GH_REPO/actions/runs/45179038176" |
+            jq -e '.conclusion == "success" and .head_sha == "8378499128b6f5cadbb941e3a857124654c466f8"' >/dev/null
+          gh run download 45179038176 --repo "$GH_REPO" --name windows-core-package --dir verified
+          shopt -s nullglob
+          archives=(verified/*.zip)
+          sums=(verified/*.zip.sha256)
+          [[ ${#archives[@]} -eq 1 && ${#sums[@]} -eq 1 ]] || { echo 'Expected one verified zip and checksum'; exit 1; }
+          archive=${archives[0]}
+          (cd verified && sha256sum -c "$(basename "${sums[0]}")")
+          unzip -p "$archive" metadata/VERSION.json |
+            jq -e --arg sha "$TESTED_COMMIT" '.version == "0.1.3-preview.8" and .source_commit == $sha and .working_tree_dirty == false and .onsite_verified == false' >/dev/null
+          sha=$(sha256sum "$archive" | awk '{print $1}')
+          output=AirWaveAPMonitor-v0.1.3-preview.8-win-x64.zip
+          mv "$archive" "$output"
+          cat > notes.md <<'NOTES'
+          **운영 화면 안정화**: 수집 기록에서 반복된 AP 분류 제외 경고를 사유·건수별로 요약하고, 세부 표본 ID는 펼쳐서 확인할 수 있습니다. 원천 기록과 수집 판정 규칙은 유지합니다.
+
+          **간편 사용법**: 프로그램 어디서나 `? 사용법`을 열어 3분 빠른 시작, 장애·조치 메모, AP 대장, 수집 기록, 최초 연결 방법을 확인할 수 있습니다.
+
+          **안전한 업데이트**: 현재 실행·자동 백업 상태는 읽기 전용으로 표시하며, Windows ZIP의 `docs/guides/QUICK_START.md`, `UPDATE_CHECKLIST.md`, `FIRST_CONNECTION_KO.md`를 동봉했습니다. 업데이트 전에 별도 검증 백업이 필요합니다.
+
+          기존 버전은 완전히 종료한 후 새 ZIP을 별도 폴더에 풀고, **같은 Windows 계정과 기존 Live 데이터 폴더**에서 `AirWaveAPMonitor.exe`를 실행하세요. main 병합과 실제 AirWave 현장 검증은 보류합니다.
+
+          **별도 미해결**: AP 분류 미검증 284건의 실제 장비 구분 및 HTTP 403 원인 분석. 자동 인증 우회는 추가하지 않았습니다.
+
+          [Windows CI 및 추출 ZIP 검증](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/45179038176)
+          [안정화 변경 PR #7](https://github.com/sebia1993/aruba-airwave-ap-monitor/pull/7)
+          NOTES
+          printf '\nZIP SHA-256 `%s`\n' "$sha" >> notes.md
+          gh release create v0.1.3-preview.8 "$output" --repo "$GH_REPO" --target "$TESTED_COMMIT" --prerelease --latest=false --title "v0.1.3-preview.8 – 수집 오류 요약 및 사용법·업데이트 안전화" --notes-file notes.md
