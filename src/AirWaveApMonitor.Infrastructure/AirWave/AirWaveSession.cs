@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Infrastructure.Security;
 
@@ -14,9 +15,9 @@ public sealed class AirWaveSession(Func<ProxySettings, HttpMessageHandler>? fact
     private string? transportBinding;
     private AuthenticationBinding? identity;
     private bool stopNeedsPersistence;
-    private string? lastTlsValidationCode;
-    internal string? LastTlsValidationCode => lastTlsValidationCode;
-    internal void ClearTlsValidationCode() => lastTlsValidationCode = null;
+    internal sealed record CertificateFailure(string Code, TlsCertificateChecks Checks);
+    internal static readonly HttpRequestOptionsKey<CertificateFailure> CertificateFailureKey =
+        new("AirWave.CertificateFailure");
     internal HttpClient? Client { get; private set; }
     internal CookieContainer Cookies { get; set; } = new();
     internal string? Token { get; set; }
@@ -67,11 +68,10 @@ public sealed class AirWaveSession(Func<ProxySettings, HttpMessageHandler>? fact
             ? new AuthenticationState(AuthenticationStop, CredentialRegistrationPending)
             : await states.ReadAsync(nextIdentity, ct);
         // Nothing becomes active until the durable state has been read successfully.
-        var nextClient = new HttpClient(factory?.Invoke(profile.Proxy) ?? CreateHandler(profile.Proxy, code => lastTlsValidationCode = code)) { Timeout = Timeout.InfiniteTimeSpan };
+        var nextClient = new HttpClient(factory?.Invoke(profile.Proxy) ?? CreateHandler(profile.Proxy)) { Timeout = Timeout.InfiniteTimeSpan };
         Client?.Dispose();
         Client = nextClient;
         InvalidateSession();
-        ClearTlsValidationCode();
         if (identity != nextIdentity) stopNeedsPersistence = false;
         AuthenticationStop = state.Stop;
         CredentialRegistrationPending = state.CredentialRegistrationPending;
@@ -122,13 +122,22 @@ public sealed class AirWaveSession(Func<ProxySettings, HttpMessageHandler>? fact
         };
         // Keep ordinary Windows/.NET certificate validation active. The callback only
         // records a safe reason and returns the same accept/reject decision as the OS.
-        handler.ServerCertificateCustomValidationCallback = (_, certificate, _, errors) =>
+        handler.ServerCertificateCustomValidationCallback = (request, certificate, chain, errors) =>
         {
-            if (errors != SslPolicyErrors.None)
-                tlsFailureObserver?.Invoke(TlsCertificateDiagnostics.Classify(errors, DateTimeOffset.UtcNow,
-                    certificate is null ? null : new DateTimeOffset(certificate.NotBefore.ToUniversalTime()),
-                    certificate is null ? null : new DateTimeOffset(certificate.NotAfter.ToUniversalTime())));
-            return errors == SslPolicyErrors.None && certificate is not null;
+            if (errors == SslPolicyErrors.None && certificate is not null) return true;
+
+            var now = DateTimeOffset.UtcNow;
+            DateTimeOffset? notBefore = certificate?.NotBefore.ToUniversalTime();
+            DateTimeOffset? notAfter = certificate?.NotAfter.ToUniversalTime();
+            if (errors == SslPolicyErrors.None) errors = SslPolicyErrors.RemoteCertificateNotAvailable;
+            var code = TlsCertificateDiagnostics.Classify(errors, now, notBefore, notAfter);
+            var flags = X509ChainStatusFlags.NoError;
+            if (chain is not null)
+                foreach (var status in chain.ChainStatus) flags |= status.Status;
+            var checks = TlsCertificateDiagnostics.DescribeChecks(errors, flags, now, notBefore, notAfter);
+            request.Options.Set(CertificateFailureKey, new CertificateFailure(code, checks));
+            tlsFailureObserver?.Invoke(code);
+            return false;
         };
         if (proxy.Mode == ProxyMode.Direct) handler.UseProxy = false;
         else if (proxy.Mode == ProxyMode.Fixed) handler.Proxy = new WebProxy(proxy.Address!);

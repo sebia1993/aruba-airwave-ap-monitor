@@ -601,6 +601,42 @@ async function runDiagnostics() {
     setMessage("진단이 끝났습니다. 진단 결과는 운영 수집 회차·장애 이력으로 저장하지 않았습니다."); void loadHealth();
   });
 }
+function certificateDiagnosticDetails(checks) {
+  const rows = [];
+  const actions = new Set();
+  if (!checks) return { rows, actions };
+
+  const names = new Map([["matched", "일치"], ["mismatch", "불일치"]]);
+  const chains = new Map([["valid", "검증 통과"], ["failed", "검증 실패"]]);
+  rows.push(["인증서 서버 이름", names.get(checks.serverName) ?? "미확인"],
+    ["인증서 신뢰 체인", chains.get(checks.trustChain) ?? "미확인"]);
+  if (checks.serverName === "mismatch") {
+    actions.add("AirWave 접속 주소가 인증서의 SAN에 등록된 DNS 이름 또는 IP와 일치하는지 확인하세요.");
+  }
+  if (checks.trustChain === "failed") {
+    const checkIssuers = "수집 계정에서 사내 루트 CA를 신뢰하는지, 서버 또는 프록시가 중간 CA 인증서를 제공하는지 확인하세요.";
+    const checkTime = "수집 PC의 시각과 인증서 체인의 유효기간을 확인하세요.";
+    const checkChain = "수집 계정에서 인증 경로의 오류 상태를 확인하세요.";
+    const labels = [];
+    const reasons = new Set(Array.isArray(checks.chainReasons) ? checks.chainReasons : []);
+    for (const [code, label, action] of [
+      ["untrusted-root", "신뢰할 수 없는 루트 CA", checkIssuers],
+      ["partial-chain", "인증서 체인 불완전", checkIssuers],
+      ["expired", "인증서 유효기간 만료", checkTime],
+      ["not-yet-valid", "인증서 유효기간 시작 전", checkTime],
+      ["time-invalid", "인증서 체인의 유효기간 오류", checkTime],
+      ["other-chain-error", "기타 인증서 체인 오류", checkChain]
+    ]) {
+      if (reasons.has(code)) {
+        labels.push(label);
+        actions.add(action);
+      }
+    }
+    if (labels.length) rows.push(["신뢰 체인 상세", labels.join(" · ")]);
+    else actions.add(checkChain);
+  }
+  return { rows, actions };
+}
 function renderDiagnostic(report) {
   byId("diagnostic-result").hidden = false;
   byId("diagnostic-summary").textContent = `${state.mode === "demo" ? "가상 파서 진단" : "연결 진단"}: ${["읽기 성공","부분 유효 · 확인 필요","실패"][report.outcome] || "결과 미확인"}`;
@@ -625,12 +661,20 @@ function renderDiagnostic(report) {
   const detailsRows = [["진단 ID",report.diagnosticId],["프로세스 실행 계정",report.executionAccount],["연결 경로",route]];
   if (report.proxyRouteHint) detailsRows.push(["프록시 경로 추정",proxyHints[report.proxyRouteHint] || "확인 불가"]);
   detailsRows.push(["TLS",tls]);
-  if (report.tlsFailureCode) detailsRows.push(["TLS 실패 원인",tlsCodes[report.tlsFailureCode] || "TLS 상세 원인 미확인"]);
+  const checks = state.mode === "demo" ? null : report.tlsCertificateChecks;
+  if (checks?.serverName === "mismatch" && checks.trustChain === "failed") {
+    detailsRows.push(["TLS 실패 원인", "서버 인증서 이름 불일치 및 신뢰 체인 검증 실패"]);
+  } else if (report.tlsFailureCode) {
+    const cause = Object.hasOwn(tlsCodes, report.tlsFailureCode) ? tlsCodes[report.tlsFailureCode] : "TLS 상세 원인 미확인";
+    detailsRows.push(["TLS 실패 원인", cause]);
+  }
+  const certificate = certificateDiagnosticDetails(checks);
+  detailsRows.push(...certificate.rows);
   detailsRows.push(["HTTP_STATUS",report.httpStatus ?? "미수신"],["로그인 / AP 요청 수",`${report.loginRequests} / ${report.apRequests}`],
     ["파싱 / 제외 레코드",`${report.parsedRecords} / ${report.excludedRecords}`],["소요 시간",`${report.elapsedMilliseconds} ms`]);
   const details = pairs(detailsRows); byId("diagnostic-details").replaceChildren(...details.childNodes);
   const stages = byId("diagnostic-stages"); stages.replaceChildren(); (report.stages || []).forEach(stage => stages.append(el("li","",`${stage.name} · ${stage.status} · ${stage.elapsedMilliseconds} ms · ${stage.message}`)));
-  const notes = byId("diagnostic-notes"); notes.replaceChildren(); [...(report.errors || []).map(error => error.safeMessage),...(report.verificationNotes || []),...(report.proxyRouteHint?.startsWith("system-") ? ["프록시 경로는 .NET 기본 선택값을 나타내며 실제 네트워크 경유 성공을 보증하지 않습니다. Windows/PAC 및 수집기 실행 계정을 확인하세요."] : [])].forEach(text => notes.append(el("li","",text)));
+  const notes = byId("diagnostic-notes"); notes.replaceChildren(); [...(report.errors || []).map(error => error.safeMessage),...certificate.actions,...(report.verificationNotes || []),...(report.proxyRouteHint?.startsWith("system-") ? ["프록시 경로는 .NET 기본 선택값을 나타내며 실제 네트워크 경유 성공을 보증하지 않습니다. Windows/PAC 및 수집기 실행 계정을 확인하세요."] : [])].forEach(text => notes.append(el("li","",text)));
 }
 async function exportCsv() {
   if (!state.snapshot || state.dashboardLoading || state.exportBusy) return;

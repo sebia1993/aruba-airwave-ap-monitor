@@ -32,7 +32,58 @@ const runs=overrides=>({datasetId:'demo',rows:[],totalRows:0,availableScopes:[3]
 const settings=config=>({mode:'demo',profile:{datasetId:'demo',origin:'https://demo.invalid',configurationVersion:config,scopeVersion:config,credentialsVersion:1,settings:{apIntervalMinutes:5},proxy:{mode:0}},credentialStatus:'synthetic-memory',authenticationBlocked:false});
 const scopeView=(config=1)=>({profile:{...settings(config).profile,monitoringScope:null,scopeRevisions:[],baselineStatus:'Unverified'},knownTargets:[{sourceApId:'ap-1',name:'first',ipAddress:null,lastValidRunId:11},{sourceApId:'ap-2',name:'second',ipAddress:null,lastValidRunId:11}],comparisonRun:{runId:10+config,configurationVersion:config,scopeVersion:config,targetCount:2,outcome:'Succeeded',baselineStatus:'Unverified',sourceApIds:['ap-1','ap-2']}});
 const flush=async()=>{for(let i=0;i<6;i++)await new Promise(resolve=>setTimeout(resolve,0));};
+function certificateView(checks, options = {}) {
+  const x = app();
+  x.state.mode = options.mode ?? "live";
+  x.renderDiagnostic({
+    diagnosticId:"safe-id", executionAccount:"test-user", connectionPath:"direct",
+    httpStatus:null, loginRequests:1, apRequests:0, parsedRecords:0, excludedRecords:0,
+    elapsedMilliseconds:3, outcome:2, tlsResult:"failed", tlsCertificateChecks:checks, ...options
+  });
+  const nodes = x.document.getElementById("diagnostic-details").childNodes;
+  const rows = new Map();
+  for (let index = 0; index < nodes.length; index += 2) rows.set(nodes[index].textContent, nodes[index + 1].textContent);
+  return { rows, notes:x.document.getElementById("diagnostic-notes").textContent };
+}
 const cases=[
+  ['Concurrent name and chain failures retain independent actions and only known reasons',async()=>{
+    const {rows, notes} = certificateView({
+      serverName:"mismatch", trustChain:"failed", chainReasons:["untrusted-root","partial-chain","internal-ca.example.invalid","__proto__"]
+    }, {tlsFailureCode:"certificate-name-mismatch"});
+    assert.match(rows.get("TLS 실패 원인"), /이름 불일치.*신뢰 체인 검증 실패/);
+    assert.equal(rows.get("인증서 서버 이름"), "불일치");
+    assert.equal(rows.get("인증서 신뢰 체인"), "검증 실패");
+    assert.match(rows.get("신뢰 체인 상세"), /신뢰할 수 없는 루트/);
+    assert.match(rows.get("신뢰 체인 상세"), /체인 불완전/);
+    assert.match(notes, /접속 주소.*인증서/);
+    assert.match(notes, /루트.*중간 CA/);
+    assert.doesNotMatch([...rows.values(), notes].join(" "), /internal-ca|__proto__|\[object Object\]/);
+  }],
+  ['Certificate name and chain can have different results',async()=>{
+    const {rows, notes} = certificateView({serverName:"matched",trustChain:"failed",chainReasons:["expired"]});
+    assert.equal(rows.get("인증서 서버 이름"), "일치");
+    assert.equal(rows.get("인증서 신뢰 체인"), "검증 실패");
+    assert.match(rows.get("신뢰 체인 상세"), /만료/);
+    assert.match(notes, /시각/);
+    assert.doesNotMatch(notes, /접속 주소.*인증서/);
+    const success = certificateView({serverName:"matched",trustChain:"valid",chainReasons:[]},{tlsResult:"validated"});
+    assert.equal(success.rows.get("인증서 신뢰 체인"), "검증 통과");
+    assert.equal(success.notes,"");
+  }],
+  ['Unobserved certificate checks remain unknown and legacy and Demo reports still render',async()=>{
+    for (const serverName of ["unknown", "future-status"]) {
+      const {rows} = certificateView({serverName,trustChain:"unknown",chainReasons:[]});
+      assert.equal(rows.get("인증서 서버 이름"), "미확인");
+      assert.equal(rows.get("인증서 신뢰 체인"), "미확인");
+      assert.equal(rows.has("신뢰 체인 상세"), false);
+    }
+    const legacy = certificateView(undefined,{tlsFailureCode:"certificate-trust-chain"});
+    assert.match(legacy.rows.get("TLS 실패 원인"), /사내 CA/);
+    assert.equal(legacy.rows.has("인증서 신뢰 체인"), false);
+    const demo = certificateView(null,{mode:"demo",tlsResult:"not-applicable-demo"});
+    assert.match(demo.rows.get("TLS"), /가상 자료/);
+    assert.equal(demo.rows.has("인증서 서버 이름"), false);
+  }],
   ['TLS diagnostics show safe specific cause, proxy hint and no credential material',async()=>{
     const x=app();x.state.mode='live';
     x.renderDiagnostic({

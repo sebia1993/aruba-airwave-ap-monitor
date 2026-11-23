@@ -1,4 +1,7 @@
+using System.Collections.Immutable;
 using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+using AirWaveApMonitor.Core.Contracts;
 
 namespace AirWaveApMonitor.Infrastructure.AirWave;
 
@@ -25,6 +28,29 @@ public static class TlsCertificateDiagnostics
             return "certificate-trust-chain";
         }
         return "certificate-validation-failed";
+    }
+
+    public static TlsCertificateChecks DescribeChecks(SslPolicyErrors errors, X509ChainStatusFlags chainFlags,
+        DateTimeOffset nowUtc, DateTimeOffset? notBeforeUtc, DateTimeOffset? notAfterUtc)
+    {
+        if (notBeforeUtc is null || notAfterUtc is null || errors.HasFlag(SslPolicyErrors.RemoteCertificateNotAvailable))
+            return TlsCertificateChecks.Unknown;
+
+        var serverName = errors.HasFlag(SslPolicyErrors.RemoteCertificateNameMismatch) ? "mismatch" : "matched";
+        if (!errors.HasFlag(SslPolicyErrors.RemoteCertificateChainErrors))
+            return new(serverName, "valid", []);
+
+        var reasons = ImmutableArray.CreateBuilder<string>();
+        if (chainFlags.HasFlag(X509ChainStatusFlags.UntrustedRoot)) reasons.Add("untrusted-root");
+        if (chainFlags.HasFlag(X509ChainStatusFlags.PartialChain)) reasons.Add("partial-chain");
+        if (nowUtc >= notAfterUtc.Value) reasons.Add("expired");
+        else if (nowUtc < notBeforeUtc.Value) reasons.Add("not-yet-valid");
+        else if (chainFlags.HasFlag(X509ChainStatusFlags.NotTimeValid)) reasons.Add("time-invalid");
+
+        const X509ChainStatusFlags recognized = X509ChainStatusFlags.UntrustedRoot |
+            X509ChainStatusFlags.PartialChain | X509ChainStatusFlags.NotTimeValid;
+        if ((chainFlags & ~recognized) != 0 || reasons.Count == 0) reasons.Add("other-chain-error");
+        return new(serverName, "failed", reasons.ToImmutable());
     }
 
     public static string SafeMessage(string? reason) => reason switch

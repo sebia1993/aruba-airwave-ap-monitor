@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 namespace AirWaveApMonitor.Core.Contracts;
 
 public enum ProxyMode
@@ -27,6 +28,11 @@ public sealed record ProxySettings
         Address = address;
     }
 }
+public sealed record TlsCertificateChecks(string ServerName, string TrustChain, ImmutableArray<string> ChainReasons)
+{
+    public static TlsCertificateChecks Unknown { get; } = new("unknown", "unknown", []);
+    public static TlsCertificateChecks Validated { get; } = new("matched", "valid", []);
+}
 public sealed record DiagnosticStage(string Name, string Status, int? HttpStatus, long ElapsedMilliseconds, string Message);
 public sealed record DiagnosticReport(Guid DiagnosticId, DateTimeOffset StartedAtUtc, string ExecutionAccount, string ConnectionPath, string TlsResult, int? HttpStatus,
     int LoginRequests, int ApRequests, int ParsedRecords, int ExcludedRecords, long ElapsedMilliseconds, RunOutcome Outcome, bool AuthenticationBlocked,
@@ -34,6 +40,8 @@ public sealed record DiagnosticReport(Guid DiagnosticId, DateTimeOffset StartedA
 {
     // Stable safe codes only; never include a certificate, hostname, exception, or proxy URL.
     public string? TlsFailureCode { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TlsCertificateChecks? TlsCertificateChecks { get; init; }
     // Resolved/default proxy selection is a hint, never an observed packet path.
     public string? ProxyRouteHint { get; init; }
 }

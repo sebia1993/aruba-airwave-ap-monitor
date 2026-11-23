@@ -96,7 +96,7 @@ class CorePackageTests(unittest.TestCase):
             self.assertIn("app/wwwroot/ui-state.js", names)
             version = json.loads(bundle.read("metadata/VERSION.json"))
             self.assertEqual("core-monitoring", version["stage"])
-            self.assertEqual("0.1.2", version["version"])
+            self.assertEqual("0.1.3-preview.1", version["version"])
             self.assertFalse(version["onsite_verified"])
             self.assertFalse(version["working_tree_dirty"])
             self.assertEqual("a" * 40, version["source_commit"])
