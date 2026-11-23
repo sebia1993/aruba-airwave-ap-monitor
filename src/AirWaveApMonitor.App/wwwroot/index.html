@@ -77,8 +77,40 @@
         <section data-screen="settings" aria-labelledby="settings-title" hidden>
           <div class="heading"><div><h1 id="settings-title">연결 설정</h1><p class="subtitle" id="mode-description">실행 모드를 확인하고 있습니다.</p></div><button type="button" id="refresh-settings">설정 다시 읽기</button></div>
           <div class="settings-grid">
-            <section class="panel padded" aria-labelledby="server-title"><h2 id="server-title">서버와 연결 경로</h2><form id="settings-form"><label for="origin">AirWave HTTPS 출처</label><input id="origin" name="origin" type="url" placeholder="https://airwave.example.invalid" required><div class="form-grid"><div><label for="interval">AP 수집 주기 (분)</label><input id="interval" type="number" min="1" max="60" value="5" required></div><div><label for="proxy-mode">연결 경로</label><select id="proxy-mode"><option value="System">실행 계정의 시스템 프록시</option><option value="Direct">직접 연결</option><option value="Fixed">고정 프록시</option></select></div></div><label for="proxy-address">고정 프록시 서버 출처</label><input id="proxy-address" type="url" placeholder="http://proxy.example.invalid:8080" disabled><p class="footnote">PAC URL은 고정 프록시로 입력할 수 없습니다. TLS 인증서 검증은 유지합니다. 서버 출처를 바꾸려면 새 전용 데이터 폴더로 시작하세요.</p><button type="submit" id="save-settings" class="primary">설정 저장</button></form></section>
+            <section class="panel padded" aria-labelledby="server-title"><h2 id="server-title">서버와 연결 경로</h2><form id="settings-form"><label for="origin">AirWave HTTPS 출처</label><input id="origin" name="origin" type="url" placeholder="https://airwave.example.invalid" required><div class="form-grid"><div><label for="interval">AP 수집 주기 (분)</label><input id="interval" type="number" min="1" max="60" value="5" required></div><div><label for="proxy-mode">연결 경로</label><select id="proxy-mode"><option value="System">실행 계정의 시스템 프록시</option><option value="Direct">직접 연결</option><option value="Fixed">고정 프록시</option></select></div></div><label for="proxy-address">고정 프록시 서버 출처</label><input id="proxy-address" type="url" placeholder="http://proxy.example.invalid:8080" disabled><p class="footnote">PAC URL은 고정 프록시로 입력할 수 없습니다. 기본 연결은 Windows 인증서 검증을 사용합니다. 서버 출처를 바꾸려면 새 전용 데이터 폴더로 시작하세요.</p><button type="submit" id="save-settings" class="primary">설정 저장</button></form></section>
             <section class="panel padded" aria-labelledby="credentials-title"><h2 id="credentials-title">실행 계정과 자격 증명</h2><dl class="pairs"><dt>프로세스 실행 계정</dt><dd id="execution-account">확인 중</dd><dt>자격 증명 상태</dt><dd id="credential-status">확인 중</dd><dt>자동 로그인</dt><dd id="authentication-status">확인 중</dd><dt>Windows 운영 기능</dt><dd id="windows-detail">확인 중</dd></dl><form id="credentials-form" hidden autocomplete="off"><label for="username">AirWave 읽기 계정</label><input id="username" autocomplete="off" maxlength="1024" required><label for="password">비밀번호</label><input id="password" type="password" autocomplete="new-password" maxlength="8192" required><p class="footnote">위 프로세스 실행 계정의 Windows DPAPI로 보호합니다. 실행 계정 변경·복호화 실패 시 다시 등록하세요.</p><button type="submit" class="primary">자격 증명 등록</button></form><button id="retry-authentication" type="button">인증 중단 해제 · 명시적 재시도</button></section>
+            <section class="panel padded wide pin-settings" aria-labelledby="pin-title">
+              <h2 id="pin-title">AirWave 인증서 지문</h2>
+              <p>저장된 IP·포트의 서버 인증서를 로그인 없이 조회하고 등록 지문과 대조합니다.</p>
+              <dl class="pairs">
+                <dt>저장된 IP·포트</dt><dd id="pin-target">미확인</dd>
+                <dt>지문 허용 상태</dt><dd id="pin-state">설정 조회 전</dd>
+                <dt>만료 시각</dt><dd id="pin-expiry">—</dd>
+                <dt>등록된 SHA-256 지문</dt><dd id="pin-current">—</dd>
+                <dt>조회한 SHA-256 지문</dt><dd id="pin-observed">—</dd>
+              </dl>
+              <p id="pin-comparison" class="notice" role="status" hidden></p>
+              <label id="pin-independent-label" hidden>관리 기록에서 별도로 확인한 SHA-256 지문
+                <input id="pin-independent" type="text" maxlength="128" autocomplete="off" spellcheck="false" placeholder="16진수 64자리" disabled>
+              </label>
+              <div class="actions">
+                <button id="pin-probe" type="button" disabled>인증서 자동 조회</button>
+                <button id="pin-persistent" type="button" class="primary" disabled>해제할 때까지 허용</button>
+                <button id="pin-remove" type="button" disabled>지문 허용 해제</button>
+              </div>
+              <details>
+                <summary>기간을 지정해 지문 직접 등록</summary>
+                <form id="pin-form" class="operation-form">
+                  <label>별도로 확인한 서버 인증서 SHA-256 지문<input id="pin-fingerprint" type="text" maxlength="128" autocomplete="off" spellcheck="false" placeholder="16진수 64자리" required disabled></label>
+                  <label>허용 시간 (1~168시간)<input id="pin-hours" type="number" min="1" max="168" step="1" value="24" required disabled></label>
+                  <p id="pin-draft-note" class="footnote" role="status"></p>
+                  <div class="actions">
+                    <button id="pin-save" type="submit" class="primary" disabled>지문으로 임시 허용</button>
+                    <button id="pin-reset" type="button" hidden>입력 지우기</button>
+                  </div>
+                </form>
+              </details>
+            </section>
             <section class="panel padded wide scope-settings" aria-labelledby="scope-title">
               <h2 id="scope-title">감시 범위와 기준 대조</h2>
               <p class="footnote">원천 AP ID에 따른 로컬 감시 범위입니다. AirWave 폴더 API 필터나 화면 검색 조건과 다릅니다. 변경은 다음 수집부터 적용하며 과거 회차는 보존합니다.</p>

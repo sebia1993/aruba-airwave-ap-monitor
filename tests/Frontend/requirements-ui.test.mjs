@@ -22,7 +22,7 @@ const ids=new Set([...html.matchAll(/id="([^"]+)"/g)].map(match=>match[1]));
 const functions=source.split('\ndocument.querySelectorAll("[data-view]")')[0].replace(/^import .*;$/gm,'');
 function app(transport=async()=>{throw Error('Unexpected network request');}){
   const nodes=new Map(),document={getElementById(id){if(!ids.has(id))throw Error('Missing rendered HTML element: '+id);if(!nodes.has(id))nodes.set(id,new Node());return nodes.get(id);},createElement:tag=>new Node(tag),querySelectorAll:()=>[],addEventListener:()=>{}};
-  const context={...ui,document,Node,URLSearchParams,AbortController,setTimeout,clearTimeout,transport,createOperationsController:()=>({}),createEnrichmentController:()=>({})};
+  const context={...ui,document,Node,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,transport,createOperationsController:()=>({}),createEnrichmentController:()=>({})};
   runInNewContext(`${functions}\napi=transport;globalThis.subject={state,dateText,loadIncidents,loadRuns,loadDashboard,applyPeriod:(...args)=>applyPeriod(...args),loadScope:(...args)=>loadScope(...args),saveScope:(...args)=>saveScope(...args),confirmBaseline:(...args)=>confirmBaseline(...args),scopeDraftChanged:(...args)=>scopeDraftChanged(...args),applySettings,renderDiagnostic};`,context);
   return {...context.subject,nodes,document,bind(){const rest=source.slice(source.indexOf('\ndocument.querySelectorAll("[data-view]")')).split('\nupdateControls();\nvoid loadDashboard')[0];runInNewContext(rest,context);}};
 }
@@ -45,7 +45,163 @@ function certificateView(checks, options = {}) {
   for (let index = 0; index < nodes.length; index += 2) rows.set(nodes[index].textContent, nodes[index + 1].textContent);
   return { rows, notes:x.document.getElementById("diagnostic-notes").textContent };
 }
+function pinSettings(version, origin="https://192.0.2.7", pin=null) {
+  const current = settings(version);
+  return {...current,mode:"live",profile:{...current.profile,origin,temporaryCertificatePin:pin}};
+}
+function editPin(x, sha256, hours="24") {
+  const fingerprint = x.document.getElementById("pin-fingerprint");
+  fingerprint.value = sha256;
+  x.document.getElementById("pin-hours").value = hours;
+  fingerprint.listeners.input();
+}
 const cases=[
+  ['The pin panel is disabled for Demo, unsaved servers and DNS; saved IPs expose the exact TLS endpoint',async()=>{
+    const x=app(); x.bind();
+    const node=id=>x.document.getElementById(id);
+    for (const value of [settings(1), {...pinSettings(1),profile:null}, pinSettings(1,"https://airwave.example.invalid")]) {
+      x.applySettings(value); assert.equal(node("pin-fingerprint").disabled,true);
+      assert.equal(node("pin-save").disabled,true); assert.equal(node("pin-remove").disabled,true);
+    }
+    x.applySettings(pinSettings(1)); assert.equal(node("pin-target").textContent,"192.0.2.7:443");
+    assert.equal(node("pin-fingerprint").disabled,false); assert.match(node("pin-state").textContent,/꺼짐/);
+    x.applySettings(pinSettings(1,"https://[2001:db8::7]:8443")); assert.equal(node("pin-target").textContent,"[2001:db8::7]:8443");
+  }],
+  ['Verified fingerprint saves once for the displayed version; saved or expired pins can be removed',async()=>{
+    const requests=[],digest="A1".repeat(32),origin="https://192.0.2.7";
+    let complete; const waiting=new Promise(resolve=>{complete=resolve;});
+    const saved={origin,sha256:digest,expiresAtUtc:"2099-01-01T00:00:00Z"};
+    const x=app(async(url,options)=>{
+      if(url==="/api/settings/certificate-pin") {
+        requests.push(options.body);
+        if(options.body.sha256) {await waiting; return pinSettings(2,origin,saved);}
+        return pinSettings(4);
+      }
+      if(url==="/api/scope") return scopeView(4);
+      if(url==="/api/settings") return pinSettings(4);
+      return {};
+    });
+    x.state.view="settings"; x.bind(); x.applySettings(pinSettings(1));
+    const node=id=>x.document.getElementById(id),submit=()=>node("pin-form").listeners.submit({preventDefault(){}});
+    editPin(x,Array(32).fill("a1").join(":")); assert.equal(node("run-diagnostics").disabled,true);
+    submit();submit(); assert.equal(requests.length,1);complete();await flush();
+    assert.deepEqual({...requests[0]},{expectedConfigurationVersion:1,sha256:digest,durationHours:24});
+    assert.match(node("pin-state").textContent,/사용 중/); assert.match(node("pin-expiry").textContent,/2099.*KST/);
+    assert.equal(node("pin-fingerprint").value,""); assert.equal(node("run-diagnostics").disabled,false);
+    x.applySettings(pinSettings(3,origin,{...saved,expiresAtUtc:"2000-01-01T00:00:00Z"}));
+    assert.match(node("pin-state").textContent,/만료/); assert.equal(node("pin-remove").disabled,false);
+    node("pin-remove").listeners.click(); await flush(); assert.deepEqual({...requests[1]},{expectedConfigurationVersion:3,sha256:null,durationHours:null});
+    assert.match(node("pin-state").textContent,/꺼짐/);
+  }],
+  ['A stale draft cannot apply to new settings; invalid time and fingerprints cannot be submitted',async()=>{
+    let writes=0;const x=app(async(url,o)=>{if(o?.method==="POST")writes++; return pinSettings(2);});
+    const node=id=>x.document.getElementById(id),submit=()=>node("pin-form").listeners.submit({preventDefault(){}});
+    x.state.view="settings";x.bind();x.applySettings(pinSettings(1));
+    const digest="AB".repeat(32);
+    for (const [value,hours] of [["A".repeat(63),"24"],[digest,"169"],[digest,"0"],[digest,"4.5"]]) {
+      editPin(x,value,hours);submit();assert.equal(writes,0);
+    }
+    editPin(x,digest,"168");x.applySettings(pinSettings(2)); assert.equal(node("pin-fingerprint").value,digest);
+    assert.equal(node("pin-save").disabled,true);submit(); assert.equal(writes,0);
+    node("pin-reset").listeners.click(); assert.equal(node("pin-fingerprint").value,""); assert.equal(node("pin-hours").value,"24");
+    assert.equal(node("run-diagnostics").disabled,false);
+  }],
+  ['A matched active pin is upgraded only on explicit apply, and can still be removed',async()=>{
+    const digest="AB".repeat(32), origin="https://192.0.2.7:4343", calls=[];
+    const finite={origin,sha256:digest,expiresAtUtc:"2099-01-01T00:00:00Z"};
+    const indefinite={...finite,expiresAtUtc:null};
+    const x=app(async(url,options)=>{
+      calls.push([url,{...options.body}]);
+      if(url.endsWith("/probe")) return {origin,sha256:digest,configurationVersion:1,status:"matched"};
+      if(url.endsWith("/persistent")) return pinSettings(2,origin,indefinite);
+      if(url==="/api/settings/certificate-pin") return pinSettings(3,origin);
+      throw Error("Unexpected request "+url);
+    });
+    x.bind();x.applySettings(pinSettings(1,origin,finite));
+    const n=id=>x.document.getElementById(id);
+    assert.equal(n("pin-persistent").disabled,true);
+    n("pin-probe").listeners.click();await flush();
+    assert.deepEqual(calls,[["/api/settings/certificate-pin/probe",{expectedConfigurationVersion:1}]]);
+    assert.equal(n("pin-observed").textContent,digest);
+    assert.match(n("pin-comparison").textContent,/기존 등록 지문과 일치/);
+    assert.equal(n("pin-independent").value,"");assert.equal(n("pin-persistent").disabled,false);
+    n("pin-persistent").listeners.click();n("pin-persistent").listeners.click();await flush();
+    assert.equal(calls.length,2);
+    assert.deepEqual(calls[1],["/api/settings/certificate-pin/persistent",{expectedConfigurationVersion:1,observedSha256:digest,independentlyVerifiedSha256:null}]);
+    assert.match(n("pin-state").textContent,/사용 중.*해제할 때까지/);
+    assert.equal(n("pin-expiry").textContent,"자동 만료 없음");
+    assert.equal(n("pin-persistent").disabled,true);
+    n("pin-remove").listeners.click();await flush();assert.match(n("pin-state").textContent,/꺼짐/);
+  }],
+  ['Unregistered and expired pins require independent evidence; changed certificates stay blocked',async()=>{
+    const origin="https://192.0.2.7", digest="C1".repeat(32), other="AB".repeat(32);
+    for(const status of ["unregistered","expired","changed","persistent"]){
+      const saved=status==="unregistered"?null:{origin,sha256:status==="changed"?other:digest,expiresAtUtc:status==="persistent"?null:"2020-01-01T00:00:00Z"};
+      const calls=[],x=app(async(url,o)=>{
+        calls.push([url,{...o.body}]);
+        if(url.endsWith("/probe"))return {origin,sha256:digest,configurationVersion:1,status};
+        if(url.endsWith("/persistent"))return pinSettings(2,origin,{origin,sha256:digest,expiresAtUtc:null});
+        throw Error("Unexpected request "+url);
+      });
+      x.bind();x.applySettings(pinSettings(1,origin,saved));
+      const n=id=>x.document.getElementById(id);
+      n("pin-probe").listeners.click();await flush();
+      assert.equal(n("pin-persistent").disabled,true);assert.equal(n("pin-independent").value,"");
+      n("pin-independent").value=other;n("pin-independent").listeners.input();
+      n("pin-persistent").listeners.click();await flush();assert.equal(calls.length,1);
+      if(["unregistered","expired"].includes(status)) assert.match(n("pin-comparison").textContent,/입력한 지문이.*다릅니다/);
+      n("pin-independent").value=Array(32).fill("c1").join(":");n("pin-independent").listeners.input();
+      if(["changed","persistent"].includes(status)){
+        assert.equal(n("pin-persistent").disabled,true);n("pin-persistent").listeners.click();await flush();assert.equal(calls.length,1);
+      }else{
+        assert.equal(n("pin-persistent").disabled,false);n("pin-persistent").listeners.click();await flush();
+        assert.equal(calls[1][1].independentlyVerifiedSha256,digest);
+      }
+    }
+  }],
+  ['A failed recheck clears the observed certificate and requires a new probe',async()=>{
+    const origin="https://192.0.2.7",digest="EE".repeat(32);
+    const profile=pinSettings(1,origin,{origin,sha256:digest,expiresAtUtc:"2099-01-01T00:00:00Z"});
+    let applyAttempts=0;
+    const x=app(async(url)=>{
+      if(url.endsWith("/probe"))return {origin,sha256:digest,configurationVersion:1,status:"matched"};
+      if(url.endsWith("/persistent")){applyAttempts++;throw Error("조회 이후 서버 인증서 변경");}
+      if(url==="/api/settings")return profile;
+      throw Error("Unexpected request "+url);
+    });
+    const n=id=>x.document.getElementById(id);
+    x.bind();x.applySettings(profile);n("pin-probe").listeners.click();await flush();
+    n("pin-persistent").listeners.click();await flush();
+    assert.equal(n("pin-persistent").disabled,true);assert.equal(n("pin-observed").textContent,"—");
+    assert.match(n("pin-expiry").textContent,/2099/);
+    n("pin-persistent").listeners.click();await flush();assert.equal(applyAttempts,1);
+  }],
+  ['Late probe, newly edited server settings and changed registration cannot reuse an earlier comparison',async()=>{
+    const origin="https://192.0.2.7",digest="AA".repeat(32),pin={origin,sha256:digest,expiresAtUtc:"2099-01-01T00:00:00Z"};
+    let finish;const waiting=new Promise(resolve=>{finish=resolve;});let calls=0;
+    const x=app(async(url,o)=>{
+      assert.ok(url.endsWith("/probe"));calls++;if(calls===1)await waiting;
+      return {origin,sha256:digest,configurationVersion:o.body.expectedConfigurationVersion,status:"matched"};
+    });
+    const n=id=>x.document.getElementById(id);x.bind();x.applySettings(pinSettings(1,origin,pin));
+    n("pin-probe").listeners.click();x.applySettings(pinSettings(2,origin,pin));finish();await flush();
+    assert.equal(n("pin-persistent").disabled,true);
+    n("pin-probe").listeners.click();await flush();assert.equal(n("pin-persistent").disabled,false);
+    n("interval").listeners.input();assert.equal(n("pin-persistent").disabled,true);
+    n("pin-persistent").listeners.click();await flush();assert.equal(calls,2);
+  }],
+  ['Diagnostic pin authorization is distinct from system trust even without new handshake evidence',async()=>{
+    const {rows}=certificateView({peer:"server",serverName:"mismatch",trustChain:"failed",chainReasons:["untrusted-root"]},{tlsResult:"pinned-exception",tlsFailureCode:null,httpStatus:200});
+    assert.match(rows.get("TLS"),/임시.*지문/); assert.doesNotMatch(rows.get("TLS"),/검증 통과/);
+    assert.equal(rows.get("인증서 신뢰 체인"),"검증 실패");
+    assert.equal(rows.has("TLS 실패 원인"),false);
+    const pooled=certificateView(null,{tlsResult:"pinned-exception",tlsFailureCode:null,httpStatus:200});
+    assert.match(pooled.rows.get("TLS"),/임시.*지문/);
+    for (const [code,label] of [["pin-mismatch",/지문 불일치/],["pin-expired",/만료/],["pin-disallowed",/허용 범위/]]) {
+      const failed=certificateView({peer:"server",serverName:"mismatch",trustChain:"failed",chainReasons:["untrusted-root"]},{tlsFailureCode:code});
+      assert.match(failed.rows.get("TLS 실패 원인"),label);
+    }
+  }],
   ['Concurrent name and chain failures retain independent actions and only known reasons',async()=>{
     const {rows, notes} = certificateView({
       serverName:"mismatch", trustChain:"failed", chainReasons:["untrusted-root","partial-chain","internal-ca.example.invalid","__proto__"]

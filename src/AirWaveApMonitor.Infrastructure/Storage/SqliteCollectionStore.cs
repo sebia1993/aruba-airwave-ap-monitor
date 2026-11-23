@@ -111,6 +111,7 @@ public sealed partial class SqliteCollectionStore : ICollectionStore, ISourceChe
                 profile.ConfigurationVersion, profile.ScopeVersion, targets.ToImmutable(), baseline, profile.Settings)
             {
                 Proxy = profile.Proxy,
+                TemporaryCertificatePin = profile.TemporaryCertificatePin,
                 CredentialsVersion = profile.CredentialsVersion,
                 MonitoringScope = profile.MonitoringScope, ScopeRevisions = profile.ScopeRevisions,
                 BaselineConfirmedSourceApIds = profile.BaselineConfirmedSourceApIds

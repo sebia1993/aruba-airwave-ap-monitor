@@ -19,7 +19,7 @@ const state = {
   filters: { search: "", filter: "OpenIncidents", sort: "FirstDownAt", descending: true, managementStatus: "", hidePlanned: false, minimumOpenElapsedSeconds: "", page: 1, pageSize: 50 },
   incident: { status: "", search: "", fromUtc: null, toUtc: null, minimumOpenElapsedSeconds: "", page: 1, pageSize: 50 },
   runs: { scopeVersion: "", fromUtc: null, toUtc: null, page: 1, pageSize: 50, throughRunId: null },
-  health: null, maintenance: null, settings: null, mode: null, mutationBusy: false, settingsDirty: false, draftRevision: 0,
+  health: null, maintenance: null, settings: null, mode: null, mutationBusy: false, settingsDirty: false, draftRevision: 0, pinDraftBase: null, pinProbe: null,
   scope: {data:null,dirty:false,revision:0,baseVersion:null,baselineDirty:false,baselineRevision:0,baselineBase:null},
   token: null, tokenPromise: null, diagnosticIdentity: null, lastDashboardRead: null
 };
@@ -400,9 +400,10 @@ function updateControls() {
   const authentication = authenticationUiState(state.settings,health);
   byId("retry-authentication").disabled = state.mutationBusy || !authentication.canRetry;
   byId("authentication-status").textContent = authentication.label;
-  byId("run-diagnostics").disabled = state.mutationBusy || !state.settings?.profile || state.settingsDirty || state.credentialsDirty;
+  byId("run-diagnostics").disabled = state.mutationBusy || !state.settings?.profile || state.settingsDirty || state.credentialsDirty || state.pinDraftBase !== null;
   byId("credentials-form").querySelector("button").disabled = state.mutationBusy || !state.settings?.profile;
   updateScopeControls();
+  updateCertificatePinControls();
 }
 async function perform(action) {
   if (state.mutationBusy) return;
@@ -437,7 +438,8 @@ function invalidateDataForSettingsChange() {
 }
 function applySettings(value,{fill = false} = {}) {
   const oldIdentity = state.settings && settingsIdentity(state.settings.profile), newIdentity = settingsIdentity(value.profile);
-  if (oldIdentity && oldIdentity !== newIdentity) {
+  if (oldIdentity && (oldIdentity !== newIdentity || state.mode !== value.mode)) {
+    clearPinProbe();
     invalidateDiagnostic("저장된 설정·자격 증명·범위가 변경되어 이전 진단은 유효하지 않습니다.");
     if (!state.historical || state.selection?.datasetId !== value.profile?.datasetId) invalidateDataForSettingsChange();
   }
@@ -461,8 +463,161 @@ async function loadSettings(fill = false) {
   catch (error) { if (gates.settings.isCurrent(ticket)) { invalidateDiagnostic("설정 확인 실패 · 진단 유효성 미확인"); if (state.view === "settings") setMessage(error.message,true); } }
 }
 function draftChanged() {
+  clearPinProbe();
   if (!state.settingsDirty) state.draftBaseVersion = state.settings?.profile?.configurationVersion || 0;
   state.settingsDirty = true; state.draftRevision++; invalidateDiagnostic("입력 내용이 변경되었습니다. 설정을 저장한 뒤 다시 진단하세요."); updateControls();
+}
+function certificatePinTarget(settings) {
+  if (settings?.mode !== "live" || !settings.profile?.origin) return null;
+  try {
+    const url = new URL(settings.profile.origin);
+    if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) return null;
+    const ip = url.hostname;
+    if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip) && !(ip.startsWith("[") && ip.endsWith("]"))) return null;
+    return `${ip}:${url.port || "443"}`;
+  } catch { return null; }
+}
+function normalizedCertificatePin(field = "pin-fingerprint") {
+  const value = byId(field).value.trim().toUpperCase();
+  if (/^[A-F0-9]{64}$/.test(value)) return value;
+  if (/^[A-F0-9]{2}(?:[:\s-][A-F0-9]{2}){31}$/.test(value)) return value.replace(/[:\s-]/g, "");
+  return null;
+}
+const pinComparisons = {
+  matched:"기존 등록 지문과 일치합니다. 무기한으로 사용하려면 해제할 때까지 허용을 선택하세요.",
+  persistent:"기존 등록 지문과 일치하며, 해제할 때까지 허용 중입니다.",
+  changed:"서버 인증서 변경 감지 · 등록 지문과 다릅니다. 관리 경로에서 교체 여부를 확인하세요.",
+  unregistered:"등록된 지문이 없습니다. 관리 기록이나 인증서 원본에서 확인한 지문을 아래에 입력하세요.",
+  expired:"기존 지문의 허용 기간이 지났습니다. 관리 기록이나 인증서 원본에서 지문을 다시 확인해 입력하세요."
+};
+function clearPinProbe() {
+  state.pinProbe = null;
+  byId("pin-independent").value = "";
+}
+function needsIndependentPin(probe) {
+  return probe?.status === "unregistered" || probe?.status === "expired";
+}
+function canApplyPinProbe(probe) {
+  if (probe?.status === "matched") return true;
+  return needsIndependentPin(probe) && normalizedCertificatePin("pin-independent") === probe.sha256;
+}
+function updateCertificatePinControls() {
+  const profile = state.settings?.profile;
+  const target = certificatePinTarget(state.settings);
+  const pin = profile?.temporaryCertificatePin;
+  const editing = state.pinDraftBase !== null;
+  const stale = editing && state.pinDraftBase !== settingsIdentity(profile);
+  const disabled = !target || state.settingsDirty || state.mutationBusy;
+  const indefinite = pin?.expiresAtUtc === null;
+  const probe = state.pinProbe;
+  const independent = needsIndependentPin(probe);
+  byId("pin-observed").textContent = probe?.sha256 ?? "—";
+  let comparison = probe ? pinComparisons[probe.status] : "";
+  if (independent && byId("pin-independent").value.trim()) {
+    const verified = normalizedCertificatePin("pin-independent");
+    if (!verified) comparison = "관리 기록에서 확인한 64자리 SHA-256 지문을 입력하세요.";
+    else comparison = verified === probe.sha256
+      ? "입력한 지문이 조회 결과와 일치합니다. 해제할 때까지 허용을 선택하세요."
+      : "입력한 지문이 조회한 인증서와 다릅니다. 관리 기록과 서버 인증서를 다시 확인하세요.";
+  }
+  byId("pin-comparison").textContent = comparison;
+  byId("pin-comparison").hidden = !probe;
+  byId("pin-independent-label").hidden = !independent;
+  byId("pin-independent").disabled = disabled || editing || !independent;
+  byId("pin-probe").disabled = disabled || editing;
+  byId("pin-persistent").disabled = disabled || editing || !canApplyPinProbe(probe);
+  byId("pin-target").textContent = target ?? "Live 모드에서 저장한 HTTPS IP 필요";
+  byId("pin-state").textContent = !pin ? "꺼짐" : indefinite ? "사용 중 · 해제할 때까지" : Date.parse(pin.expiresAtUtc) > Date.now() ? "사용 중" : "만료";
+  byId("pin-expiry").textContent = indefinite ? "자동 만료 없음" : pin ? dateText(pin.expiresAtUtc) : "—";
+  byId("pin-current").textContent = pin?.sha256 || "—";
+  byId("pin-fingerprint").disabled = disabled || stale;
+  byId("pin-hours").disabled = disabled || stale;
+  byId("pin-save").disabled = disabled || stale || !editing;
+  byId("pin-save").textContent = pin ? "새 지문·기간으로 저장" : "지문으로 임시 허용";
+  byId("pin-remove").disabled = disabled || editing || !pin;
+  byId("pin-reset").hidden = !editing;
+  byId("pin-reset").disabled = state.mutationBusy;
+  byId("pin-draft-note").textContent = stale ? "입력 중에 저장된 설정이 변경됐습니다. 현재 대상과 등록값을 확인하고 입력 지우기로 다시 시작하세요."
+    : editing ? "작성 중인 지문은 저장한 뒤 연결 진단과 다음 수집에 적용됩니다." : "";
+}
+function certificatePinEdited() {
+  clearPinProbe();
+  if (state.pinDraftBase === null) state.pinDraftBase = settingsIdentity(state.settings?.profile);
+  state.draftRevision++;
+  invalidateDiagnostic("임시 허용 입력이 변경됐습니다. 저장하거나 입력을 지운 뒤 다시 진단하세요.");
+  updateControls();
+}
+function resetCertificatePinDraft() {
+  state.pinDraftBase = null;
+  state.draftRevision++;
+  byId("pin-fingerprint").value = "";
+  byId("pin-hours").value = "24";
+  updateControls();
+}
+async function probeCertificatePin() {
+  const profile = state.settings?.profile;
+  if (!certificatePinTarget(state.settings) || state.settingsDirty || state.pinDraftBase !== null || state.mutationBusy) return;
+  const identity = settingsIdentity(profile), revision = state.draftRevision;
+  clearPinProbe();
+  await perform(async () => {
+    try {
+      const probe = await api("/api/settings/certificate-pin/probe", {method:"POST",timeout:130000,
+        body:{expectedConfigurationVersion:profile.configurationVersion}});
+      if (identity !== settingsIdentity(state.settings?.profile) || revision !== state.draftRevision || state.settingsDirty)
+        throw Error("조회 중 설정 또는 입력이 변경됐습니다. 현재 설정에서 인증서를 다시 조회하세요.");
+      if (probe.configurationVersion !== profile.configurationVersion || new URL(probe.origin).href !== new URL(profile.origin).href ||
+          !Object.hasOwn(pinComparisons,probe.status) || !/^[0-9A-F]{64}$/.test(probe.sha256))
+        throw Error("인증서 조회 결과를 확인하지 못했습니다. 설정을 확인한 뒤 다시 조회하세요.");
+      state.pinProbe = probe;
+    } catch (error) {
+      await loadSettings(false);
+      throw error;
+    }
+  });
+}
+async function applyPersistentPin() {
+  const profile = state.settings?.profile, probe = state.pinProbe;
+  if (!certificatePinTarget(state.settings) || state.settingsDirty || state.mutationBusy ||
+      state.pinDraftBase !== null || !canApplyPinProbe(probe) || profile.configurationVersion !== probe.configurationVersion) return;
+  const independentlyVerifiedSha256 = needsIndependentPin(probe) ? normalizedCertificatePin("pin-independent") : null;
+  await perform(async () => {
+    try {
+      const value = await api("/api/settings/certificate-pin/persistent", {method:"POST",timeout:130000,
+        body:{expectedConfigurationVersion:profile.configurationVersion,observedSha256:probe.sha256,independentlyVerifiedSha256}});
+      gates.settings.invalidate();
+      clearPinProbe();
+      applySettings(value);
+      invalidateDiagnostic("등록 지문의 허용 기간이 변경됐습니다. 새 연결 진단을 실행하세요.");
+      setMessage("현재 인증서 지문을 해제할 때까지 허용합니다.");
+    } catch (error) {
+      clearPinProbe();
+      await loadSettings(false);
+      throw error;
+    }
+  });
+}
+async function saveCertificatePin(clear = false) {
+  const profile = state.settings?.profile;
+  if (state.mutationBusy || state.settingsDirty || !certificatePinTarget(state.settings)) return;
+  if (clear ? !profile.temporaryCertificatePin || state.pinDraftBase !== null : state.pinDraftBase !== settingsIdentity(profile)) return;
+  const sha256 = clear ? null : normalizedCertificatePin();
+  const durationHours = clear ? null : Number(byId("pin-hours").value);
+  if (!clear && !sha256) { setMessage("인증서의 SHA-256 지문 64자리를 확인하세요. 두 자리마다 공백, 콜론 또는 하이픈을 사용할 수 있습니다.", true); return; }
+  if (!clear && (!Number.isInteger(durationHours) || durationHours < 1 || durationHours > 168)) { setMessage("허용 시간은 1시간부터 168시간까지 정수로 입력하세요.", true); return; }
+  const revision = state.draftRevision;
+  await perform(async () => {
+    try {
+      const value = await api("/api/settings/certificate-pin", {method:"POST", timeout:130000, body:{ expectedConfigurationVersion:profile.configurationVersion, sha256, durationHours }});
+      gates.settings.invalidate();
+      if (revision === state.draftRevision) resetCertificatePinDraft();
+      applySettings(value);
+      invalidateDiagnostic("임시 허용 설정이 변경됐습니다. 새 연결 진단을 실행하세요.");
+      setMessage(clear ? "인증서 지문 허용을 해제했습니다." : "지정한 IP와 포트의 인증서 지문을 등록했습니다. 연결 진단 실행으로 확인하세요.");
+    } catch (error) {
+      await loadSettings(false);
+      throw error;
+    }
+  });
 }
 async function saveSettings() {
   const revision = state.draftRevision;
@@ -587,7 +742,7 @@ async function retryAuthentication() {
   });
 }
 async function runDiagnostics() {
-  if (!state.settings?.profile || state.settingsDirty || state.credentialsDirty) return;
+  if (!state.settings?.profile || state.settingsDirty || state.credentialsDirty || state.pinDraftBase !== null) return;
   const identity = settingsIdentity(state.settings.profile), revision = state.draftRevision;
   await perform(async () => {
     invalidateDiagnostic("진단 중 · 완료 후 설정 일치 여부 확인"); setMessage(state.mode === "demo" ? "합성 XML 단일 읽기를 진단하고 있습니다." : "연결 진단 중입니다. 서버의 전체 제한 시간은 120초입니다.");
@@ -645,9 +800,14 @@ function certificateDiagnosticDetails(checks) {
 function renderDiagnostic(report) {
   byId("diagnostic-result").hidden = false;
   byId("diagnostic-summary").textContent = `${state.mode === "demo" ? "가상 파서 진단" : "연결 진단"}: ${["읽기 성공","부분 유효 · 확인 필요","실패"][report.outcome] || "결과 미확인"}`;
-  const tls = ({"not-applicable-demo":"해당 없음 · 가상 자료","validated":"HTTPS 연결 검증 통과","failed":"실패","not-observed":"미관측"})[report.tlsResult] || report.tlsResult;
+  const pinConnection = state.settings?.profile?.temporaryCertificatePin?.expiresAtUtc === null
+    ? "무기한 허용 · 등록 지문으로 연결" : "임시 허용 · 등록 지문으로 연결";
+  const tls = ({"not-applicable-demo":"해당 없음 · 가상 자료","validated":"HTTPS 연결 검증 통과","pinned-exception":pinConnection,"failed":"실패","not-observed":"미관측"})[report.tlsResult] || report.tlsResult;
   const route = ({"synthetic-memory":"가상 메모리","system-execution-account":"실행 계정의 시스템 프록시","direct":"직접 연결","fixed-proxy":"선택한 고정 프록시"})[report.connectionPath] || report.connectionPath;
   const tlsCodes = {
+    "pin-mismatch":"서버 인증서 변경 감지 · 등록 지문 불일치",
+    "pin-expired":"등록한 인증서 지문의 임시 허용 기간 만료",
+    "pin-disallowed":"인증서 오류가 임시 허용 범위를 벗어남",
     "certificate-name-mismatch":"서버 인증서 이름 불일치",
     "certificate-expired":"인증서 기간 만료",
     "certificate-not-yet-valid":"인증서 유효기간 시작 전",
@@ -668,7 +828,7 @@ function renderDiagnostic(report) {
   detailsRows.push(["TLS",tls]);
   const checks = state.mode === "demo" ? null : report.tlsCertificateChecks;
   let cause;
-  if (checks?.serverName === "mismatch" && checks.trustChain === "failed") {
+  if (report.tlsResult === "failed" && !report.tlsFailureCode?.startsWith("pin-") && checks?.serverName === "mismatch" && checks.trustChain === "failed") {
     cause = "서버 인증서 이름 불일치 및 신뢰 체인 검증 실패";
   } else if (report.tlsFailureCode) {
     cause = Object.hasOwn(tlsCodes, report.tlsFailureCode) ? tlsCodes[report.tlsFailureCode] : "TLS 상세 원인 미확인";
@@ -759,6 +919,13 @@ byId("proxy-mode").addEventListener("change",() => { byId("proxy-address").disab
 ["username","password"].forEach(id => byId(id).addEventListener("input",() => { state.draftRevision++; state.credentialsDirty = !!(byId("username").value || byId("password").value); invalidateDiagnostic("자격 증명 입력이 변경되었습니다. 등록을 마친 뒤 다시 진단하세요."); updateControls(); }));
 byId("settings-form").addEventListener("submit",event => { event.preventDefault(); void saveSettings(); });
 byId("credentials-form").addEventListener("submit",event => { event.preventDefault(); void saveCredentials(); });
+byId("pin-probe").addEventListener("click",() => { void probeCertificatePin(); });
+byId("pin-persistent").addEventListener("click",() => { void applyPersistentPin(); });
+byId("pin-independent").addEventListener("input",updateCertificatePinControls);
+["pin-fingerprint","pin-hours"].forEach(id => byId(id).addEventListener("input",certificatePinEdited));
+byId("pin-form").addEventListener("submit",event => { event.preventDefault(); void saveCertificatePin(); });
+byId("pin-remove").addEventListener("click",() => { void saveCertificatePin(true); });
+byId("pin-reset").addEventListener("click",resetCertificatePinDraft);
 byId("refresh-settings").addEventListener("click",() => { void loadSettings(true); void loadScope(); if (state.settingsDirty) setMessage("서버 설정을 다시 읽습니다. 저장하지 않은 입력은 유지합니다."); });
 ["scope-mode","scope-ids","scope-reason"].forEach(id=>byId(id).addEventListener("input",()=>scopeDraftChanged("scope")));
 byId("scope-mode").addEventListener("change",()=>scopeDraftChanged("scope"));
