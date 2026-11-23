@@ -8,7 +8,7 @@ import { createEnrichmentController } from "./enrichment.js";
 
 let operations = null, enrichment = null;
 const byId = id => document.getElementById(id);
-const labels = { dashboard: "AP 현황", incidents: "장애·작업 이력", runs: "수집 기록", settings: "연결 설정", detail: "상세 이력", operations: "AP·설치 대장", enrichment: "연결·전력" };
+const labels = { dashboard: "AP 현황", incidents: "장애·작업 이력", runs: "수집 기록", settings: "연결 설정", detail: "상세 이력", operations: "AP·설치 대장", enrichment: "연결·전력", help:"사용법·업데이트" };
 const statusLabels = { NewDown: "신규 Down", InitialDown: "최초 확인 Down · 실제 시작 미상", ExistingDown: "기존 Down", Recovered: "이번 복구 확인", Up: "Up 확인", Unknown: "이번 미확인" };
 const reasonLabels = { MissingRecord: "응답 목록 누락", UnknownState: "유효 상태 미제공", DuplicateIdentity: "중복 식별 제외", CollectionFailed: "수집 실패", Interrupted: "수집 중단", ScopeExcluded: "범위 일시 제외", TrackingEnded: "추적 종료", DatabaseRestored: "백업 복원으로 관측 공백" };
 const managementLabels = { Operating: "운영", PlannedWork: "계획 작업", Decommissioned: "철거", MonitoringExcluded: "감시 제외" };
@@ -125,6 +125,8 @@ function navigate(view, focus = true) {
     const active = node.dataset.view === parent;
     node.classList.toggle("active", active); if (active) node.setAttribute("aria-current", "page"); else node.removeAttribute("aria-current");
   });
+  const topics={ dashboard:"monitoring", incidents:"incidents", runs:"runs", operations:"inventory", settings:"setup", enrichment:"enrichment", detail:"monitoring", help:"monitoring" };
+  byId("help-context-button").dataset.helpTopic=topics[view] || "monitoring";
   byId("breadcrumb").textContent = labels[view]; document.title = `${labels[view]} · AirWave AP Monitor`;
   if (focus) byId("main").focus({ preventScroll:true });
 }
@@ -792,6 +794,36 @@ async function connectionGuideAction() {
   if (step.action==="dashboard") { state.setupGuideOpen=false; await currentDashboard(); }
 }
 
+// Read-only update status. This does not back up, stop a process, or change a profile.
+function renderUpdateSafety() {
+  const h=state.health,m=state.maintenance,s=state.settings;
+  byId("update-ui-version").textContent="v0.1.3-preview.8 · 실행 중 화면 파일 기준 (ZIP metadata/VERSION.json과 대조)";
+  byId("update-current-mode").textContent=state.mode==="demo" ? "Demo 전용 데이터 (Live와 분리)" : state.mode==="live" ? "Live · 사내 수집 PC 데이터" : "실행 모드 미확인";
+  byId("update-account-status").textContent=s?.credentialStatus==="registered" ? "등록됨 · 현재 Windows 실행 계정에서 복호화 확인" :
+    s?.credentialStatus==="missing" ? "미등록" : s?.credentialStatus==="reregistration-required" ? "재등록 필요" : "아직 확인되지 않음";
+  byId("update-collector-status").textContent=!h ? "수집기 상태 미확인" :
+    h.storageRecoveryPending ? "저장소 복구 대기 · 교체 금지" :
+    h.phase==="Stopped" ? "프로세스 중단" :
+    h.activeRunId ? \`수집 진행 중 · 회차 \${h.activeRunId} (종료 전 완료 확인)\` :
+    h.paused ? "일시정지 · 프로세스 종료가 아님" :
+    h.phase==="Idle" ? "실행 중 · 수집 대기" : (h.phase || "진행 상태 미확인");
+  byId("update-last-valid").textContent=h?.lastValidCommittedAtUtc ? dateText(h.lastValidCommittedAtUtc) : "미확인 · 수집 성공으로 간주하지 않음";
+  byId("update-backup-status").textContent=m?.backupStatus==="ready" && m.lastBackupAtUtc
+    ? \`마지막 자동 백업 확인 \${dateText(m.lastBackupAtUtc)} · 업데이트 전 별도 백업 필요\`
+    : m?.backupStatus==="failed" ? "백업 실패 · 데이터 확인 전 교체 금지" :
+    "업데이트 전 검증된 백업 미확인 · 별도 백업 필요";
+}
+function showHelp(topic="monitoring") {
+  navigate("help");
+  const detail=byId("help-"+topic);
+  if (detail) {
+    detail.open=true;
+    detail.scrollIntoView?.({block:"start"});
+    detail.querySelector?.("summary")?.focus?.({preventScroll:true});
+  }
+  renderUpdateSafety();
+}
+
 function updateControls() {
   const health = state.health, stopping = health && ["Stopping","Stopped"].includes(health.phase);
   const setupMissing = health?.configured === false || state.settings?.credentialRegistrationPending === true
@@ -810,6 +842,7 @@ function updateControls() {
   updateScopeControls();
   updateCertificatePinControls();
   renderConnectionGuide();
+  renderUpdateSafety();
 }
 async function perform(action) {
   if (state.mutationBusy) return;
@@ -1316,6 +1349,9 @@ operations = createOperationsController({
 });
 enrichment = createEnrichmentController({api,onMessage:setMessage,navigate,dateText,isCurrentView:()=>state.view === "enrichment",onRuns:openUnifiedRuns,onHistory:selection=>operations?.show("timeline",{...selection,asOfRunId:selection.asOfRunId ?? (state.historical ? selection.runId : undefined)}),onSettingsSaved:()=>{void loadSettings(false);void loadScope();void loadHealth();}});
 document.querySelectorAll("[data-action='current']").forEach(node => node.addEventListener("click",() => { clearTimeout(searchTimer); clearTimeout(incidentSearchTimer); setMessage(""); void currentDashboard(); }));
+document.querySelectorAll("[data-help-topic]").forEach(node => node.addEventListener("click",() => showHelp(node.dataset.helpTopic)));
+document.querySelectorAll("[data-help-go]").forEach(node => node.addEventListener("click",() => { void show(node.dataset.helpGo); }));
+byId("help-update-refresh").addEventListener("click",() => { void Promise.all([loadHealth(),loadSettings(false)]).then(renderUpdateSafety); });
 document.querySelectorAll("[data-filter]").forEach(node => node.addEventListener("click",() => quickFilter(node.dataset.filter)));
 byId("home-connect-setup").addEventListener("click",()=>{ void openConnectionGuide(); });
 byId("status-filter").addEventListener("change",event => filterChanged(event.target.value));
