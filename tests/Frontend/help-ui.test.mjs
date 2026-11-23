@@ -23,7 +23,7 @@ test("read-only update inspection does not mutate settings, stop services or bac
   const source=js.slice(a,b);
   assert.doesNotMatch(source,/\b(fetch|api|perform|POST)\s*\(/);
   const fields=new Map();
-  const state={mode:"live",settings:{credentialStatus:"registered"},
+  const state={mode:"live",publishedBuild:{version:"0.1.3-preview.9",sourceCommit:"a".repeat(40),packageMetadataPresent:true},settings:{credentialStatus:"registered"},
     health:{phase:"Idle",configured:true,lastValidCommittedAtUtc:"2026-11-23T01:00:00Z"},
     maintenance:{backupStatus:"failed",lastBackupAtUtc:null}};
   const context={state,byId:id=>{
@@ -33,7 +33,7 @@ test("read-only update inspection does not mutate settings, stop services or bac
   },dateText:x=>x};
   runInNewContext(source+"\nglobalThis.render=renderUpdateSafety;",context);
   context.render();
-  assert.match(fields.get("update-ui-version").textContent,/0\.1\.3-preview\.8/);
+  assert.match(fields.get("update-ui-version").textContent,/0\.1\.3-preview\.9/);
   assert.match(fields.get("update-collector-status").textContent,/실행 중/);
   assert.match(fields.get("update-backup-status").textContent,/백업 실패/);
   state.maintenance={backupStatus:"ready",lastBackupAtUtc:"2026-11-22T00:00:00Z"};

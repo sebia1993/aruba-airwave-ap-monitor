@@ -21,3 +21,11 @@
 .run-warning-breakdown .footnote {font-size:10px;}
 @media(max-width:900px){.help-start-grid,.help-topics {grid-template-columns:1fr;}}
 @media(max-width:620px){.help-update-facts {grid-template-columns:minmax(0,1fr);}.help-update-facts dd {margin-bottom:7px;}}
+
+.safe-diagnostic-panel {margin-bottom:14px; padding-bottom:10px;}
+.safe-diagnostic-description {padding:0 16px 8px; font-size:12px; color:var(--muted);}
+#safe-diagnostic-result {margin:0 16px 12px;}
+.safe-diagnostic-preview {background:var(--subtle);border:1px solid var(--line);padding:12px;border-radius:8px;
+  white-space:pre-wrap;overflow-wrap:anywhere;max-height:310px;overflow:auto;font-family:ui-monospace,Consolas,monospace;font-size:11px;}
+.safe-diagnostic-panel .actions {gap:6px;}
+@media(max-width:700px){.safe-diagnostic-panel .actions {width:100%;}.safe-diagnostic-panel .actions button {flex:1 1 130px;}}

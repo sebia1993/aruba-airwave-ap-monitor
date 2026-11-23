@@ -2,7 +2,7 @@
 
 **핵심 목표는 AirWave를 주기적으로 조회하여 Down AP 현황을 추적하는 것입니다.** 수집 PC 한 대에서 이번 Down, 신규 Down, 미복구, 복구 확인과 반복 이력을 조회합니다. 정보·연결 변경, 장비 교체와 작업·조치 기록은 이 감시와 조사를 지원합니다.
 
-**최신 현장 검증용 프리뷰 v0.1.3-preview.8:** [Windows ZIP 다운로드](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/download/v0.1.3-preview.8/AirWaveAPMonitor-v0.1.3-preview.8-win-x64.zip) → 새 폴더 전체 압축 해제 → 최상위 `AirWaveAPMonitor.exe` 실행. **실장비 검증 및 main 통합은 보류**합니다. [빠른 사용법](docs/guides/QUICK_START.md) · [안전한 업데이트](docs/guides/UPDATE_CHECKLIST.md) · [통합 준비](docs/development/PR_INTEGRATION_READINESS.md)를 참고하세요.
+**최신 현장 검증용 프리뷰 v0.1.3-preview.9:** [Windows ZIP 다운로드](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/download/v0.1.3-preview.9/AirWaveAPMonitor-v0.1.3-preview.9-win-x64.zip) → 새 폴더 전체 압축 해제 → 최상위 `AirWaveAPMonitor.exe` 실행. **실장비 검증 및 main 통합은 보류**합니다. [빠른 사용법](docs/guides/QUICK_START.md) · [안전한 업데이트](docs/guides/UPDATE_CHECKLIST.md) · [통합 준비](docs/development/PR_INTEGRATION_READINESS.md)를 참고하세요.
 
 **기존 v0.1.0 상태: 계획의 Task 1–10 구현·자동 검증·인수 산출물 범위를 완료했으며 개발 진행률은100%입니다. Mac 공통891·화면100·패키지11개 검사와 최신 Windows 전체 실행, 정확한 CI ZIP 해시/소스 대조를 완료했습니다. 실제 AirWave와 사내 Windows11/AD 운영은 미확인이며 Live 연결·LLDP·PoE 전송 어댑터는 미구현·미검증·비활성입니다.**
 

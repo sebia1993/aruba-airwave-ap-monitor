@@ -64,7 +64,7 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
         launcher = Path(launcher)
         if not launcher.is_file() or launcher.is_symlink() or launcher.stat().st_size == 0:
             raise ValueError("Windows 실행기는 비어 있지 않은 일반 파일이어야 합니다.")
-        for required in ("e_sqlite3.dll", "wwwroot/app.css", "wwwroot/ui-state.js", "wwwroot/operations.js", "wwwroot/enrichment.js"):
+        for required in ("e_sqlite3.dll", "wwwroot/app.css", "wwwroot/ui-state.js", "wwwroot/operations.js", "wwwroot/enrichment.js", "wwwroot/safe-diagnostics.js"):
             if not (published / required).is_file():
                 raise ValueError("핵심 감시 패키지의 필수 자원이 누락되었습니다: " + required)
     if not re.fullmatch(r"[0-9a-f]{40,64}", commit):
@@ -112,7 +112,7 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
 
     destination.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
-    version = "0.1.3-preview.8" if core else "0.1.0-diagnostics"
+    version = "0.1.3-preview.9" if core else "0.1.0-diagnostics"
     name = "AirWaveAPMonitor-{}-{}-{}-{}".format(
         version, commit[:12], now.strftime("%Y%m%dT%H%M%SZ"), uuid.uuid4().hex[:6])
     with tempfile.TemporaryDirectory(prefix=".bundle-", dir=destination) as temporary:

@@ -33,7 +33,7 @@
       <div class="side-bottom"><strong>수집 PC 전용</strong><p>루프백 연결 · 로컬 이력</p><small>창을 닫는 것과 수집 중지는 별개입니다.</small></div>
     </aside>
     <div class="workspace">
-      <header class="topbar"><div class="breadcrumb">운영 콘솔 <span>/</span> <strong id="breadcrumb">AP 현황</strong></div><div class="top-status"><span id="collector-status" class="collector-badge">수집기 확인 중</span><span id="mode" class="badge">모드 확인 중</span><button id="help-context-button" type="button" data-help-topic="monitoring">? 사용법</button></div></header>
+      <header class="topbar"><div class="breadcrumb">운영 콘솔 <span>/</span> <strong id="breadcrumb">AP 현황</strong></div><div class="top-status"><span id="collector-status" class="collector-badge">수집기 확인 중</span><span id="mode" class="badge">모드 확인 중</span><span id="program-version" class="badge">버전 확인 중</span><button id="help-context-button" type="button" data-help-topic="monitoring">? 사용법</button></div></header>
       <main id="main" tabindex="-1">
         <div id="global-message" class="message" role="status" aria-live="polite" hidden></div>
         <div id="global-error" class="notice error" role="alert" hidden></div>
@@ -86,6 +86,20 @@
         </section>
         <section data-screen="runs" aria-labelledby="runs-title" hidden>
           <div class="heading"><div><h1 id="runs-title">수집 기록</h1><p class="subtitle">실패·중단 회차도 보존하며 당시 현황을 확인할 수 있습니다.</p></div><button type="button" id="refresh-runs">기록 새로고침</button></div>
+          <section class="panel safe-diagnostic-panel" aria-labelledby="safe-diagnostic-title">
+            <div class="panel-head"><h2 id="safe-diagnostic-title">안전한 진단 정보 내보내기</h2>
+              <div class="actions">
+                <button id="safe-diagnostic-preview-action" type="button">요약 만들기</button>
+                <button id="safe-diagnostic-copy" type="button" disabled>진단 정보 복사</button>
+                <button id="safe-diagnostic-save" type="button" class="primary" disabled>JSON 파일 저장</button>
+              </div>
+            </div>
+            <p class="safe-diagnostic-description">사내 IP·계정·비밀번호·인증서 지문·원문 오류·AP 고유 식별자는 내보내지 않습니다. 수집 상태와 건수, 승인된 오류 코드만 기록합니다.</p>
+            <div id="safe-diagnostic-result" hidden>
+              <p id="safe-diagnostic-status" class="footnote" role="status"></p>
+              <pre id="safe-diagnostic-preview" class="safe-diagnostic-preview" tabindex="0" aria-label="안전한 진단 정보 JSON"></pre>
+            </div>
+          </section>
           <section class="panel"><div class="panel-head"><h2>수집 회차</h2><label class="compact-label">수집 종류<select id="run-kind"><option value="">전체 종류</option><option value="ApStatus">AP 상태</option><option value="connectionpower">연결·전력 전체</option><option value="ConnectionNeighbor">연결·이웃</option><option value="Power">전력</option></select></label><label class="compact-label">조회 범위<select id="run-scope"><option value="">모든 범위</option></select></label></div><form id="run-period-form" class="toolbar period-filter"><label>수집 시작 기준 · 기간 시작 (KST)<input id="run-from" type="datetime-local"></label><label>수집 시작 기준 · 기간 종료 (KST)<input id="run-to" type="datetime-local"></label><button type="submit">기간 적용</button><p id="run-period-applied" class="footnote">기간 제한 없음 · 입력을 비우고 적용하면 기간 조건을 해제합니다.</p></form><div id="run-table"></div><div class="pager"><span id="run-page-label"></span><div class="actions"><button type="button" id="run-prev" disabled>이전</button><span id="run-page-number">1 / 1</span><button type="button" id="run-next" disabled>다음</button></div></div></section>
         </section>
         <section data-screen="detail" aria-labelledby="detail-title" hidden><button id="detail-back" type="button">← 목록으로</button><div id="detail-content"></div></section>
@@ -165,7 +179,7 @@
               <details><summary>범위 변경·기준 대조 이력</summary><textarea id="scope-history" aria-label="범위 변경 및 기준 대조 기록" rows="6" readonly></textarea></details>
             </section>
             <section class="panel padded wide"><h2>연결·전력 상세 수집</h2><p class="footnote">종류별 수집 가능 여부와 설정, 보존된 전력 표본을 조회합니다.</p><button id="enrichment-settings-open" type="button">연결·전력 제공 범위와 설정</button></section>
-            <section class="panel padded wide" aria-labelledby="diagnostics-title"><h2 id="diagnostics-title">연결 진단 · AP 목록 단일 읽기</h2><p class="footnote">저장한 설정을 기준으로 확인합니다. 진단 결과는 운영 수집 회차·장애 이력으로 저장하지 않습니다.</p><p id="diagnostic-validity" class="footnote">연결 확인 전</p><button id="run-diagnostics" type="button">연결 진단 실행</button><div id="diagnostic-result" hidden><h3 id="diagnostic-summary"></h3><dl class="pairs" id="diagnostic-details"></dl><ol class="timeline" id="diagnostic-stages"></ol><ul id="diagnostic-notes"></ul></div></section>
+            <section class="panel padded wide" aria-labelledby="diagnostics-title"><h2 id="diagnostics-title">연결 진단 · AP 목록 단일 읽기</h2><p class="footnote">저장한 설정을 기준으로 확인합니다. 진단 결과는 운영 수집 회차·장애 이력으로 저장하지 않습니다.</p><p id="diagnostic-validity" class="footnote">연결 확인 전</p><div class="actions"><button id="run-diagnostics" type="button">연결 진단 실행</button><button id="settings-safe-export" type="button">안전한 진단 정보 내보내기</button></div><div id="diagnostic-result" hidden><h3 id="diagnostic-summary"></h3><dl class="pairs" id="diagnostic-details"></dl><ol class="timeline" id="diagnostic-stages"></ol><ul id="diagnostic-notes"></ul></div></section>
           </div>
         </section>
         <section data-screen="help" aria-labelledby="help-title" hidden>

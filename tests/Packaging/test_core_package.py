@@ -28,7 +28,7 @@ class CorePackageTests(unittest.TestCase):
         for relative in ("AirWaveApMonitor.App.exe", "AirWaveApMonitor.App.deps.json",
                          "AirWaveApMonitor.App.runtimeconfig.json", "coreclr.dll", "hostfxr.dll",
                          "hostpolicy.dll", "e_sqlite3.dll", "wwwroot/index.html", "wwwroot/app.js",
-                         "wwwroot/app.css", "wwwroot/ui-state.js", "wwwroot/run-warnings.js", "wwwroot/help.css", "wwwroot/operations.js", "wwwroot/enrichment.js"):
+                         "wwwroot/app.css", "wwwroot/ui-state.js", "wwwroot/run-warnings.js", "wwwroot/help.css", "wwwroot/operations.js", "wwwroot/enrichment.js", "wwwroot/safe-diagnostics.js"):
             file = self.publish / relative
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text("synthetic publish fixture", encoding="utf-8")
@@ -96,7 +96,7 @@ class CorePackageTests(unittest.TestCase):
             self.assertIn("app/wwwroot/ui-state.js", names)
             version = json.loads(bundle.read("metadata/VERSION.json"))
             self.assertEqual("core-monitoring", version["stage"])
-            self.assertEqual("0.1.3-preview.8", version["version"])
+            self.assertEqual("0.1.3-preview.9", version["version"])
             self.assertFalse(version["onsite_verified"])
             self.assertFalse(version["working_tree_dirty"])
             self.assertEqual("a" * 40, version["source_commit"])
@@ -110,6 +110,7 @@ class CorePackageTests(unittest.TestCase):
             self.assertIn("app/wwwroot/operations.js", names)
             self.assertIn("app/wwwroot/run-warnings.js", names)
             self.assertIn("app/wwwroot/help.css", names)
+            self.assertIn("app/wwwroot/safe-diagnostics.js", names)
             entries = bundle.read("metadata/SHA256SUMS.txt").decode().splitlines()
             for line in entries:
                 digest, name = line.split("  ", 1)
