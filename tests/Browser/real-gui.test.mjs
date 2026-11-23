@@ -111,6 +111,7 @@ try {
     assert.ok(!safe.includes(privateWord),"Private field in GUI export: "+privateWord);
   }
   await click("#safe-diagnostic-copy");
+  await until(async()=>await expression("!document.querySelector('#safe-diagnostic-save').disabled"),"JSON save enabled after copy",15000);
   await click("#safe-diagnostic-save");
   await until(()=>readdirSync(downloads).some(n=>n==="airwave-safe-diagnostics.json"),"JSON browser download",20000);
   assert.equal(JSON.parse(readFileSync(join(downloads,"airwave-safe-diagnostics.json"),"utf8")).schemaVersion,1);
