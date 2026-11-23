@@ -8,11 +8,12 @@ using AirWaveApMonitor.App.Runtime;
 using Microsoft.AspNetCore.Antiforgery;
 namespace AirWaveApMonitor.App.Endpoints;
 
-public static class SettingsEndpoints
+public static partial class SettingsEndpoints
 {
     public static void MapSettings(this WebApplication app)
     {
         app.MapScopeSettings();
+        MapCertificatePinDiscovery(app);
         app.MapGet("/api/antiforgery", (HttpContext context, IAntiforgery antiforgery) => { context.Response.Headers.CacheControl = "no-store"; return Results.Ok(new { token = antiforgery.GetAndStoreTokens(context).RequestToken }); });
         app.MapGet("/api/settings", async (HttpContext context, ProfileStore profiles, ICredentialStore credentials, RuntimeOptions runtime, AirWaveSession session) =>
         {

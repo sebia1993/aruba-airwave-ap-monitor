@@ -24,7 +24,8 @@ internal sealed class PinnedCertificatePolicy(TemporaryCertificatePin pin, TimeP
         var now = clock.GetUtcNow();
         var failure = TemporaryCertificatePinValidation.CheckScope(pin, request.RequestUri, now);
         if (failure is not null) throw Block(failure);
-        using var expiry = new CancellationTokenSource(pin.ExpiresAtUtc - now, clock);
+        if (pin.ExpiresAtUtc is not { } expiresAt) return await base.SendAsync(request, ct);
+        using var expiry = new CancellationTokenSource(expiresAt - now, clock);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct, expiry.Token);
         try { return await base.SendAsync(request, deadline.Token); }
         catch (OperationCanceledException) when (expiry.IsCancellationRequested && !ct.IsCancellationRequested)

@@ -9,7 +9,7 @@ public static class TemporaryCertificatePinValidation
 {
     internal static string? CheckScope(TemporaryCertificatePin pin, Uri? destination, DateTimeOffset now)
     {
-        if (now >= pin.ExpiresAtUtc) return "pin-expired";
+        if (pin.IsExpiredAt(now)) return "pin-expired";
         if (destination is not { IsAbsoluteUri: true } || destination.Scheme != Uri.UriSchemeHttps ||
             destination.UserInfo.Length != 0 || destination.HostNameType is not (UriHostNameType.IPv4 or UriHostNameType.IPv6) ||
             !destination.IdnHost.Equals(pin.Origin.IdnHost, StringComparison.OrdinalIgnoreCase) ||

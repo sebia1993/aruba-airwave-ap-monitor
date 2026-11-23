@@ -67,16 +67,41 @@ public sealed partial class ProfileStore
     }
     public Task UpdateTemporaryCertificatePinAsync(string? sha256, int? durationHours, long expectedVersion, DateTimeOffset now, CancellationToken ct)
     {
-        var current = Current ?? throw new ArgumentException("서버 주소를 먼저 저장하세요.");
-        if (current.ConfigurationVersion != expectedVersion)
-            throw new ProfileConflictException("설정이 변경되었습니다. 현재 설정을 다시 읽으세요.");
-        if (location.Mode != AppMode.Live || current.Origin.HostNameType is not (UriHostNameType.IPv4 or UriHostNameType.IPv6))
-            throw new ArgumentException("실서버 모드에서 저장된 HTTPS IP·포트에만 지문 예외를 설정할 수 있습니다.");
+        var current = CheckPinProfile(expectedVersion);
         if ((sha256 is null) != (durationHours is null) || durationHours is < 1 or > 168)
             throw new ArgumentException("지문과 적용 시간(1~168시간)을 함께 입력하세요.");
         var pin = durationHours is int hours
             ? new TemporaryCertificatePin(current.Origin, sha256!, now.AddHours(hours)) : null;
         return SaveAsync(current.WithTemporaryCertificatePin(pin), ct);
+    }
+
+    public Task EnablePersistentCertificatePinAsync(string observedSha256, string? independentlyVerifiedSha256,
+        long expectedVersion, DateTimeOffset now, CancellationToken ct)
+    {
+        var current = CheckPinProfile(expectedVersion);
+        var observed = new TemporaryCertificatePin(current.Origin, observedSha256, null);
+        var saved = current.TemporaryCertificatePin;
+        if (saved is not null && !saved.MatchesSha256(observed.Sha256))
+            throw new ArgumentException("서버 인증서 변경 감지. 기존 등록 지문과 현재 서버 지문이 다릅니다.");
+        if (independentlyVerifiedSha256 is not null)
+        {
+            if (!observed.MatchesSha256(independentlyVerifiedSha256))
+                throw new ArgumentException("별도로 확인한 지문과 현재 서버 지문이 일치하지 않습니다.");
+        }
+        else if (saved is null || saved.IsExpiredAt(now))
+            throw new ArgumentException("최초 등록 또는 기간 만료 후에는 별도로 확인한 서버 인증서 SHA-256 지문을 입력하세요.");
+
+        return saved == observed ? Task.CompletedTask : SaveAsync(current.WithTemporaryCertificatePin(observed), ct);
+    }
+
+    private ProfileSnapshot CheckPinProfile(long expectedVersion)
+    {
+        var current = Current ?? throw new ArgumentException("서버 주소를 먼저 저장하세요.");
+        if (current.ConfigurationVersion != expectedVersion)
+            throw new ProfileConflictException("설정이 변경되었습니다. 현재 설정을 다시 읽으세요.");
+        if (location.Mode != AppMode.Live || current.Origin.HostNameType is not (UriHostNameType.IPv4 or UriHostNameType.IPv6))
+            throw new ArgumentException("실서버 모드에서 저장된 HTTPS IP·포트에만 지문 예외를 설정할 수 있습니다.");
+        return current;
     }
 
     public Task CredentialsChangedAsync(CancellationToken ct)

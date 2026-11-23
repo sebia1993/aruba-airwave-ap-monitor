@@ -17,7 +17,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AirWaveApMonitor.Tests.AirWave;
 
-public sealed class TemporaryCertificatePinTests
+public sealed partial class TemporaryCertificatePinTests
 {
     [Theory]
     [InlineData(false)]
@@ -52,9 +52,11 @@ public sealed class TemporaryCertificatePinTests
     }
 
     [Theory]
-    [InlineData(RunTrigger.Manual)]
-    [InlineData(RunTrigger.Scheduled)]
-    public async Task PinnedDiagnosisAndStoredCollectionRunReadTheSameServer(RunTrigger trigger)
+    [InlineData(RunTrigger.Manual, false)]
+    [InlineData(RunTrigger.Scheduled, false)]
+    [InlineData(RunTrigger.Manual, true)]
+    [InlineData(RunTrigger.Scheduled, true)]
+    public async Task PinnedDiagnosisAndStoredCollectionRunReadTheSameServer(RunTrigger trigger, bool persistent)
     {
         var clock = new TestClock();
         var now = clock.GetUtcNow();
@@ -64,7 +66,12 @@ public sealed class TemporaryCertificatePinTests
         var profiles = new ProfileStore(location);
         await profiles.UpdateAsync(server.Origin, 5, new(ProxyMode.Direct), 0, default);
         await profiles.UpdateTemporaryCertificatePinAsync(server.Fingerprint, 24, 1, now, default);
-        var profile = profiles.Current!;
+        if (persistent)
+        {
+            await profiles.EnablePersistentCertificatePinAsync(server.Fingerprint, null, 2, now, default);
+            clock.Advance(TimeSpan.FromDays(60));
+        }
+        var profile = new ProfileStore(location).Current!;
         using var session = new AirWaveSession(clock: clock);
         var client = new AirWaveClient(session, new Credentials(), clock);
         var diagnostics = new ConnectionDiagnostics(AppMode.Live, client, clock);
@@ -90,16 +97,18 @@ public sealed class TemporaryCertificatePinTests
     }
 
     [Theory]
-    [InlineData("mismatch", "pin-mismatch")]
-    [InlineData("expired", "pin-expired")]
-    [InlineData("future-leaf", "pin-disallowed")]
-    public async Task RejectedPin_DoesNotSendCredentialsOrReadAps(string scenario, string expected)
+    [InlineData("mismatch", "pin-mismatch", false)]
+    [InlineData("mismatch", "pin-mismatch", true)]
+    [InlineData("expired", "pin-expired", false)]
+    [InlineData("future-leaf", "pin-disallowed", false)]
+    [InlineData("future-leaf", "pin-disallowed", true)]
+    public async Task RejectedPin_DoesNotSendCredentialsOrReadAps(string scenario, string expected, bool persistent)
     {
         var clock = new TestClock();
         var now = clock.GetUtcNow();
         await using var server = await TestServer.StartAsync(now.AddDays(scenario == "future-leaf" ? 1 : -1), now.AddDays(3));
         var fingerprint = scenario == "mismatch" ? new string('0', 64) : server.Fingerprint;
-        var profile = server.CreateProfile(fingerprint, now.AddMinutes(2));
+        var profile = server.CreateProfile(fingerprint, persistent ? null : now.AddMinutes(2));
         if (scenario == "expired") clock.Advance(TimeSpan.FromMinutes(2));
         using var session = new AirWaveSession(clock: clock);
         var result = await new AirWaveClient(session, new Credentials(), clock).ReadAsync(profile, default);
@@ -129,13 +138,15 @@ public sealed class TemporaryCertificatePinTests
         Assert.Equal(new[] { "/LOGIN", "/ap_list.xml" }, server.Paths.ToArray());
     }
 
-    [Fact]
-    public async Task RemovingPinDropsAuthorizedConnection_AndOlderSnapshotCannotRestoreIt()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemovingPinDropsAuthorizedConnection_AndOlderSnapshotCannotRestoreIt(bool persistent)
     {
         var clock = new TestClock();
         var now = clock.GetUtcNow();
         await using var server = await TestServer.StartAsync(now.AddDays(-1), now.AddDays(1));
-        var pinned = server.CreateProfile(server.Fingerprint, now.AddMinutes(10));
+        var pinned = server.CreateProfile(server.Fingerprint, persistent ? null : now.AddMinutes(10));
         var cleared = new ProfileSnapshot(pinned.InstanceId, pinned.DatasetId, pinned.Origin,
             pinned.ConfigurationVersion + 1, pinned.ScopeVersion, [], pinned.BaselineStatus, pinned.Settings)
             { Proxy = pinned.Proxy };
@@ -242,13 +253,13 @@ public sealed class TemporaryCertificatePinTests
         public Task ClearAsync(Guid datasetId, Uri origin, CancellationToken ct) => throw new NotSupportedException();
     }
 
-    private sealed class TestServer(WebApplication app, X509Certificate2 certificate) : IAsyncDisposable
+    internal sealed class TestServer(WebApplication app, X509Certificate2 certificate) : IAsyncDisposable
     {
         public ConcurrentQueue<string> Paths { get; } = new();
         public ConcurrentQueue<string> Connections { get; } = new();
         public string Fingerprint => certificate.GetCertHashString(HashAlgorithmName.SHA256);
         public Uri Origin => new(app.Urls.Single());
-        public ProfileSnapshot CreateProfile(string pin, DateTimeOffset expiry, Uri? origin = null)
+        public ProfileSnapshot CreateProfile(string pin, DateTimeOffset? expiry, Uri? origin = null)
         {
             origin ??= Origin;
             return new ProfileSnapshot(Guid.NewGuid(), Guid.NewGuid(), origin, 1, 1, [], BaselineStatus.Unverified, new())
@@ -258,7 +269,7 @@ public sealed class TemporaryCertificatePinTests
             };
         }
 
-        public static async Task<TestServer> StartAsync(DateTimeOffset notBefore, DateTimeOffset notAfter, Action? onLogin = null)
+        public static async Task<TestServer> StartAsync(DateTimeOffset notBefore, DateTimeOffset notAfter, Action? onLogin = null, int port = 0)
         {
             using var key = RSA.Create(2048);
             var request = new CertificateRequest("CN=synthetic-airwave.example.invalid", key,
@@ -271,7 +282,7 @@ public sealed class TemporaryCertificatePinTests
                 X509KeyStorageFlags.DefaultKeySet);
             var builder = WebApplication.CreateSlimBuilder();
             builder.Logging.ClearProviders();
-            builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0,
+            builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, port,
                 listen => listen.UseHttps(certificate)));
             var app = builder.Build();
             var server = new TestServer(app, certificate);

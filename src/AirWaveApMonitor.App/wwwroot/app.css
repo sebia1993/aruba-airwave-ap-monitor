@@ -151,8 +151,11 @@ summary { cursor:pointer; color:var(--blue); font-size:12px; padding:7px 0; over
 
 .pin-settings { min-width:0; }
 .pin-settings .pairs dd { overflow-wrap:anywhere; }
-.pin-settings .operation-form label { display:grid; gap:6px; }
+.pin-settings label { display:grid; gap:6px; }
+.pin-settings .actions { flex-wrap:wrap; }
+.pin-settings details { margin-top:16px; }
+.pin-settings summary { cursor:pointer; font-weight:600; }
 .pin-settings input { min-width:0; width:100%; }
 .pin-settings #pin-hours { max-width:9rem; }
-.pin-settings #pin-fingerprint, .pin-settings #pin-current { font-family:ui-monospace,monospace; }
+.pin-settings input[type=text], .pin-settings #pin-current, .pin-settings #pin-observed { font-family:ui-monospace,monospace; }
 .pin-settings .footnote:empty { display:none; }

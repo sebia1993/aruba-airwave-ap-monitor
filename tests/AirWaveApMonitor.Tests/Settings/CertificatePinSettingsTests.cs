@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using AirWaveApMonitor.App.Runtime;
 using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Infrastructure.Maintenance;
@@ -53,6 +54,68 @@ public sealed class CertificatePinSettingsTests
         var inconsistent = saved with { TemporaryCertificatePin = new(new Uri("https://192.0.2.30:4344"), Digest, now.AddHours(2)) };
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(inconsistent));
         Assert.Throws<InvalidOperationException>(() => new ProfileStore(location));
+    }
+
+    [Fact]
+    public void MissingExpirationCannotBeLoadedAsAnOpenEndedPin()
+    {
+        var json = JsonSerializer.Serialize(new { Origin, Sha256 = Digest });
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<TemporaryCertificatePin>(json));
+    }
+
+    [Fact]
+    public void ExplicitlyOpenEndedExpirationSurvivesNullIgnoringSerializers()
+    {
+        var pin = new TemporaryCertificatePin(Origin, Digest, null);
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+        var json = JsonSerializer.Serialize(pin, options);
+        Assert.Equal(JsonValueKind.Null, JsonSerializer.Deserialize<JsonElement>(json).GetProperty("expiresAtUtc").ValueKind);
+        Assert.Equal(pin, JsonSerializer.Deserialize<TemporaryCertificatePin>(json, options));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FirstOrExpiredEnrollmentRequiresAnIndependentMatchingFingerprint(bool expired)
+    {
+        using var temp = new TemporaryDirectory();
+        var location = StoragePaths.Open(AppMode.Live, temp.Path);
+        var store = new ProfileStore(location);
+        var now = DateTimeOffset.UnixEpoch;
+        await store.UpdateAsync(Origin, 5, new(ProxyMode.Direct), 0, default);
+        if (expired) await store.UpdateTemporaryCertificatePinAsync(Digest, 1, 1, now.AddHours(-1), default);
+        var original = store.Current!;
+        var version = original.ConfigurationVersion;
+        await Assert.ThrowsAsync<ArgumentException>(() => store.EnablePersistentCertificatePinAsync(Digest, null, version, now, default));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.EnablePersistentCertificatePinAsync(Digest, new string('F', 64), version, now, default));
+        await Assert.ThrowsAsync<ProfileConflictException>(() => store.EnablePersistentCertificatePinAsync(Digest, Digest, version - 1, now, default));
+        Assert.Same(original, store.Current);
+        await store.EnablePersistentCertificatePinAsync(Digest, Digest.ToLowerInvariant(), version, now, default);
+        var reopened = new ProfileStore(location).Current!;
+        Assert.Equal(new TemporaryCertificatePin(Origin, Digest, null), reopened.TemporaryCertificatePin);
+        Assert.Equal(version + 1, reopened.ConfigurationVersion);
+        await store.EnablePersistentCertificatePinAsync(Digest, null, version + 1, now.AddYears(1), default);
+        Assert.Equal(version + 1, store.Current!.ConfigurationVersion);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ObservedCertificateChangeCannotOverwriteAnySavedPin(bool persistent)
+    {
+        using var temp = new TemporaryDirectory();
+        var location = StoragePaths.Open(AppMode.Live, temp.Path);
+        var store = new ProfileStore(location);
+        var now = DateTimeOffset.UnixEpoch;
+        await store.UpdateAsync(Origin, 5, new(ProxyMode.Direct), 0, default);
+        await store.UpdateTemporaryCertificatePinAsync(Digest, 1, 1, now, default);
+        if (persistent) await store.EnablePersistentCertificatePinAsync(Digest, null, 2, now, default);
+        var version = store.Current!.ConfigurationVersion;
+        var changed = new string('F', 64);
+        await Assert.ThrowsAsync<ArgumentException>(() => store.EnablePersistentCertificatePinAsync(changed, changed, version, now, default));
+        var saved = new ProfileStore(location).Current!;
+        Assert.Equal(Digest, saved.TemporaryCertificatePin!.Sha256);
+        Assert.Equal(version, saved.ConfigurationVersion);
     }
 
     [Fact]
