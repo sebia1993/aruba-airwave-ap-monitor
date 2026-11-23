@@ -1,0 +1,26 @@
+name: Verify preview9 real browser and Demo soak
+on:
+  push:
+    branches: [qa/airwave-preview9-browser]
+    paths: [.github/workflows/qa-preview9-browser.yml]
+permissions:
+  contents: read
+jobs:
+  gui-and-soak:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-dotnet@v6.1.0
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+      - name: Publish local test build
+        run: dotnet publish src/AirWaveApMonitor.App -c Release -r win-x64 --self-contained true -p:PublishAot=false -p:PublishReadyToRun=false -p:PublishTrimmed=false -p:PublishSingleFile=false -o artifacts/qa-app
+      - name: Real Chrome or Edge GUI
+        run: node tests/Browser/real-gui.test.mjs artifacts/qa-app/AirWaveApMonitor.App.exe
+      - name: Twelve Demo AP collections
+        shell: powershell
+        run: ./scripts/ci/windows-demo-soak.ps1 -AppDirectory ./artifacts/qa-app -Cycles 12
