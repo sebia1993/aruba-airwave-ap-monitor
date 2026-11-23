@@ -3,6 +3,7 @@ import { countText, createRequestGate, dashboardQuery, observationStatus, incide
 
 import { determineSetupStage, connectionSteps } from "./setup-guide.js";
 import { summarizeCollectionWarnings } from "./run-warnings.js";
+import { safeDiagnosticsJson } from "./safe-diagnostics.js";
 import { createOperationsController } from "./operations.js";
 import { createEnrichmentController } from "./enrichment.js";
 
@@ -25,7 +26,8 @@ const state = {
   health: null, maintenance: null, settings: null, mode: null, mutationBusy: false, settingsDirty: false, draftRevision: 0, pinDraftBase: null, pinProbe: null,
   scope: {data:null,dirty:false,revision:0,baseVersion:null,baselineDirty:false,baselineRevision:0,baselineBase:null},
   token: null, tokenPromise: null, diagnosticIdentity: null, lastDiagnosticReport: null, guideRequiresFreshDiagnostic: false,
-  setupGuideOpen: false, setupAutoHandled: false, lastDashboardRead: null
+  setupGuideOpen: false, setupAutoHandled: false, lastDashboardRead: null,
+  publishedBuild: null, safeDiagnosticText: null, safeDiagnosticBusy: false
 };
 const gates = { dashboard: createRequestGate(), incidents: createRequestGate(), runs: createRequestGate(), detail: createRequestGate(), settings: createRequestGate(), scope: createRequestGate(), health: createRequestGate() };
 let searchTimer, incidentSearchTimer;
@@ -795,9 +797,82 @@ async function connectionGuideAction() {
 }
 
 // Read-only update status. This does not back up, stop a process, or change a profile.
+// This creates a closed-schema support report from whitelisted fields only.
+// No server errors or original responses are copied into the report.
+async function prepareSafeDiagnostic() {
+  if (state.safeDiagnosticBusy) return null;
+  state.safeDiagnosticBusy=true;
+  const reportNode=byId("safe-diagnostic-result");
+  const before=byId("safe-diagnostic-preview");
+  reportNode.hidden=false;
+  byId("safe-diagnostic-copy").disabled=true;
+  byId("safe-diagnostic-save").disabled=true;
+  before.textContent="읽기 전용 상태를 조회하고 있습니다...";
+  try {
+    const results=await Promise.allSettled([
+      api("/api/version"),
+      api("/api/health"),
+      api("/api/runs?kind=ApStatus&page=1&pageSize=1")
+    ]);
+    const build=results[0].status==="fulfilled"?results[0].value:null;
+    const health=results[1].status==="fulfilled"?results[1].value:null;
+    const lastRun=results[2].status==="fulfilled"?results[2].value?.rows?.[0]:null;
+    const validDiagnostic=state.diagnosticIdentity && state.settings?.profile &&
+      state.diagnosticIdentity===settingsIdentity(state.settings.profile);
+    const diagnostic=validDiagnostic?state.lastDiagnosticReport:null;
+    const output=safeDiagnosticsJson({version:build,health,run:lastRun,diagnostic});
+    state.safeDiagnosticText=output;
+    before.textContent=output;
+    byId("safe-diagnostic-copy").disabled=false;
+    byId("safe-diagnostic-save").disabled=false;
+    byId("safe-diagnostic-status").textContent=(results.some(r=>r.status==="rejected") ?
+      "일부 조회 실패 · 확인되지 않은 값은 null/Unknown으로 표시했습니다. " : "")+
+      "사내 IP·계정·비밀번호·인증서 지문·원문 메시지·AP 식별자는 포함하지 않습니다.";
+    return output;
+  } catch {
+    state.safeDiagnosticText=null;
+    byId("safe-diagnostic-status").textContent="안전한 진단 JSON을 만들지 못했습니다. 원문 오류는 자동 복사하지 않습니다.";
+    before.textContent="";
+    return null;
+  } finally {state.safeDiagnosticBusy=false;}
+}
+async function copySafeDiagnostic() {
+  const data=await prepareSafeDiagnostic();
+  if(!data)return;
+  try {
+    if(!navigator.clipboard?.writeText)throw Error("Clipboard unavailable");
+    await navigator.clipboard.writeText(data);
+    byId("safe-diagnostic-status").textContent="안전한 진단 JSON만 클립보드에 복사했습니다.";
+  } catch {
+    byId("safe-diagnostic-status").textContent="자동 복사가 허용되지 않았습니다. 아래 JSON 미리보기만 직접 선택·복사하세요.";
+  }
+}
+async function saveSafeDiagnostic() {
+  const data=await prepareSafeDiagnostic();
+  if(!data)return;
+  const blob=new Blob([data],{type:"application/json;charset=utf-8"});
+  const uri=URL.createObjectURL(blob),link=document.createElement("a");
+  try {
+    link.href=uri;
+    link.download="airwave-safe-diagnostics.json";
+    document.body.append(link);link.click();
+    byId("safe-diagnostic-status").textContent="허용된 필드만 포함한 JSON을 저장하도록 요청했습니다. 저장된 내용을 공유 전 다시 확인하세요.";
+  } finally {
+    link.remove();
+    setTimeout(()=>URL.revokeObjectURL(uri),1000);
+  }
+}
+async function loadPublishedBuild() {
+  try { state.publishedBuild=await api("/api/version"); }
+  catch { state.publishedBuild={version:"development",packageMetadataPresent:false}; }
+  renderUpdateSafety();
+}
 function renderUpdateSafety() {
   const h=state.health,m=state.maintenance,s=state.settings;
-  byId("update-ui-version").textContent="v0.1.3-preview.8 · 실행 중 화면 파일 기준 (ZIP metadata/VERSION.json과 대조)";
+  const published=state.publishedBuild;
+  const runningVersion=published?.packageMetadataPresent ? "v"+published.version : published ? "개발 빌드 · 버전 확인 불가" : "버전 조회 중";
+  byId("update-ui-version").textContent=runningVersion+(published?.sourceCommit ? " · 소스 "+published.sourceCommit.slice(0,12) : "");
+  byId("program-version").textContent=runningVersion;
   byId("update-current-mode").textContent=state.mode==="demo" ? "Demo 전용 데이터 (Live와 분리)" : state.mode==="live" ? "Live · 사내 수집 PC 데이터" : "실행 모드 미확인";
   byId("update-account-status").textContent=s?.credentialStatus==="registered" ? "등록됨 · 현재 Windows 실행 계정에서 복호화 확인" :
     s?.credentialStatus==="missing" ? "미등록" : s?.credentialStatus==="reregistration-required" ? "재등록 필요" : "아직 확인되지 않음";
@@ -1352,6 +1427,10 @@ document.querySelectorAll("[data-action='current']").forEach(node => node.addEve
 document.querySelectorAll("[data-help-topic]").forEach(node => node.addEventListener("click",() => showHelp(node.dataset.helpTopic)));
 document.querySelectorAll("[data-help-go]").forEach(node => node.addEventListener("click",() => { void show(node.dataset.helpGo); }));
 byId("help-update-refresh").addEventListener("click",() => { void Promise.all([loadHealth(),loadSettings(false)]).then(renderUpdateSafety); });
+byId("safe-diagnostic-preview-action").addEventListener("click",()=>{void prepareSafeDiagnostic();});
+byId("safe-diagnostic-copy").addEventListener("click",()=>{void copySafeDiagnostic();});
+byId("safe-diagnostic-save").addEventListener("click",()=>{void saveSafeDiagnostic();});
+byId("settings-safe-export").addEventListener("click",()=>{void show("runs").then(()=>prepareSafeDiagnostic());});
 document.querySelectorAll("[data-filter]").forEach(node => node.addEventListener("click",() => quickFilter(node.dataset.filter)));
 byId("home-connect-setup").addEventListener("click",()=>{ void openConnectionGuide(); });
 byId("status-filter").addEventListener("change",event => filterChanged(event.target.value));
@@ -1414,7 +1493,7 @@ byId("retry-authentication").addEventListener("click",retryAuthentication); byId
 document.addEventListener("visibilitychange",() => { if (!document.hidden) void loadHealth(); });
 
 updateControls();
-void loadDashboard(true); void loadHealth(); void loadSettings(true);
+void loadDashboard(true); void loadHealth(); void loadSettings(true); void loadPublishedBuild();
 void ensureToken().catch(error => setMessage(error.message,true));
 void api("/api/capabilities/windows").then(value => { byId("windows-detail").textContent = value.message; }).catch(() => { byId("windows-detail").textContent = "Windows 기능 정보를 읽지 못했습니다."; });
 // This timer only reads health. Collection schedules and persistence belong to the server worker.

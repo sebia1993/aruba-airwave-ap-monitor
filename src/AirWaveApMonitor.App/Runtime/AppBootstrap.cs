@@ -152,6 +152,11 @@ public static class AppBootstrap
             status = OperatingSystem.IsWindows() ? "dpapi-available" : "unsupported-platform",
             message = OperatingSystem.IsWindows() ? "현재 실행 계정의 DPAPI 사용 가능. 서비스·예약 작업 등록은 패키지의 Windows 운영 스크립트를 사용하세요." : "Windows DPAPI·서비스·예약 작업은 이 OS에서 지원하지 않습니다."
         });
+        app.MapGet("/api/version", (HttpContext context) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.Json(PublishedBuildInfo.Read(AppContext.BaseDirectory), CollectorEndpoints.Json);
+        });
         app.MapSettings();
         app.MapCollector();
         app.MapMonitoring();

@@ -88,6 +88,11 @@ jobs:
         id: publish
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet publish src/AirWaveApMonitor.App -c Release -r win-x64 --self-contained true -p:PublishAot=false -p:PublishReadyToRun=false -p:PublishTrimmed=false -p:PublishSingleFile=false -o artifacts/win-x64/app
+      - name: Synthetic 5000 AP repeated state changes and steady-up verification
+        if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
+        run: |
+          dotnet run --project tests/Performance -c Release -- 5000 artifacts/performance/5000-cycles cycles
+          dotnet run --project tests/Performance -c Release -- 5000 artifacts/performance/5000-steady steady-up
       - name: Package and run extracted ZIP from Korean and space path
         if: ${{ !cancelled() && steps.publish.outcome == 'success' && steps.native.outcome == 'success' }}
         shell: powershell
@@ -107,6 +112,14 @@ jobs:
             artifacts/win-x64/bundles/*.zip.sha256
           if-no-files-found: error
           retention-days: 1
+      - name: Preserve synthetic 5000 AP measurement summaries
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: synthetic-5000-measurements
+          path: artifacts/performance/*/measurement.json
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Preserve Windows test diagnostics
         if: always()
         uses: actions/upload-artifact@v7.0.2
