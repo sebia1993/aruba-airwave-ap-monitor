@@ -112,7 +112,7 @@ def create_package(published, destination, repository, commit, dirty, stage="ini
 
     destination.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
-    version = "0.1.3-preview.1" if core else "0.1.0-diagnostics"
+    version = "0.1.3-preview.3" if core else "0.1.0-diagnostics"
     name = "AirWaveAPMonitor-{}-{}-{}-{}".format(
         version, commit[:12], now.strftime("%Y%m%dT%H%M%SZ"), uuid.uuid4().hex[:6])
     with tempfile.TemporaryDirectory(prefix=".bundle-", dir=destination) as temporary:

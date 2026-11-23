@@ -67,7 +67,7 @@ public static class AppBootstrap
         builder.Services.AddSingleton<IAuthenticationStateStore>(sp => options.Mode == AppMode.Live
             ? new SqliteAuthenticationStateStore(location, sp.GetRequiredService<SemaphoreSlim>())
             : new MemoryAuthenticationStateStore());
-        builder.Services.AddSingleton(sp => new AirWaveSession(authenticationStates: sp.GetRequiredService<IAuthenticationStateStore>()));
+        builder.Services.AddSingleton(sp => new AirWaveSession(authenticationStates: sp.GetRequiredService<IAuthenticationStateStore>(), clock: sp.GetRequiredService<TimeProvider>()));
         builder.Services.AddSingleton<AirWaveClient>();
         builder.Services.AddSingleton<CredentialRegistration>();
         builder.Services.AddSingleton(sp => new ConnectionDiagnostics(options.Mode, sp.GetRequiredService<AirWaveClient>(), sp.GetRequiredService<TimeProvider>()));

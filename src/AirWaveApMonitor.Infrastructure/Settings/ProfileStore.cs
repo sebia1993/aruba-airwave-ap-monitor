@@ -27,7 +27,9 @@ public sealed partial class ProfileStore
             try
             {
                 Current = JsonSerializer.Deserialize<ProfileSnapshot>(File.ReadAllText(path));
-                if (Current is null || Current.DatasetId != location.DatasetId || Current.CredentialsVersion < 1 || Current.Proxy is null || (location.Mode == AppMode.Demo && Current.Origin != ScenarioApSource.DemoOrigin))
+                if (Current is null || Current.DatasetId != location.DatasetId || Current.CredentialsVersion < 1 || Current.Proxy is null ||
+                    (Current.TemporaryCertificatePin is { } pin && (location.Mode != AppMode.Live || pin.Origin != Current.Origin)) ||
+                    (location.Mode == AppMode.Demo && Current.Origin != ScenarioApSource.DemoOrigin))
                     throw new InvalidDataException();
             }
             catch (Exception error) when (error is JsonException or ArgumentException or InvalidDataException or NotSupportedException) { throw new InvalidOperationException("설정 파일이 올바르지 않습니다. 자동으로 대체하지 않습니다."); }
@@ -44,7 +46,7 @@ public sealed partial class ProfileStore
         if (Current is not null && origin != Current.Origin)
             throw new ProfileConflictException("서버 출처 변경은 새 데이터셋이 필요합니다. 새 전용 데이터 폴더로 시작하세요.");
         var next = new ProfileSnapshot(Current?.InstanceId ?? Guid.NewGuid(), location.DatasetId, origin, (Current?.ConfigurationVersion ?? 0) + 1, Current?.ScopeVersion ?? 1, Current?.ExpectedTargets ?? [], Current?.BaselineStatus ?? BaselineStatus.Unverified, new(interval, Current?.Settings.EnrichmentIntervalMinutes ?? 15, Current?.Settings.ConnectionCollectionEnabled ?? false, Current?.Settings.PowerCollectionEnabled ?? false))
-        { Proxy = proxy, CredentialsVersion = Current?.CredentialsVersion ?? 1,
+        { Proxy = proxy, TemporaryCertificatePin = Current?.TemporaryCertificatePin, CredentialsVersion = Current?.CredentialsVersion ?? 1,
             MonitoringScope = Current?.MonitoringScope, ScopeRevisions = Current?.ScopeRevisions,
             BaselineConfirmedSourceApIds = Current?.BaselineConfirmedSourceApIds };
         await SaveAsync(next, ct);
@@ -59,16 +61,30 @@ public sealed partial class ProfileStore
         return SaveAsync(new(current.InstanceId, current.DatasetId, current.Origin,
             current.ConfigurationVersion + 1, current.ScopeVersion, current.ExpectedTargets, current.BaselineStatus,
             new(current.Settings.ApIntervalMinutes, interval, connectionEnabled, powerEnabled))
-        { Proxy = current.Proxy, CredentialsVersion = current.CredentialsVersion,
+        { Proxy = current.Proxy, TemporaryCertificatePin = current.TemporaryCertificatePin, CredentialsVersion = current.CredentialsVersion,
             MonitoringScope = current.MonitoringScope, ScopeRevisions = current.ScopeRevisions,
             BaselineConfirmedSourceApIds = current.BaselineConfirmedSourceApIds }, ct);
     }
+    public Task UpdateTemporaryCertificatePinAsync(string? sha256, int? durationHours, long expectedVersion, DateTimeOffset now, CancellationToken ct)
+    {
+        var current = Current ?? throw new ArgumentException("서버 주소를 먼저 저장하세요.");
+        if (current.ConfigurationVersion != expectedVersion)
+            throw new ProfileConflictException("설정이 변경되었습니다. 현재 설정을 다시 읽으세요.");
+        if (location.Mode != AppMode.Live || current.Origin.HostNameType is not (UriHostNameType.IPv4 or UriHostNameType.IPv6))
+            throw new ArgumentException("실서버 모드에서 저장된 HTTPS IP·포트에만 지문 예외를 설정할 수 있습니다.");
+        if ((sha256 is null) != (durationHours is null) || durationHours is < 1 or > 168)
+            throw new ArgumentException("지문과 적용 시간(1~168시간)을 함께 입력하세요.");
+        var pin = durationHours is int hours
+            ? new TemporaryCertificatePin(current.Origin, sha256!, now.AddHours(hours)) : null;
+        return SaveAsync(current.WithTemporaryCertificatePin(pin), ct);
+    }
+
     public Task CredentialsChangedAsync(CancellationToken ct)
     {
         var current = Current ?? throw new ArgumentException("서버 설정을 먼저 저장하세요.");
         return SaveAsync(new(current.InstanceId, current.DatasetId, current.Origin, current.ConfigurationVersion + 1, current.ScopeVersion + 1, current.ExpectedTargets, BaselineStatus.Unverified, current.Settings)
         {
-            Proxy = current.Proxy,
+            Proxy = current.Proxy, TemporaryCertificatePin = current.TemporaryCertificatePin,
             CredentialsVersion = current.CredentialsVersion + 1,
             MonitoringScope = current.MonitoringScope, ScopeRevisions = current.ScopeRevisions
         }, ct);

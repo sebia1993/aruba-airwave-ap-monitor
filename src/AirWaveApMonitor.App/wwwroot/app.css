@@ -148,3 +148,11 @@ summary { cursor:pointer; color:var(--blue); font-size:12px; padding:7px 0; over
 @media(max-width:760px){.period-filter{display:grid}.period-filter button{width:100%}}
 
 .scope-settings details{margin:16px 0}.scope-settings summary{cursor:pointer;font-weight:600}.scope-settings textarea{width:100%;min-width:0;font:inherit;resize:vertical;padding:10px;border:1px solid var(--line);border-radius:8px}.scope-settings label{display:grid;gap:6px}.scope-settings .actions{flex-wrap:wrap}.scope-settings h3{margin-top:28px}.scope-settings .notice{overflow-wrap:anywhere}
+
+.pin-settings { min-width:0; }
+.pin-settings .pairs dd { overflow-wrap:anywhere; }
+.pin-settings .operation-form label { display:grid; gap:6px; }
+.pin-settings input { min-width:0; width:100%; }
+.pin-settings #pin-hours { max-width:9rem; }
+.pin-settings #pin-fingerprint, .pin-settings #pin-current { font-family:ui-monospace,monospace; }
+.pin-settings .footnote:empty { display:none; }

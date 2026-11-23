@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Infrastructure.AirWave;
 using AirWaveApMonitor.Infrastructure.Security;
@@ -34,6 +35,19 @@ public static class SettingsEndpoints
             await profiles.UpdateAsync(origin, request.ApIntervalMinutes, proxy, request.ExpectedConfigurationVersion, context.RequestAborted);
             return Results.Ok(await View(profiles, credentials, runtime, session, context.RequestAborted));
         }));
+        app.MapPost("/api/settings/certificate-pin", async (HttpContext context, ProfileStore profiles, ICredentialStore credentials, RuntimeOptions runtime, AirWaveSession session, TimeProvider clock) => await Guard(profiles, context, async () =>
+        {
+            try
+            {
+                var request = await context.Request.ReadFromJsonAsync<CertificatePinInput>(context.RequestAborted);
+                if (request is null) throw new JsonException();
+                await profiles.UpdateTemporaryCertificatePinAsync(request.Sha256, request.DurationHours,
+                    request.ExpectedConfigurationVersion, clock.GetUtcNow(), context.RequestAborted);
+            }
+            catch (JsonException) { return Results.BadRequest(new { message = "현재 설정 버전, 지문, 적용 시간을 모두 지정하세요. 해제하려면 지문과 시간을 모두 null로 지정하세요." }); }
+            catch (ArgumentException error) { return Results.BadRequest(new { message = error.Message }); }
+            return Results.Ok(await View(profiles, credentials, runtime, session, context.RequestAborted));
+        }, waitForGate: true));
         app.MapPost("/api/enrichment/settings", async (HttpContext context, ProfileStore profiles, ICredentialStore credentials, RuntimeOptions runtime, AirWaveSession session) => await Guard(profiles, context, async () =>
         {
             var request = await context.Request.ReadFromJsonAsync<EnrichmentSettingsInput>(context.RequestAborted) ?? throw new ArgumentException();
@@ -124,6 +138,8 @@ public static class SettingsEndpoints
             diagnosticScope = "connection-and-single-read-only"
         };
     }
+    public sealed record CertificatePinInput([property: JsonRequired] long ExpectedConfigurationVersion,
+        [property: JsonRequired] string? Sha256, [property: JsonRequired] int? DurationHours);
     public sealed record EnrichmentSettingsInput(long ExpectedConfigurationVersion, int EnrichmentIntervalMinutes, bool? ConnectionCollectionEnabled, bool? PowerCollectionEnabled);
     public sealed record SettingsInput(string Origin, int ApIntervalMinutes, string ProxyMode, string? ProxyAddress, long ExpectedConfigurationVersion);
 }
