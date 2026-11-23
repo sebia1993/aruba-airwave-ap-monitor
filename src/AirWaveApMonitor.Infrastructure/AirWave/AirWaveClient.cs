@@ -105,7 +105,7 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
         catch (PlatformNotSupportedException) { batch = Fail(CollectionErrorCategory.Unsupported); }
         catch (ResponseLimitException) { batch = Fail(CollectionErrorCategory.ResponseTooLarge); }
         catch (HttpRequestException error) when (error.HttpRequestError == HttpRequestError.SecureConnectionError ||
-            error.InnerException is AuthenticationException || error.GetBaseException() is AirWaveSession.ProxyCertificateException ||
+            error.InnerException is AuthenticationException || error.GetBaseException() is AirWaveSession.CertificatePolicyException ||
             requestOptions?.TryGetValue(AirWaveSession.CertificateFailureKey, out _) == true)
         {
             batch = FailTls(error);
@@ -122,8 +122,8 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
         ApCollectionBatch FailTls(Exception error)
         {
             AirWaveSession.CertificateFailure? certificateFailure = null;
-            if (error.GetBaseException() is AirWaveSession.ProxyCertificateException proxyError)
-                certificateFailure = proxyError.Failure;
+            if (error.GetBaseException() is AirWaveSession.CertificatePolicyException policyError)
+                certificateFailure = policyError.Failure;
             else
                 requestOptions?.TryGetValue(AirWaveSession.CertificateFailureKey, out certificateFailure);
             tls = "failed";
@@ -157,8 +157,8 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
                 request.Headers.TryAddWithoutValidation("Cookie", cookie);
             using var response = await session.Client!.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, requestToken.Token);
             status = (int)response.StatusCode;
-            tls = "validated";
-            certificateChecks = TlsCertificateChecks.Validated;
+            certificateChecks = session.AcceptedPinException ?? TlsCertificateChecks.Validated;
+            tls = session.AcceptedPinException is null ? "validated" : "pinned-exception";
             // A confirmed rejection belongs to the received headers. Body IO, timeout,
             // size failure, or caller cancellation must not erase that durable evidence.
             if (isLogin && status is 401 or 403)

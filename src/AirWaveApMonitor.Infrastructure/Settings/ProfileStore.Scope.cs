@@ -52,7 +52,7 @@ public sealed partial class ProfileStore
         return SaveAsync(new(current.InstanceId, current.DatasetId, current.Origin, revision.ConfigurationVersion, scopeVersion,
             ids.Order(StringComparer.Ordinal).Select(id => new ExpectedTarget(id)), baseline, current.Settings)
         {
-            Proxy = current.Proxy, CredentialsVersion = current.CredentialsVersion, MonitoringScope = definition,
+            Proxy = current.Proxy, TemporaryCertificatePin = current.TemporaryCertificatePin, CredentialsVersion = current.CredentialsVersion, MonitoringScope = definition,
             ScopeRevisions = (current.ScopeRevisions ?? []).Add(revision),
             BaselineConfirmedSourceApIds = baseline == BaselineStatus.Confirmed ? ids : null
         }, ct);

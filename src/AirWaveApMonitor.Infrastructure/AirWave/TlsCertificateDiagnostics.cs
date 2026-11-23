@@ -6,8 +6,7 @@ using AirWaveApMonitor.Core.Contracts;
 namespace AirWaveApMonitor.Infrastructure.AirWave;
 
 /// <summary>
-/// Safe, certificate-free diagnostic codes. The callback that uses this classifier
-/// still rejects every non-None SslPolicyErrors value; it never bypasses trust checks.
+/// Safe codes for the observed certificate checks, independent of the admission policy.
 /// </summary>
 public static class TlsCertificateDiagnostics
 {
@@ -55,6 +54,7 @@ public static class TlsCertificateDiagnostics
 
     public static string SafeMessage(string? reason, TlsCertificateChecks checks)
     {
+        if (reason is "pin-expired" or "pin-mismatch" or "pin-disallowed") return SafeMessage(reason);
         if (checks.Peer == "proxy")
         {
             var detail = reason switch
@@ -76,6 +76,9 @@ public static class TlsCertificateDiagnostics
 
     public static string SafeMessage(string? reason) => reason switch
     {
+        "pin-expired" => "임시 인증서 고정 기한이 만료되었습니다. 적용 상태와 운영 인증서를 확인하세요. HTTP_STATUS=미수신",
+        "pin-mismatch" => "서버 인증서 SHA-256 지문이 등록한 값과 일치하지 않습니다. HTTP_STATUS=미수신",
+        "pin-disallowed" => "서버 주소 또는 인증서 검증 결과가 임시 고정의 허용 조건을 벗어났습니다. HTTP_STATUS=미수신",
         "certificate-name-mismatch" =>
             "TLS 인증서 서버 이름 불일치: 입력한 AirWave 주소와 인증서의 DNS 이름을 확인하세요. HTTP_STATUS=미수신",
         "certificate-expired" =>

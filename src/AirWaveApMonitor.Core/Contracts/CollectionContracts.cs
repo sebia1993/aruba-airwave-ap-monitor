@@ -97,7 +97,7 @@ public sealed record ProfileSnapshot
     }
     public long ConfigurationVersion
     {
-        get;
+        get; private init;
     }
     public long ScopeVersion
     {
@@ -117,6 +117,15 @@ public sealed record ProfileSnapshot
     }
     public ProxySettings Proxy { get; init; } = new();
     public long CredentialsVersion { get; init; } = 1;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TemporaryCertificatePin? TemporaryCertificatePin { get; init; }
+
+    public ProfileSnapshot WithTemporaryCertificatePin(TemporaryCertificatePin? pin)
+    {
+        if (pin is not null && pin.Origin != Origin)
+            throw new ArgumentException("저장된 서버 주소와 지문 예외의 대상이 다릅니다.");
+        return this with { ConfigurationVersion = checked(ConfigurationVersion + 1), TemporaryCertificatePin = pin };
+    }
     // Omitted defaults preserve the exact JSON shape of legacy immutable profiles.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public MonitoringScopeDefinition? MonitoringScope { get; init; }
