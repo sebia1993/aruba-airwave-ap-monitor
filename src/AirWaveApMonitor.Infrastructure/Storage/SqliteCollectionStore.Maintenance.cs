@@ -41,6 +41,7 @@ public sealed partial class SqliteCollectionStore
                 var profile = new ProfileSnapshot(original.InstanceId, original.DatasetId, original.Origin,
                     original.ConfigurationVersion, original.ScopeVersion, targets.ToImmutable(), original.BaselineStatus, original.Settings)
                 { Proxy = original.Proxy, CredentialsVersion = original.CredentialsVersion,
+                    TemporaryCertificatePin = original.TemporaryCertificatePin,
                     MonitoringScope = original.MonitoringScope, ScopeRevisions = original.ScopeRevisions,
                     BaselineConfirmedSourceApIds = original.BaselineConfirmedSourceApIds };
                 Execute(connection, transaction, "INSERT INTO runs(dataset_id,scope_version,kind,lifecycle,context_json,target_universe_known) VALUES($dataset,$scope,0,0,'',$known)",

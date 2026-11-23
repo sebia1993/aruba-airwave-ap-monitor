@@ -6,6 +6,10 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Infrastructure.AirWave;
+using AirWaveApMonitor.Infrastructure.Maintenance;
+using AirWaveApMonitor.Infrastructure.Settings;
+using AirWaveApMonitor.Infrastructure.Storage;
+using AirWaveApMonitor.Tests.Support;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -45,6 +49,44 @@ public sealed class TemporaryCertificatePinTests
             Assert.Contains("untrusted-root", checks.ChainReasons);
             if (expiredLeaf) Assert.Contains("expired", checks.ChainReasons);
         }
+    }
+
+    [Theory]
+    [InlineData(RunTrigger.Manual)]
+    [InlineData(RunTrigger.Scheduled)]
+    public async Task PinnedDiagnosisAndStoredCollectionRunReadTheSameServer(RunTrigger trigger)
+    {
+        var clock = new TestClock();
+        var now = clock.GetUtcNow();
+        await using var server = await TestServer.StartAsync(now.AddDays(-2), now.AddDays(-1));
+        using var directory = new TemporaryDirectory();
+        var location = StoragePaths.Open(AppMode.Live, directory.Path);
+        var profiles = new ProfileStore(location);
+        await profiles.UpdateAsync(server.Origin, 5, new(ProxyMode.Direct), 0, default);
+        await profiles.UpdateTemporaryCertificatePinAsync(server.Fingerprint, 24, 1, now, default);
+        var profile = profiles.Current!;
+        using var session = new AirWaveSession(clock: clock);
+        var client = new AirWaveClient(session, new Credentials(), clock);
+        var diagnostics = new ConnectionDiagnostics(AppMode.Live, client, clock);
+
+        var report = await diagnostics.RunAsync(profile, default);
+        Assert.Equal("pinned-exception", report.TlsResult);
+        Assert.Equal(200, report.HttpStatus);
+        Assert.Equal((1, 1), (report.LoginRequests, report.ApRequests));
+
+        using var writeGate = new SemaphoreSlim(1, 1);
+        var store = new SqliteCollectionStore(location, writeGate, clock);
+        var run = await store.BeginRunAsync(profile, CollectionKind.ApStatus, trigger, default);
+        var batch = await client.CollectAsync(run, default);
+        await store.ApplyApBatchAsync(run, batch, default);
+        var recorded = await store.GetRunAsync(location.DatasetId, run.RunId, default);
+
+        Assert.Empty(batch.Errors);
+        Assert.Equal(RunOutcome.Succeeded, recorded.Outcome);
+        Assert.Equal(profile.TemporaryCertificatePin, run.Profile.TemporaryCertificatePin);
+        Assert.Equal(profile.ConfigurationVersion, run.Profile.ConfigurationVersion);
+        Assert.Equal(trigger, recorded.Trigger);
+        Assert.Equal(new[] { "/LOGIN", "/ap_list.xml", "/ap_list.xml" }, server.Paths.ToArray());
     }
 
     [Theory]
