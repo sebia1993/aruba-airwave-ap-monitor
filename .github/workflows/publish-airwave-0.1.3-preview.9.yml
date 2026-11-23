@@ -17,7 +17,7 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}
-      TESTED_COMMIT: 66d3a5d39d9ada183e0275632976260f97bf836b
+      TESTED_COMMIT: edc267911719da5b2905a36fea753d01efaccefa
     steps:
       - name: Publish verified package only after complete Windows CI
         shell: bash
@@ -26,8 +26,8 @@ jobs:
           mkdir -p verified
           complete=no
           for attempt in $(seq 1 140); do
-            state=$(gh api "repos/$GH_REPO/actions/runs/45192724491" --jq '.status')
-            result=$(gh api "repos/$GH_REPO/actions/runs/45192724491" --jq '.conclusion // ""')
+            state=$(gh api "repos/$GH_REPO/actions/runs/45195456107" --jq '.status')
+            result=$(gh api "repos/$GH_REPO/actions/runs/45195456107" --jq '.conclusion // ""')
             if [[ "$state" == completed ]]; then
               [[ "$result" == success ]] || { echo "Windows CI conclusion: $result"; exit 1; }
               complete=yes
@@ -36,9 +36,9 @@ jobs:
             sleep 10
           done
           [[ "$complete" == yes ]] || { echo 'Windows verification not complete'; exit 1; }
-          gh api "repos/$GH_REPO/actions/runs/45192724491" |
-            jq -e '.conclusion == "success" and .head_sha == "8a47b9e36e8a8e749bfded0a66c00350b67e92d5"' >/dev/null
-          gh run download 45192724491 --repo "$GH_REPO" --name windows-core-package --dir verified
+          gh api "repos/$GH_REPO/actions/runs/45195456107" |
+            jq -e '.conclusion == "success" and .head_sha == "ae7c3891fe1d976d759a52bdb187e44f2f3b54d0"' >/dev/null
+          gh run download 45195456107 --repo "$GH_REPO" --name windows-core-package --dir verified
           shopt -s nullglob
           archives=(verified/*.zip)
           sums=(verified/*.zip.sha256)
@@ -59,7 +59,7 @@ jobs:
 
           기존 버전은 종료하고 새 ZIP을 별도 폴더에 풀어 같은 Windows 계정·데이터 폴더로 실행하세요. main 병합과 실제 AirWave 검증은 보류합니다.
 
-          [Windows CI 결과](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/45192724491)
+          [Windows CI 결과](https://github.com/sebia1993/aruba-airwave-ap-monitor/actions/runs/45195456107)
           [PR #9](https://github.com/sebia1993/aruba-airwave-ap-monitor/pull/9)
           NOTES
           printf '\nZIP SHA-256 `%s`\n' "$sha" >> notes.md
