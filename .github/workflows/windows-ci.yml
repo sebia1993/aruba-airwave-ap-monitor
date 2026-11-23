@@ -52,6 +52,8 @@ jobs:
           node --check src/AirWaveApMonitor.App/wwwroot/ui-state.js
           node --check src/AirWaveApMonitor.App/wwwroot/setup-guide.js
           node --check src/AirWaveApMonitor.App/wwwroot/run-warnings.js
+          node --check src/AirWaveApMonitor.App/wwwroot/safe-diagnostics.js
+          node --check tests/Browser/real-gui.test.mjs
           node --check src/AirWaveApMonitor.App/wwwroot/operations.js
           node --check src/AirWaveApMonitor.App/wwwroot/enrichment.js
           node tests/Frontend/ui-state.test.mjs
@@ -63,6 +65,7 @@ jobs:
           node tests/Frontend/ap-console-dom.test.mjs
           node tests/Frontend/setup-guide.test.mjs
           node tests/Frontend/run-warnings.test.mjs
+          node tests/Frontend/safe-diagnostics.test.mjs
           node tests/Frontend/help-ui.test.mjs
       - name: Restore
         run: dotnet restore AirWaveApMonitor.slnx
@@ -88,6 +91,13 @@ jobs:
         id: publish
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet publish src/AirWaveApMonitor.App -c Release -r win-x64 --self-contained true -p:PublishAot=false -p:PublishReadyToRun=false -p:PublishTrimmed=false -p:PublishSingleFile=false -o artifacts/win-x64/app
+      - name: Real Chrome or Edge browser GUI regression
+        if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
+        run: node tests/Browser/real-gui.test.mjs artifacts/win-x64/app/AirWaveApMonitor.App.exe
+      - name: Repeated 2048-AP Demo collector stability
+        if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
+        shell: powershell
+        run: ./scripts/ci/windows-demo-soak.ps1 -AppDirectory ./artifacts/win-x64/app -Cycles 12
       - name: Synthetic 5000 AP repeated state changes and steady-up verification
         if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
         run: |
@@ -112,6 +122,14 @@ jobs:
             artifacts/win-x64/bundles/*.zip.sha256
           if-no-files-found: error
           retention-days: 1
+      - name: Preserve synthetic 2048-AP soak metrics
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: synthetic-2048-demo-soak
+          path: artifacts/demo-soak/*.json
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Preserve synthetic 5000 AP measurement summaries
         if: always()
         uses: actions/upload-artifact@v7.0.2
