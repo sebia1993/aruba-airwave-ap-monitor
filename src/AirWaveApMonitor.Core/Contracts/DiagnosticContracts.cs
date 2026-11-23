@@ -30,7 +30,8 @@ public sealed record ProxySettings
 }
 public sealed record TlsCertificateChecks(string ServerName, string TrustChain, ImmutableArray<string> ChainReasons)
 {
-    public static TlsCertificateChecks Unknown { get; } = new("unknown", "unknown", []);
+    public string Peer { get; init; } = "server";
+    public static TlsCertificateChecks Unknown { get; } = new("unknown", "unknown", []) { Peer = "unknown" };
     public static TlsCertificateChecks Validated { get; } = new("matched", "valid", []);
 }
 public sealed record DiagnosticStage(string Name, string Status, int? HttpStatus, long ElapsedMilliseconds, string Message);

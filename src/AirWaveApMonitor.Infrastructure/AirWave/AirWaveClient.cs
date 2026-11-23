@@ -105,12 +105,13 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
         catch (PlatformNotSupportedException) { batch = Fail(CollectionErrorCategory.Unsupported); }
         catch (ResponseLimitException) { batch = Fail(CollectionErrorCategory.ResponseTooLarge); }
         catch (HttpRequestException error) when (error.HttpRequestError == HttpRequestError.SecureConnectionError ||
-            error.InnerException is AuthenticationException || requestOptions?.TryGetValue(AirWaveSession.CertificateFailureKey, out _) == true)
+            error.InnerException is AuthenticationException || error.GetBaseException() is AirWaveSession.ProxyCertificateException ||
+            requestOptions?.TryGetValue(AirWaveSession.CertificateFailureKey, out _) == true)
         {
-            batch = FailTls();
+            batch = FailTls(error);
         }
         catch (HttpRequestException) { batch = Fail(CollectionErrorCategory.Transport); }
-        catch (AuthenticationException) { batch = FailTls(); }
+        catch (AuthenticationException error) { batch = FailTls(error); }
         catch (AuthenticationStateStoreException) { batch = Fail(CollectionErrorCategory.Storage); }
         catch (IOException) { batch = Fail(CollectionErrorCategory.Transport); }
         catch (CookieException) { batch = Fail(CollectionErrorCategory.InvalidResponse); }
@@ -118,17 +119,17 @@ public sealed class AirWaveClient(AirWaveSession session, ICredentialStore crede
         return new(batch, new(Guid.NewGuid(), started, ExecutionIdentity.Current, ConnectionPath(profile.Proxy), tls, status, loginRequests, apRequests, batch.Observations.Length, batch.ExcludedRecords.Length, elapsed.ElapsedMilliseconds, batch.Outcome, authenticationBlocked, stages.ToImmutable(), batch.Errors,
             [$"미검증 필드 {batch.Observations.SelectMany(ap => ap.Fields).Where(field => field.Value.Availability == FieldAvailability.Unverified).Select(field => field.Key).Distinct(StringComparer.Ordinal).Count()}종: 실제 지원·단위 확인 필요.", "문서·fixture 기반 어댑터. 실제 AirWave 버전·계정·필드는 현장 미검증.", "원천 숫자 시각의 단위 미확인: 원문 값만 보존하며 장애 시각으로 사용하지 않음.", "이력 DB·운영 RunId·장애/복구 기록은 아직 제공하지 않음."]) { TlsFailureCode = tlsFailureCode, TlsCertificateChecks = certificateChecks });
 
-        ApCollectionBatch FailTls()
+        ApCollectionBatch FailTls(Exception error)
         {
             AirWaveSession.CertificateFailure? certificateFailure = null;
-            requestOptions?.TryGetValue(AirWaveSession.CertificateFailureKey, out certificateFailure);
+            if (error.GetBaseException() is AirWaveSession.ProxyCertificateException proxyError)
+                certificateFailure = proxyError.Failure;
+            else
+                requestOptions?.TryGetValue(AirWaveSession.CertificateFailureKey, out certificateFailure);
             tls = "failed";
             tlsFailureCode = certificateFailure?.Code ?? "tls-handshake-or-certificate";
             certificateChecks = certificateFailure?.Checks ?? TlsCertificateChecks.Unknown;
-            var message = certificateChecks is { ServerName: "mismatch", TrustChain: "failed" }
-                ? "TLS 인증서 서버 이름 불일치 및 신뢰 체인 실패. 접속 이름과 인증서 체인을 함께 확인하세요. HTTP_STATUS=미수신"
-                : TlsCertificateDiagnostics.SafeMessage(tlsFailureCode);
-            return Fail(CollectionErrorCategory.Tls, message);
+            return Fail(CollectionErrorCategory.Tls, TlsCertificateDiagnostics.SafeMessage(tlsFailureCode, certificateChecks));
         }
 
         ApCollectionBatch Fail(CollectionErrorCategory category, string? message = null)

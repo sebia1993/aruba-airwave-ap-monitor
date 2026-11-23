@@ -53,6 +53,27 @@ public static class TlsCertificateDiagnostics
         return new(serverName, "failed", reasons.ToImmutable());
     }
 
+    public static string SafeMessage(string? reason, TlsCertificateChecks checks)
+    {
+        if (checks.Peer == "proxy")
+        {
+            var detail = reason switch
+            {
+                "certificate-name-mismatch" when checks.TrustChain == "failed" => "이름 불일치 및 신뢰 체인 실패",
+                "certificate-name-mismatch" => "이름 불일치",
+                "certificate-expired" => "유효기간 만료",
+                "certificate-not-yet-valid" => "유효기간 시작 전",
+                "certificate-missing" => "미수신",
+                "certificate-trust-chain" => "신뢰 체인 실패",
+                _ => "검증 실패"
+            };
+            return $"HTTPS 프록시 인증서 {detail}. 프록시 주소와 인증서 설정을 확인하세요. HTTP_STATUS=미수신";
+        }
+        if (checks is { ServerName: "mismatch", TrustChain: "failed" })
+            return "TLS 인증서 서버 이름 불일치 및 신뢰 체인 실패. 접속 이름과 인증서 체인을 함께 확인하세요. HTTP_STATUS=미수신";
+        return SafeMessage(reason);
+    }
+
     public static string SafeMessage(string? reason) => reason switch
     {
         "certificate-name-mismatch" =>

@@ -70,12 +70,32 @@ const cases=[
     assert.equal(success.rows.get("인증서 신뢰 체인"), "검증 통과");
     assert.equal(success.notes,"");
   }],
+  ['An HTTPS proxy certificate failure points to the proxy and leaves the AirWave certificate unknown',async()=>{
+    const checks = {peer:"proxy",serverName:"mismatch",trustChain:"failed",chainReasons:["partial-chain"]};
+    const options = {connectionPath:"fixed-proxy",tlsFailureCode:"certificate-name-mismatch"};
+    const {rows, notes} = certificateView(checks, options);
+    assert.match(rows.get("TLS 실패 원인"), /프록시.*이름 불일치.*신뢰 체인 검증 실패/);
+    assert.equal(rows.get("프록시 인증서 서버 이름"), "불일치");
+    assert.equal(rows.get("프록시 인증서 신뢰 체인"), "검증 실패");
+    assert.match(rows.get("프록시 신뢰 체인 상세"), /체인 불완전/);
+    assert.match(rows.get("AirWave 인증서"), /미확인/);
+    assert.equal(rows.has("인증서 서버 이름"), false);
+    assert.match(notes, /프록시 접속 주소.*인증서/);
+    assert.doesNotMatch(notes, /AirWave 접속 주소/);
+    const single = certificateView({...checks,trustChain:"valid",chainReasons:[]}, options);
+    assert.match(single.rows.get("TLS 실패 원인"), /프록시.*이름 불일치/);
+    const target = certificateView({...checks,peer:"server"}, options);
+    assert.equal(target.rows.get("인증서 서버 이름"), "불일치");
+    assert.equal(target.rows.has("AirWave 인증서"), false);
+    assert.match(target.notes, /AirWave 접속 주소/);
+  }],
   ['Unobserved certificate checks remain unknown and legacy and Demo reports still render',async()=>{
     for (const serverName of ["unknown", "future-status"]) {
-      const {rows} = certificateView({serverName,trustChain:"unknown",chainReasons:[]});
+      const {rows, notes} = certificateView({peer:"unknown",serverName,trustChain:"unknown",chainReasons:[]});
       assert.equal(rows.get("인증서 서버 이름"), "미확인");
       assert.equal(rows.get("인증서 신뢰 체인"), "미확인");
       assert.equal(rows.has("신뢰 체인 상세"), false);
+      assert.equal(notes, "");
     }
     const legacy = certificateView(undefined,{tlsFailureCode:"certificate-trust-chain"});
     assert.match(legacy.rows.get("TLS 실패 원인"), /사내 CA/);

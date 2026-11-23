@@ -208,8 +208,10 @@ public sealed class AirWaveClientTests
         Assert.Contains(r.Batch.Errors, e => e.Category == CollectionErrorCategory.Tls);
         Assert.DoesNotContain("unsafe", JsonSerializer.Serialize(r));
     }
-    [Fact]
-    public async Task UntrustedLoopbackServerWithWrongName_ReportsBothFailuresAndRejectsConnection()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UntrustedTlsPeerWithWrongName_ReportsBothFailuresAndRejectsConnection(bool useHttpsProxy)
     {
         using var key = RSA.Create(2048);
         var request = new CertificateRequest("CN=private-test.example.invalid", key,
@@ -225,7 +227,9 @@ public sealed class AirWaveClientTests
         listener.Start();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        var profile = Profile(new Uri($"https://127.0.0.1:{port}")) with { Proxy = new(ProxyMode.Direct) };
+        var endpoint = new Uri($"https://127.0.0.1:{port}");
+        var profile = useHttpsProxy ? Profile() with { Proxy = new(ProxyMode.Fixed, endpoint) }
+            : Profile(endpoint) with { Proxy = new(ProxyMode.Direct) };
         using var session = new AirWaveSession();
         var client = new AirWaveClient(session, new MemoryCredentials(), TimeProvider.System);
 
@@ -243,12 +247,17 @@ public sealed class AirWaveClientTests
         Assert.Equal(RunOutcome.Failed, result.Batch.Outcome);
         Assert.Null(result.Report.HttpStatus);
         Assert.Equal("certificate-name-mismatch", result.Report.TlsFailureCode);
-        var checks = Assert.IsType<TlsCertificateChecks>(result.Report.TlsCertificateChecks);
-        Assert.Equal("mismatch", checks.ServerName);
-        Assert.Equal("failed", checks.TrustChain);
-        Assert.Contains("untrusted-root", checks.ChainReasons);
-        Assert.DoesNotContain("private-test.example.invalid", JsonSerializer.Serialize(result));
-        Assert.Contains("신뢰 체인", Assert.Single(result.Batch.Errors).SafeMessage);
+        var report = JsonSerializer.SerializeToElement(result.Report, JsonSerializerOptions.Web);
+        var checks = report.GetProperty("tlsCertificateChecks");
+        Assert.Equal(useHttpsProxy ? "proxy" : "server", checks.GetProperty("peer").GetString());
+        Assert.Equal("mismatch", checks.GetProperty("serverName").GetString());
+        Assert.Equal("failed", checks.GetProperty("trustChain").GetString());
+        Assert.Contains(checks.GetProperty("chainReasons").EnumerateArray(), value => value.GetString() == "untrusted-root");
+        Assert.DoesNotContain("private-test.example.invalid", report.GetRawText());
+        Assert.DoesNotContain(endpoint.Authority, report.GetRawText());
+        var message = Assert.Single(result.Batch.Errors).SafeMessage;
+        Assert.Contains("신뢰 체인", message);
+        if (useHttpsProxy) Assert.Contains("프록시", message);
         Assert.Equal(0, result.Report.ApRequests);
     }
 
@@ -283,7 +292,7 @@ public sealed class AirWaveClientTests
         var profile = Profile();
         var first = await client.ReadAsync(profile, default);
         Assert.Equal("certificate-missing", first.Report.TlsFailureCode);
-        Assert.Equal(TlsCertificateChecks.Unknown, first.Report.TlsCertificateChecks);
+        Assert.Equal(TlsCertificateChecks.Unknown with { Peer = "server" }, first.Report.TlsCertificateChecks);
         var next = await client.ReadAsync(profile, default);
         Assert.Equal("tls-handshake-or-certificate", next.Report.TlsFailureCode);
         Assert.Equal(TlsCertificateChecks.Unknown, next.Report.TlsCertificateChecks);

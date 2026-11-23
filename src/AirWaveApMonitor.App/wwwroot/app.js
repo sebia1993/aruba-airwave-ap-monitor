@@ -606,15 +606,19 @@ function certificateDiagnosticDetails(checks) {
   const actions = new Set();
   if (!checks) return { rows, actions };
 
+  const isProxy = checks.peer === "proxy";
+  const prefix = isProxy ? "프록시 " : "";
+  const peer = isProxy ? "프록시" : "AirWave";
   const names = new Map([["matched", "일치"], ["mismatch", "불일치"]]);
   const chains = new Map([["valid", "검증 통과"], ["failed", "검증 실패"]]);
-  rows.push(["인증서 서버 이름", names.get(checks.serverName) ?? "미확인"],
-    ["인증서 신뢰 체인", chains.get(checks.trustChain) ?? "미확인"]);
+  rows.push([prefix + "인증서 서버 이름", names.get(checks.serverName) ?? "미확인"],
+    [prefix + "인증서 신뢰 체인", chains.get(checks.trustChain) ?? "미확인"]);
   if (checks.serverName === "mismatch") {
-    actions.add("AirWave 접속 주소가 인증서의 SAN에 등록된 DNS 이름 또는 IP와 일치하는지 확인하세요.");
+    actions.add(`${peer} 접속 주소가 인증서의 SAN에 등록된 DNS 이름 또는 IP와 일치하는지 확인하세요.`);
   }
   if (checks.trustChain === "failed") {
-    const checkIssuers = "수집 계정에서 사내 루트 CA를 신뢰하는지, 서버 또는 프록시가 중간 CA 인증서를 제공하는지 확인하세요.";
+    const issuerSource = isProxy ? "프록시가" : "서버 또는 프록시가";
+    const checkIssuers = `수집 계정에서 사내 루트 CA를 신뢰하는지, ${issuerSource} 중간 CA 인증서를 제공하는지 확인하세요.`;
     const checkTime = "수집 PC의 시각과 인증서 체인의 유효기간을 확인하세요.";
     const checkChain = "수집 계정에서 인증 경로의 오류 상태를 확인하세요.";
     const labels = [];
@@ -632,9 +636,10 @@ function certificateDiagnosticDetails(checks) {
         actions.add(action);
       }
     }
-    if (labels.length) rows.push(["신뢰 체인 상세", labels.join(" · ")]);
+    if (labels.length) rows.push([prefix + "신뢰 체인 상세", labels.join(" · ")]);
     else actions.add(checkChain);
   }
+  if (isProxy) rows.push(["AirWave 인증서", "미확인 · HTTPS 프록시 연결 단계에서 중단됨"]);
   return { rows, actions };
 }
 function renderDiagnostic(report) {
@@ -662,12 +667,13 @@ function renderDiagnostic(report) {
   if (report.proxyRouteHint) detailsRows.push(["프록시 경로 추정",proxyHints[report.proxyRouteHint] || "확인 불가"]);
   detailsRows.push(["TLS",tls]);
   const checks = state.mode === "demo" ? null : report.tlsCertificateChecks;
+  let cause;
   if (checks?.serverName === "mismatch" && checks.trustChain === "failed") {
-    detailsRows.push(["TLS 실패 원인", "서버 인증서 이름 불일치 및 신뢰 체인 검증 실패"]);
+    cause = "서버 인증서 이름 불일치 및 신뢰 체인 검증 실패";
   } else if (report.tlsFailureCode) {
-    const cause = Object.hasOwn(tlsCodes, report.tlsFailureCode) ? tlsCodes[report.tlsFailureCode] : "TLS 상세 원인 미확인";
-    detailsRows.push(["TLS 실패 원인", cause]);
+    cause = Object.hasOwn(tlsCodes, report.tlsFailureCode) ? tlsCodes[report.tlsFailureCode] : "TLS 상세 원인 미확인";
   }
+  if (cause) detailsRows.push(["TLS 실패 원인", checks?.peer === "proxy" ? `HTTPS 프록시 · ${cause}` : cause]);
   const certificate = certificateDiagnosticDetails(checks);
   detailsRows.push(...certificate.rows);
   detailsRows.push(["HTTP_STATUS",report.httpStatus ?? "미수신"],["로그인 / AP 요청 수",`${report.loginRequests} / ${report.apRequests}`],

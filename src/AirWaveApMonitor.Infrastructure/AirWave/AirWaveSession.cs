@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Security;
+using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using AirWaveApMonitor.Core.Contracts;
 using AirWaveApMonitor.Infrastructure.Security;
@@ -16,6 +17,10 @@ public sealed class AirWaveSession(Func<ProxySettings, HttpMessageHandler>? fact
     private AuthenticationBinding? identity;
     private bool stopNeedsPersistence;
     internal sealed record CertificateFailure(string Code, TlsCertificateChecks Checks);
+    internal sealed class ProxyCertificateException(CertificateFailure failure) : AuthenticationException("HTTPS proxy certificate validation failed.")
+    {
+        public CertificateFailure Failure { get; } = failure;
+    }
     internal static readonly HttpRequestOptionsKey<CertificateFailure> CertificateFailureKey =
         new("AirWave.CertificateFailure");
     internal HttpClient? Client { get; private set; }
@@ -134,9 +139,15 @@ public sealed class AirWaveSession(Func<ProxySettings, HttpMessageHandler>? fact
             var flags = X509ChainStatusFlags.NoError;
             if (chain is not null)
                 foreach (var status in chain.ChainStatus) flags |= status.Status;
-            var checks = TlsCertificateDiagnostics.DescribeChecks(errors, flags, now, notBefore, notAfter);
-            request.Options.Set(CertificateFailureKey, new CertificateFailure(code, checks));
+            var isProxyHandshake = request.Method == HttpMethod.Connect;
+            var checks = TlsCertificateDiagnostics.DescribeChecks(errors, flags, now, notBefore, notAfter)
+                with { Peer = isProxyHandshake ? "proxy" : "server" };
+            var failure = new CertificateFailure(code, checks);
             tlsFailureObserver?.Invoke(code);
+            // An HTTPS proxy uses an internal CONNECT request with separate Options.
+            // Carry only the failed checks through its TLS exception to the outer request.
+            if (isProxyHandshake) throw new ProxyCertificateException(failure);
+            request.Options.Set(CertificateFailureKey, failure);
             return false;
         };
         if (proxy.Mode == ProxyMode.Direct) handler.UseProxy = false;
