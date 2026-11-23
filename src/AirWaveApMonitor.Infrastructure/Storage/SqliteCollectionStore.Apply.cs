@@ -192,7 +192,8 @@ public sealed partial class SqliteCollectionStore
                 SourceOutcome = scopeExcludedApCount is null ? null : sourceBatch.Outcome,
                 SourceCompleteness = scopeExcludedApCount is null ? null : sourceBatch.Completeness,
                 ScopeExcludedApCount = scopeExcludedApCount,
-                ScopeExcludedRecordCount = scopeExcludedRecordCount
+                ScopeExcludedRecordCount = scopeExcludedRecordCount,
+                OperationsThroughEventId = LatestOperationEventId(connection, transaction)
             })));
         if (Execute(connection, transaction, "UPDATE runs SET lifecycle=$lifecycle WHERE run_id=$run AND lifecycle=0",
             ("$lifecycle", lifecycle), ("$run", context.RunId)) != 1)

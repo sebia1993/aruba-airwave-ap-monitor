@@ -41,4 +41,7 @@ public sealed record ApRunSourceEvidence(int ParsedApCount, int ValidStateCount,
     public int? ScopeExcludedApCount { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? ScopeExcludedRecordCount { get; init; }
+    /// <summary>Last committed operation event visible in the AP finalization transaction.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? OperationsThroughEventId { get; init; }
 }

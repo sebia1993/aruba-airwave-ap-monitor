@@ -67,7 +67,7 @@ export function workTargets(rows) {
 }
 export function timelineQuery(filters, page = 1, through = null) {
   const query = new URLSearchParams({page:String(page),pageSize:"30"});
-  for (const key of ["apId","deviceGenerationId","installationPointId","kind","fromUtc","toUtc"]) if (filters[key]) query.set(key,filters[key]);
+  for (const key of ["apId","deviceGenerationId","installationPointId","incidentId","asOfRunId","kind","fromUtc","toUtc"]) if (filters[key]) query.set(key,filters[key]);
   if (through != null && through > 0) query.set("throughEventId",String(through));
   return query;
 }
@@ -77,10 +77,17 @@ export function commandForDraft(draft, payload, createId = () => crypto.randomUU
   return draft.commandId;
 }
 
-export function createOperationsController({api,onMessage,navigate,dateText,isCurrentView}) {
-  const root = document.getElementById("operations-content"), drafts = new Map(), pendingControls = new Map();
-  const state = {tab:"timeline",context:null,epoch:0,busy:false,version:null,registration:null,point:null,pointDraftOpen:false,work:null,preview:null,previewStale:false,selected:new Set(),file:null,
-    timeline:{filters:{},page:1,through:null},points:{search:"",page:1}};
+export function createOperationsController({api,onMessage,navigate,dateText,isCurrentView,onReturnAp}) {
+  let root = document.getElementById("operations-content");
+  const drafts = new Map(), pendingControls = new Map();
+  const historyTabs = [["timeline","작업·변경 이력"],["work","작업·메모"]];
+  const ledgerTabs = [["registration","AP 대장"],["points","설치 지점"],["import","CSV 가져오기"]];
+  const targetFields = ["apId","deviceGenerationId","incidentId","installationPointId"];
+  function currentScreen(tab){return tab==="work"||tab==="timeline"?"incidents":"operations";}
+  function targetOf(context){return Object.fromEntries(targetFields.filter(key=>context?.[key]).map(key=>[key,context[key]]));}
+  function scopeOf(context){return {...targetOf(context),asOfRunId:context?.asOfRunId,kind:context?.kind};}
+  const state = {tab:"registration",context:null,epoch:0,busy:false,version:null,registration:null,point:null,pointDraftOpen:false,work:null,preview:null,previewStale:false,selected:new Set(),file:null,
+    timeline:{filters:{},page:1,through:null},points:{search:"",page:1},registry:{search:"",page:1,runId:null,scopeVersion:null}};
   const e = (tag,cls,value) => { const n=document.createElement(tag); if(cls)n.className=cls;if(value!=null)n.textContent=String(value);return n; };
   const b = (label,action,cls="") => {const n=e("button",cls,label);n.type="button";n.addEventListener("click",()=>void action());return n;};
   const note = value => e("p","footnote",value);
@@ -109,7 +116,7 @@ export function createOperationsController({api,onMessage,navigate,dateText,isCu
     return {form,draft};
   };
   const epoch = () => ++state.epoch;
-  const valid = ticket => ticket===state.epoch && isCurrentView();
+  const valid = ticket => ticket===state.epoch && isCurrentView(currentScreen(state.tab));
   const showMessage = (message,error=false)=>onMessage(message,error);
   async function mutate(form,draft,payload,path,after) {
     if(state.busy)return;const ticket=state.epoch;state.busy=true;setBusy();
@@ -129,16 +136,127 @@ export function createOperationsController({api,onMessage,navigate,dateText,isCu
   }
   function submit(form,draft,label,path,payload,after){const save=e("button","primary",label);save.type="submit";save.dataset.mutation="true";form.append(save);form.addEventListener("submit",event=>{event.preventDefault();try{void mutate(form,draft,payload(read(form),draft.base),path,after);}catch(error){showMessage(error.message,true);}});}
   function resetDraft(key,refresh){if(state.busy){showMessage("저장 응답을 기다린 뒤 다시 읽어주세요.",true);return;}const draft=drafts.get(key);if(draft?.dirty){const confirm=e("div","notice warning");confirm.append(e("span","","저장하지 않은 입력이 있습니다. 서버 값으로 다시 채우면 이 입력이 사라집니다."),b("입력 유지",()=>confirm.remove()),b("서버 값으로 다시 채우기",()=>{drafts.delete(key);confirm.remove();void refresh();}));root.prepend(confirm);}else{drafts.delete(key);void refresh();}}
-  function tabs(){const nav=e("div","tabs operations-tabs");for(const [key,title]of[["timeline","운영 이력"],["registration","현재 등록 정보"],["points","설치 지점"],["work","작업·메모"],["import","CSV 가져오기"]]){const tab=b(title,()=>show(key),`tab${state.tab===key?" active":""}`);tab.setAttribute("aria-pressed",String(state.tab===key));nav.append(tab);}return nav;}
-  function layout(){root.replaceChildren(tabs());const area=e("div","operations-area");root.append(area);setBusy();return area;}
-  async function show(tab=state.tab,context=undefined){state.tab=tab;if(context!==undefined){state.context=context;if(tab==="timeline"){state.timeline.filters={apId:context?.apId,deviceGenerationId:context?.deviceGenerationId,installationPointId:context?.installationPointId};state.timeline.page=1;state.timeline.through=null;}}
-    navigate("operations");const ticket=epoch(),area=layout();try{const version=await api("/api/operations/version");if(!valid(ticket))return;if(!Number.isSafeInteger(version.restoreEpoch)||version.restoreEpoch<0)throw new Error("등록 기준을 확인하지 못했습니다. 화면을 다시 읽어주세요.");state.version=version;if(tab==="registration")await registration(area,ticket);else if(tab==="points")await points(area,ticket);else if(tab==="work")await work(area,ticket);else if(tab==="import")renderImport(area);else await timeline(area,ticket);}catch(error){if(valid(ticket))area.append(e("div","notice error",error.message));}setBusy();
+  function tabs(){
+    const nav=e("div","tabs operations-tabs");
+    const choices=currentScreen(state.tab)==="incidents"?historyTabs:ledgerTabs;
+    for(const [key,title] of choices){
+      const tab=b(title,()=>show(key),`tab${state.tab===key?" active":""}`);
+      tab.setAttribute("aria-pressed",String(state.tab===key));nav.append(tab);
+    }
+    return nav;
+  }
+  function layout(){
+    root.replaceChildren(tabs());
+    const context=state.context;
+    if(context?.returnTo||context?.selection&&onReturnAp)
+      root.prepend(b("선택한 상세로 돌아가기",()=>context.returnTo?context.returnTo():onReturnAp(context)));
+    const area=e("div","operations-area");root.append(area);setBusy();return area;
+  }
+  async function show(tab=state.tab,context=undefined){
+    if(context!==undefined){
+      state.context=context;
+      state.timeline={filters:scopeOf(context),page:1,through:null};
+      state.work=null;
+      if(tab==="registration"&&!context) state.registry={search:"",page:1,runId:null,scopeVersion:null};
+    }
+    state.tab=tab;
+    const screen=currentScreen(tab);
+    navigate(screen);
+    root=document.getElementById(screen==="incidents"?"incident-operations-content":"operations-content");
+    const ticket=epoch(),area=layout();
+    try{
+      const version=await api("/api/operations/version");if(!valid(ticket))return;
+      if(!Number.isSafeInteger(version.restoreEpoch)||version.restoreEpoch<0)throw new Error("등록 기준을 확인하지 못했습니다. 화면을 다시 읽어주세요.");
+      state.version=version;
+      if(tab==="registration")await registration(area,ticket);
+      else if(tab==="points")await points(area,ticket);
+      else if(tab==="work")await work(area,ticket);
+      else if(tab==="import")renderImport(area);
+      else await timeline(area,ticket);
+    }catch(error){if(valid(ticket))area.append(e("div","notice error",error.message));}
+    setBusy();
   }
   function utc(value){return kstInputToUtc(value);}
   function local(value){return utcToKstInput(value);}
   function pagination(area,total,page,change){const pages=Math.max(1,Math.ceil(total/30)),bar=e("div","pager");bar.append(e("span","",`${total}건 · ${page}/${pages}`));const actions=e("div","actions"),prev=b("이전",()=>change(page-1)),next=b("다음",()=>change(page+1));prev.disabled=page<=1;next.disabled=page>=pages;actions.append(prev,next);bar.append(actions);area.append(bar);}
-  function contextPicker(area){const form=e("form","toolbar"),input=field(form,"contextApId","AP 내부 ID",{value:state.context?.apId||"",required:true}),go=e("button","","조회");go.type="submit";form.append(go);form.addEventListener("submit",event=>{event.preventDefault();if(!nonEmptyGuid(input.value.trim()))return showMessage("정확한 AP 내부 ID를 입력하거나 AP 상세의 등록 정보 버튼을 사용하세요.",true);state.context={apId:input.value.trim()};void show("registration");});area.append(form);}
-  async function registration(area,ticket){contextPicker(area);if(!state.context?.apId){area.append(note("AP 상세에서 현재 등록 정보를 열거나 정확한 내부 ID를 입력하세요. 이름/IP로 장비를 연결하지 않습니다."));return;}
+  async function registry(area,ticket){
+    const view=state.registry, form=e("form","toolbar");
+    const search=field(form,"registrySearch","AP 이름·IP·위치 검색",{value:view.search});
+    const submit=e("button","","검색");submit.type="submit";form.append(submit);
+    form.addEventListener("submit",event=>{
+      event.preventDefault();
+      state.registry={search:search.value.trim(),page:1,runId:null,scopeVersion:null};
+      void show("registration");
+    });
+    area.append(form);
+    const query=new URLSearchParams({filter:"All",page:String(view.page),pageSize:"30"});
+    if(view.search)query.set("search",view.search);
+    if(view.runId!=null){query.set("runId",view.runId);query.set("scopeVersion",view.scopeVersion);}
+    let data;
+    try{data=await api(`/api/dashboard?${query}`);}
+    catch(error){if(error.code!=="no_final_run")throw error;if(valid(ticket))area.append(note("첫 AP 상태 수집이 확정되면 이곳에서 장비를 선택할 수 있습니다."));return;}
+    if(!valid(ticket))return;
+    view.runId=data.runId;view.scopeVersion=data.scopeVersion;
+    const list=section("AP 대장 목록");
+    for(const row of data.rows){
+      const name=inventoryValue(row,"Name").value||`AP ${row.sourceApId}`;
+      const item=e("div","operation-item");
+      item.append(b(name,()=>show("registration",{apId:row.apId,deviceGenerationId:row.deviceGenerationId}),"text-button"),
+        note(`원천 ID ${row.sourceApId} · ${text(inventoryValue(row,"IpAddress").value)} · ${text(inventoryValue(row,"Model").value)}`));
+      list.append(item);
+    }
+    if(!data.rows.length)list.append(note("조건에 맞는 AP가 없습니다."));
+    area.append(list);pagination(area,data.totalRows,view.page,page=>{view.page=page;void show("registration");});
+  }
+  function workApPicker(ticket,add){
+    const box=e("details","work-ap-picker"),toolbar=e("div","toolbar");
+    box.append(e("summary","","목록에서 작업 대상 AP 선택"),note("현재 감시 범위의 AP를 이름·IP로 검색해 여러 대를 선택할 수 있습니다."));
+    const wrap=e("label","operation-field"),search=e("input");
+    search.type="search";wrap.append(e("span","","AP 이름·IP·위치"),search);
+    const results=e("div","work-ap-results"),selection=new Map();
+    let request=0,criteria="",run=null,scope=null;
+    const apply=b("",()=>{
+      if(state.busy||!valid(ticket))return;
+      add([...selection.values()]);selection.clear();
+      for(const input of results.querySelectorAll("input"))input.checked=false;
+      updateCount();
+    });
+    function updateCount(){apply.textContent=`선택 AP 추가 (${selection.size}대)`;apply.disabled=state.busy||!selection.size;}
+    async function load(page,fresh=false){
+      if(state.busy)return;
+      const revision=++request;
+      if(fresh){criteria=search.value.trim();run=null;scope=null;}
+      const q=new URLSearchParams({filter:"All",page,pageSize:30});
+      if(criteria)q.set("search",criteria);
+      if(run!=null){q.set("runId",run);q.set("scopeVersion",scope);}
+      results.replaceChildren(note("AP 목록 조회 중"));
+      try{
+        const data=await api(`/api/dashboard?${q}`);
+        if(!valid(ticket)||revision!==request)return;
+        run=data.runId;scope=data.scopeVersion;results.replaceChildren();
+        for(const row of data.rows){
+          const target={apId:row.apId,deviceGenerationId:row.deviceGenerationId},key=row.deviceGenerationId;
+          const label=e("label","check"),check=e("input");
+          check.type="checkbox";check.dataset.pickAp=row.apId;check.checked=selection.has(key);
+          check.addEventListener("change",()=>{
+            if(state.busy)return;
+            if(check.checked)selection.set(key,target);else selection.delete(key);
+            updateCount();
+          });
+          label.append(check,e("span","",`${inventoryValue(row,"Name").value||row.sourceApId} · ${text(inventoryValue(row,"IpAddress").value)} · 원천 ID ${row.sourceApId}`));results.append(label);
+        }
+        if(!data.rows.length)results.append(note("조건에 맞는 AP가 없습니다."));
+        pagination(results,data.totalRows,page,load);
+        if(state.busy)freezeControls(results.querySelectorAll("input,button"));
+      }catch(error){if(valid(ticket)&&revision===request)results.replaceChildren(note(error.message));}
+    }
+    search.addEventListener("keydown",event=>{if(event.key==="Enter"){event.preventDefault();void load(1,true);}});
+    toolbar.append(wrap,b("AP 검색",()=>load(1,true)));updateCount();box.append(toolbar,results,apply);
+    return box;
+  }
+  async function registration(area,ticket){
+    if(!state.context?.apId){await registry(area,ticket);return;}
+    area.append(b("AP 대장 목록",()=>{state.context=null;return show("registration");}));
     const target={...state.context},data=await api(`/api/operations/aps/${encodeURIComponent(target.apId)}/registration`);if(!valid(ticket))return;state.registration=data;const current=data.registration;
     area.append(e("div","notice",current.pendingNextCollection?"현재 등록 정보 · 다음 AP 수집 적용 대기":"현재 등록 정보 · 저장된 관측과 적용 상태 확인"),note(`현재 장비 세대 ${current.currentDeviceGenerationId} · 자동 정보 회차 ${data.automaticRunId} · ${dateText(data.automaticObservedAtUtc)}. 과거 회차·사건 정보는 변경하지 않습니다.`));
     if(target.deviceGenerationId&&target.deviceGenerationId!==current.currentDeviceGenerationId)area.append(e("div","notice warning","선택했던 과거 장비와 현재 장비 세대가 다릅니다. 아래 등록은 명시된 현재 세대에만 적용됩니다. 과거 사건 작업은 작업·메모에서 원래 세대를 유지합니다."));
@@ -163,9 +281,10 @@ export function createOperationsController({api,onMessage,navigate,dateText,isCu
     const built=tracked(key,point,(form,draft)=>{const p=draft.base;field(form,"name","지점 이름",{value:p.name||"",required:true});field(form,"inventoryKey","기존 대장 고유 키 (선택)",{value:p.inventoryKey||""});for(const [name,label]of[["site","사업장"],["building","건물"],["floor","층"],["zone","구역"],["detail","상세 위치"]])field(form,name,label,{value:p.location?.[name]||""});field(form,"reason","정정 사유 (수정 시 필수)",{required:p.version>0});submit(form,draft,p.version?"지점 정정 저장":"지점 등록","/api/operations/points",(v,base)=>({installationPointId:base.installationPointId,expectedVersion:base.version,name:v.name,inventoryKey:v.inventoryKey||null,location:{site:v.site||null,building:v.building||null,floor:v.floor||null,zone:v.zone||null,detail:v.detail||null,installationPointId:base.installationPointId},correctionReason:v.reason||null}),async stillCurrent=>{if(!stillCurrent())return;state.point={current:{installationPointId:draft.base.installationPointId}};await show("points");});});panel.append(note(`지점 ID ${built.draft.base.installationPointId} · 버전 ${built.draft.base.version}`),built.form,b(snapshot?"지점 다시 읽기":"새 지점 입력 다시 작성",()=>resetDraft(key,()=>snapshot?loadPoint(point.installationPointId):reloadNewPoint())));
     if(snapshot){panel.append(b("이 지점 운영 이력",()=>show("timeline",{installationPointId:point.installationPointId})),b("이 지점 작업 등록",()=>{state.work=null;void show("work",{installationPointId:point.installationPointId});}));const history=e("details");history.append(e("summary","","지점 수정·장비 배치 이력"));for(const v of snapshot.versions)history.append(note(`버전 ${v.version} · ${dateText(v.recordedAtUtc)} · ${v.name} · ${text(v.correctionReason)}`));for(const p of snapshot.placements)history.append(note(`${p.recordedEndAtUtc?"종료된 등록":snapshot.currentDeviceGenerationIds==null?"현재 세대 적용 미확인":snapshot.currentDeviceGenerationIds.includes(p.deviceGenerationId)?"현재 장비 등록":"구 장비 세대 등록 이력 · 현재 적용 아님"} · AP ${p.apId} · 세대 ${p.deviceGenerationId} · 등록 ${dateText(p.recordedStartAtUtc)} → ${dateText(p.recordedEndAtUtc)} · 실제 작업 ${dateText(p.actualStartAtUtc)} → ${dateText(p.actualEndAtUtc)} · ${text(p.endReason)}`));panel.append(history);}area.append(panel);panel.scrollIntoView({block:"nearest"});
   }
+  function writeWork(context){state.work=null;return show("work",context);}
   async function work(area,ticket){const lookup=e("form","toolbar"),id=field(lookup,"workLookup","작업 ID로 조회"),open=e("button","","조회");open.type="submit";lookup.append(open,b("새 작업·메모",()=>{state.work=null;void show("work");}));lookup.addEventListener("submit",event=>{event.preventDefault();void loadWork(id.value.trim());});area.append(lookup);
     if(state.work){const selected=state.work.current.workId;const snapshot=await api(`/api/operations/work/${selected}`);if(!valid(ticket))return;state.work=snapshot;}
-    const snapshot=state.work,record=snapshot?.current||{workId:crypto.randomUUID(),version:0,content:{targets:state.context?[state.context]:[]}},key=`work:${snapshot?record.workId:"new:"+JSON.stringify(state.context)}`,panel=section(snapshot?"작업·메모 정정 및 취소":"작업·메모 등록");
+    const snapshot=state.work,record=snapshot?.current||{workId:crypto.randomUUID(),version:0,content:{targets:state.context?[targetOf(state.context)]:[]}},key=`work:${snapshot?record.workId:"new:"+JSON.stringify(targetOf(state.context))}`,panel=section(snapshot?"작업·메모 정정 및 취소":"작업·메모 등록");
     const built=tracked(key,record,(form,draft)=>{const w=draft.base,c=w.content||{};
       field(form,"workType","작업 종류",{value:c.workType||"점검",required:true});field(form,"status","작업 상태",{options:Object.entries(workStatuses),value:c.status||"Planned"});
       field(form,"plannedStart","예정 시작 (선택)",{type:"datetime-local",value:local(c.plannedStartAtUtc)});field(form,"plannedEnd","예정 종료 (선택)",{type:"datetime-local",value:local(c.plannedEndAtUtc)});field(form,"actual","실제 작업 시각 (선택)",{type:"datetime-local",value:local(c.actualWorkAtUtc)});field(form,"worker","작업자 (선택)",{value:c.worker||""});
@@ -173,19 +292,61 @@ export function createOperationsController({api,onMessage,navigate,dateText,isCu
       const targets=e("div","work-targets");form.append(e("h3","","연결 대상 · 정확한 장비/사건/지점"),note("AP 상세에서 시작하면 당시 장비 세대가 유지됩니다. 다른 대상을 추가할 때 내부 ID를 사용하세요. 사건 입력은 선택이며, 이름/IP로 대상을 추정하지 않습니다."),targets);
       let count=0;const addTarget=(target={},storedIndex=null)=>{const index=storedIndex??count;count=Math.max(count,index+1);const row=e("fieldset","work-target");row.dataset.targetIndex=String(index);row.append(e("legend","",`대상 ${index+1}`));for(const [name,label]of[["apId","AP ID"],["deviceGenerationId","장비 세대 ID"],["incidentId","사건 ID (선택)"],["installationPointId","설치 지점 ID (선택)"]])field(row,`target${index}-${name}`,label,{value:target[name]||""});row.append(b("이 대상 제거",()=>{row.remove();draft.values=read(form);draft.dirty=true;}));targets.append(row);};
       const storedTargets=draft.values?Object.keys(draft.values).filter(k=>/^target\d+-apId$/.test(k)).map(k=>{const prefix=k.split('-')[0];return {...Object.fromEntries(["apId","deviceGenerationId","incidentId","installationPointId"].map(name=>[name,draft.values[`${prefix}-${name}`]])),_index:Number(prefix.slice(6))};}):c.targets||[];
-      (storedTargets.length?storedTargets:[{}]).forEach(target=>addTarget(target,target._index??null));form.append(b("대상 추가",()=>{addTarget();draft.values=read(form);draft.dirty=true;}));field(form,"correctionReason","정정·취소 사유 (수정 시 필수)",{required:w.version>0});
+      (storedTargets.length?storedTargets:[{}]).forEach(target=>addTarget(target,target._index??null));
+      form.append(workApPicker(ticket,picked=>{
+        const present=new Set();
+        for(const row of targets.querySelectorAll("fieldset")){
+          const fields=read(row),prefix=`target${row.dataset.targetIndex}-`;
+          if(targetFields.every(k=>!fields[prefix+k]?.trim()))row.remove();
+          else present.add(`${fields[prefix+"apId"]}/${fields[prefix+"deviceGenerationId"]}`);
+        }
+        for(const target of picked)if(!present.has(`${target.apId}/${target.deviceGenerationId}`))addTarget(target);
+        draft.dirty=true;draft.values=read(form);
+      }));
+      form.append(b("대상 추가",()=>{addTarget();draft.values=read(form);draft.dirty=true;}));field(form,"correctionReason","정정·취소 사유 (수정 시 필수)",{required:w.version>0});
       form.append(note("작업 상태와 자동 장애 상태는 별개입니다. 취소·정정은 이전 내용과 연결 대상을 이력으로 남기며 AP 복구를 만들지 않습니다."));
       submit(form,draft,w.version?"작업 버전 저장":"작업 기록 저장","/api/operations/work",(v,base)=>{const selected=[...targets.querySelectorAll("fieldset")].map(row=>{const n=row.dataset.targetIndex;return Object.fromEntries(["apId","deviceGenerationId","incidentId","installationPointId"].map(key=>[key,v[`target${n}-${key}`]]));});return {workId:base.workId,expectedVersion:base.version,content:{workType:v.workType,status:v.status,content:v.content,result:v.result||null,notes:v.notes||null,causeStatus:v.causeStatus,causeDetail:v.causeDetail||null,plannedStartAtUtc:utc(v.plannedStart),plannedEndAtUtc:utc(v.plannedEnd),actualWorkAtUtc:utc(v.actual),worker:v.worker||null,targets:workTargets(selected)},correctionReason:v.correctionReason||null};},async stillCurrent=>{if(!stillCurrent())return;state.work={current:{workId:draft.base.workId}};await show("work");});});
     panel.append(note(`작업 ID ${built.draft.base.workId} · 버전 ${built.draft.base.version}`),built.form,b("저장된 작업 다시 읽기",()=>resetDraft(key,()=>snapshot?loadWork(record.workId):show("work"))));area.append(panel);
     if(snapshot){const versions=section("이전 작업·메모 버전");for(const v of snapshot.versions){const item=e("details","work-version");item.append(e("summary","",`버전 ${v.version} · ${workStatuses[v.content.status]||v.content.status} · ${dateText(v.recordedAtUtc)}`),note(`정정 사유: ${text(v.correctionReason)}`),e("p","pre-wrap",v.content.content),note(`결과: ${text(v.content.result)}\n메모: ${text(v.content.notes)}`),note(`예정 ${dateText(v.content.plannedStartAtUtc)} → ${dateText(v.content.plannedEndAtUtc)} · 실제 ${dateText(v.content.actualWorkAtUtc)} · 작업자 ${text(v.content.worker)}`),note(`원인 ${causes[v.content.causeStatus]} · ${text(v.content.causeDetail)}`));for(const t of v.content.targets)item.append(note(`AP ${text(t.apId)} · 세대 ${text(t.deviceGenerationId)} · 사건 ${text(t.incidentId)} · 지점 ${text(t.installationPointId)}`));versions.append(item);}area.append(versions);}
   }
   async function loadWork(id){if(!nonEmptyGuid(id))return showMessage("정확한 작업 ID를 입력하세요.",true);state.work={current:{workId:id}};await show("work");}
-  async function timeline(area,ticket){const filters=state.timeline.filters,form=e("form","toolbar operation-filters");for(const [key,label]of[["apId","AP ID"],["deviceGenerationId","장비 세대 ID"],["installationPointId","설치 지점 ID"]])field(form,key,label,{value:filters[key]||""});field(form,"kind","이력 종류",{options:[["","전체 종류"],...Object.entries(kinds)],value:filters.kind||""});field(form,"from","기록 시각 시작",{type:"datetime-local",value:local(filters.fromUtc)});field(form,"to","기록 시각 종료",{type:"datetime-local",value:local(filters.toUtc)});const go=e("button","","조건 적용 / 최신 이력");go.type="submit";form.append(go);form.addEventListener("submit",event=>{event.preventDefault();try{const v=read(form);for(const key of["apId","deviceGenerationId","installationPointId"])if(v[key]&&!nonEmptyGuid(v[key].trim()))throw new Error("대상 ID를 확인하세요.");state.timeline={filters:{apId:v.apId.trim(),deviceGenerationId:v.deviceGenerationId.trim(),installationPointId:v.installationPointId.trim(),kind:v.kind,fromUtc:utc(v.from),toUtc:utc(v.to)},page:1,through:null};void show("timeline");}catch(error){showMessage(error.message,true);}});area.append(form,note("기록·관측 시각으로 조회합니다. 실제 작업 시각은 별도 표시하며, 다른 AP의 사건을 설치 지점으로 병합하지 않습니다. 페이지를 넘겨도 같은 이력 기준을 유지합니다."));
-    const page=await api(`/api/operations/timeline?${timelineQuery(filters,state.timeline.page,state.timeline.through)}`);if(!valid(ticket))return;state.timeline.through=page.throughEventId;const list=e("ol","timeline operations-timeline");
+  async function timeline(area,ticket){
+    const filters=state.timeline.filters,form=e("form","toolbar operation-filters");
+    for(const [key,label]of [["apId","AP ID"],["deviceGenerationId","장비 세대 ID"],["installationPointId","설치 지점 ID"],["incidentId","사건 ID"]]){
+      const input=field(form,key,label,{value:filters[key]||""});
+      if(state.context?.[key])input.readOnly=true;
+    }
+    field(form,"kind","이력 종류",{options:[["","전체 종류"],...Object.entries(kinds)],value:filters.kind||""});
+    field(form,"from","기록 시각 시작",{type:"datetime-local",value:local(filters.fromUtc)});
+    field(form,"to","기록 시각 종료",{type:"datetime-local",value:local(filters.toUtc)});
+    const go=e("button","","조회 조건 적용");go.type="submit";form.append(go);
+    form.addEventListener("submit",event=>{
+      event.preventDefault();
+      try{
+        const values=read(form),targets={};
+        for(const key of targetFields){
+          const id=state.context?.[key]||values[key].trim();
+          if(id&&!nonEmptyGuid(id))throw new Error("대상 ID를 확인하세요.");
+          if(id)targets[key]=id;
+        }
+        state.timeline={
+          filters:{...targets,asOfRunId:filters.asOfRunId,kind:values.kind,fromUtc:utc(values.from),toUtc:utc(values.to)},
+          page:1,through:null
+        };
+        void show("timeline");
+      }catch(error){showMessage(error.message,true);}
+    });
+    area.append(form,note("기록·관측 시각으로 조회합니다. 실제 작업 시각은 각 기록에서 별도로 확인할 수 있습니다."));
+    const page=await api(`/api/operations/timeline?${timelineQuery(filters,state.timeline.page,state.timeline.through)}`);
+    if(!valid(ticket))return;
+    state.timeline.through=page.throughEventId;
+    if(filters.asOfRunId)area.append(note(`회차 ${filters.asOfRunId} 확정 당시까지의 운영 이력`));
+    if(page.historicalManualBoundaryUnavailable)area.append(historicalBoundaryNote());
+    const list=e("ol","timeline operations-timeline");
     if(!page.rows.length)area.append(note("조건에 맞는 운영 이력이 없습니다."));for(const item of page.rows){const li=e("li"),change=item.automaticChange;li.append(e("time","",dateText(item.recordedAtUtc)),e("strong","",`${kinds[item.kind]||item.kind} · ${semantic[change?.semantics]||semantic[item.action]||item.action}`),badge(sources[item.source]||"출처 미확인"),note(`${operationFields[item.field]||item.field}: ${operationValue(item,item.beforeValue)} → ${operationValue(item,item.afterValue)}`));
-      if(item.work)li.append(note(`작업 버전 ${item.work.version} · ${workStatuses[item.work.content.status]||item.work.content.status}`));if(item.reason)li.append(note(item.reason));if(item.runId)li.append(note(`관측 회차 ${item.runId}`));if(change)li.append(note(`이전 근거 수집 ${dateText(change.beforeEvidence?.collectedAtUtc)} / 원천 ${dateText(change.beforeEvidence?.sourceAtUtc)} · 새 근거 수집 ${dateText(change.afterEvidence?.collectedAtUtc)} / 원천 ${dateText(change.afterEvidence?.sourceAtUtc)}${change.hasObservationGap?" · 공백 뒤 발견, 실제 변경 시각 미상":""}${change.needsConfirmation?" · 물리 교체 작업 미확인":""}`));
+      if(item.work)workSummary(li,item.work);if(item.reason)li.append(note(item.reason));if(item.runId)li.append(note(`관측 회차 ${item.runId}`));if(change)li.append(note(`이전 근거 수집 ${dateText(change.beforeEvidence?.collectedAtUtc)} / 원천 ${dateText(change.beforeEvidence?.sourceAtUtc)} · 새 근거 수집 ${dateText(change.afterEvidence?.collectedAtUtc)} / 원천 ${dateText(change.afterEvidence?.sourceAtUtc)}${change.hasObservationGap?" · 공백 뒤 발견, 실제 변경 시각 미상":""}${change.needsConfirmation?" · 물리 교체 작업 미확인":""}`));
       if(item.actualWorkAtUtc)li.append(note(`실제 작업 입력 ${dateText(item.actualWorkAtUtc)}`));if(item.timeNeedsReview||change?.timeNeedsReview)li.append(badge("시각 검토 필요","amber"));
-      const targets=e("details");targets.append(e("summary","","정확한 대상 보기"));for(const target of item.targets||[])targets.append(note(`AP ${text(target.apId)} · 세대 ${text(target.deviceGenerationId)} · 사건 ${text(target.incidentId)} · 지점 ${text(target.installationPointId)}`));li.append(targets);if(item.work)li.append(b(`작업 ${item.work.workId} · 버전 ${item.work.version} 보기`,()=>loadWorkFromTimeline(item.work.workId)));if(change?.semantics==="ReplacementDetected")li.append(b("이 감지의 교체 작업 확인",()=>replacementForm(li,item)));if(item.replacementConfirmation){const c=item.replacementConfirmation;li.append(note(`원래 감지 ${c.replacementEventId} · 확인한 작업 ${c.workId} 버전 ${c.workVersion} · 이전 세대 ${c.previousDeviceGenerationId} → ${c.deviceGenerationId}`),b("확인 근거 작업 보기",()=>loadWorkFromTimeline(c.workId)));}list.append(li);}
+      const targets=e("details");targets.append(e("summary","","정확한 대상 보기"));for(const target of item.targets||[])targets.append(note(`AP ${text(target.apId)} · 세대 ${text(target.deviceGenerationId)} · 사건 ${text(target.incidentId)} · 지점 ${text(target.installationPointId)}`));li.append(targets);if(item.work)li.append(b(`현재 작업 기록 열기 · ${item.work.workId}`,()=>loadWorkFromTimeline(item.work.workId)));if(change?.semantics==="ReplacementDetected")li.append(b("이 감지의 교체 작업 확인",()=>replacementForm(li,item)));if(item.replacementConfirmation){const c=item.replacementConfirmation;li.append(note(`원래 감지 ${c.replacementEventId} · 확인한 작업 ${c.workId} 버전 ${c.workVersion} · 이전 세대 ${c.previousDeviceGenerationId} → ${c.deviceGenerationId}`),b("확인 근거 작업 보기",()=>loadWorkFromTimeline(c.workId)));}list.append(li);}
     area.append(list);pagination(area,page.totalRows,state.timeline.page,page=>{state.timeline.page=page;void show("timeline");});
   }
   function replacementForm(container,item){
@@ -193,7 +354,7 @@ export function createOperationsController({api,onMessage,navigate,dateText,isCu
     const built=tracked(key,item,(form,draft)=>{field(form,"workId","실시 완료 작업 ID",{required:true});field(form,"workVersion","작업 현재 버전",{type:"number",required:true});field(form,"actual","실제 교체 시각 (작업과 같아야 함)",{type:"datetime-local"});field(form,"reason","확인 근거·사유",{type:"textarea",required:true});submit(form,draft,"교체 확인 이력 저장","/api/operations/replacement/confirm",(v,base)=>({replacementEventId:base.eventId,previousDeviceGenerationId:base.automaticChange.previousDeviceGenerationId,deviceGenerationId:base.automaticChange.deviceGenerationId,workId:v.workId.trim(),expectedWorkVersion:Number(v.workVersion),reason:v.reason,actualWorkAtUtc:utc(v.actual)}),()=>{state.timeline.through=null;return show("timeline");});});
     panel.append(note(`감지 ${item.eventId} · AP ${change.apId} · 이전 ${change.previousDeviceGenerationId} → 이후 ${change.deviceGenerationId}`),note("두 세대를 모두 정확한 대상으로 연결한 실시 작업이 필요합니다. 원래 감지 이력과 장애 상태는 유지하며 별도 확인 이력을 남깁니다."),built.form);container.append(panel);
   }
-  async function loadWorkFromTimeline(id){state.tab="work";navigate("operations");await loadWork(id);}
+  async function loadWorkFromTimeline(id){await loadWork(id);}
   function renderImport(area){
     const panel=section("CSV 대장 가져오기 · 검토 후 적용"),form=e("form","operation-form"),file=field(form,"csv","UTF-8 CSV 파일 (최대 4 MiB)",{type:"file",required:true});file.accept=".csv,text/csv";
     panel.append(note("내부 AP ID 또는 검증된 시리얼·유선 MAC으로 연결합니다. 이름·IP는 연결 기준이 아닙니다. 값이 비어 있으면 유지하며, 해제는 별도 열로 명시해야 합니다. 상태·LLDP·전력 관측을 가져오지 않습니다."));
@@ -231,6 +392,38 @@ export function createOperationsController({api,onMessage,navigate,dateText,isCu
     if(snapshot.placement){const ref=snapshot.placement;panel.append(note(`이 관측의 설치 지점 ${ref.installationPointId} · 지점 버전 ${ref.pointVersion}`));const lookup=b("당시 지점 이름 확인",async()=>{lookup.disabled=true;try{const point=await api(`/api/operations/points/${ref.installationPointId}`),version=point.versions.find(v=>v.version===ref.pointVersion);lookup.replaceWith(note(version?`당시 지점: ${version.name} · 버전 ${version.version}`:"당시 지점 버전 미확인"));}catch(error){lookup.disabled=false;showMessage(error.message,true);}});panel.append(lookup);}
     return panel;
   }
-  function actions(context){const panel=section("등록 정보와 운영 작업"),buttons=e("div","actions");buttons.append(b("현재 등록 정보 편집",()=>show("registration",context)),b("이 대상의 운영 이력",()=>show("timeline",context)),b("이 대상에 작업·메모 기록",()=>{state.work=null;return show("work",context);}));panel.append(note(`선택 대상: AP ${text(context.apId)} · 장비 세대 ${text(context.deviceGenerationId)}${context.incidentId?` · 사건 ${context.incidentId}`:""}`),note("작업을 기록해도 장애가 자동 복구되지 않습니다. 과거 세대의 작업 대상은 그대로 보존합니다."),buttons);return panel;}
-  return {show,leave:()=>epoch(),snapshotPanel,actions,displayValue:(row,field,fallback)=>inventoryValue(row,field).value??fallback};
+  function historicalBoundaryNote(){
+    return note("이전 회차에는 수동 작업의 저장 경계가 없어 당시 포함 여부를 확인할 수 있는 기록만 표시합니다.");
+  }
+  function workSummary(container,work){
+    const content=work.content;
+    container.append(note(`작업 버전 ${work.version} · ${workStatuses[content.status]||content.status}`),
+      e("p","pre-wrap",content.content));
+    if(content.result)container.append(note(`결과 · ${content.result}`));
+    if(content.notes)container.append(note(`메모 · ${content.notes}`));
+  }
+  async function incidentEventsPanel(context){
+    const panel=section("이 사건의 장애·조치 이력");
+    if(!nonEmptyGuid(context?.incidentId)){panel.append(note("사건을 선택하면 연결된 이력이 표시됩니다."));return panel;}
+    try{
+      const page=await api(`/api/operations/timeline?${timelineQuery(scopeOf(context))}`);
+      if(page.historicalManualBoundaryUnavailable)panel.append(historicalBoundaryNote());
+      if(!page.rows.length)panel.append(note("이 사건에 연결된 운영 이력이 없습니다."));
+      const list=e("ol","timeline operations-timeline");
+      for(const item of page.rows){
+        const entry=e("li");
+        entry.append(e("time","",dateText(item.recordedAtUtc)),e("strong","",semantic[item.action]||kinds[item.kind]||item.action),
+          badge(sources[item.source]||"출처 미확인"));
+        if(item.work)workSummary(entry,item.work);
+        if(item.actualWorkAtUtc)entry.append(note(`실제 작업 시각 · ${dateText(item.actualWorkAtUtc)}`));
+        if(item.reason)entry.append(note(item.reason));
+        list.append(entry);
+      }
+      panel.append(list);
+      if(page.totalRows>page.rows.length)panel.append(b("이 사건의 전체 운영 이력",()=>show("timeline",context)));
+    }catch(error){panel.append(e("div","notice error",error.message));}
+    return panel;
+  }
+  function actions(context){const panel=section("등록 정보와 운영 작업"),buttons=e("div","actions");buttons.append(b("현재 등록 정보 편집",()=>show("registration",context)),b("이 대상의 운영 이력",()=>show("timeline",context)),b("이 대상에 작업·메모 기록",()=>writeWork(context)));panel.append(note(`선택 대상: AP ${text(context.apId)} · 장비 세대 ${text(context.deviceGenerationId)}${context.incidentId?` · 사건 ${context.incidentId}`:""}`),note("작업을 기록해도 장애가 자동 복구되지 않습니다. 과거 세대의 작업 대상은 그대로 보존합니다."),buttons);return panel;}
+  return {show,leave:()=>epoch(),snapshotPanel,actions,writeWork,incidentEventsPanel,displayValue:(row,field,fallback)=>inventoryValue(row,field).value??fallback};
 }

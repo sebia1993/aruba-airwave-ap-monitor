@@ -15,7 +15,7 @@ export function neighborText(assessment){if(assessment?.presence==="ExpectedNeig
 export function attributionText(attribution){if(attribution?.status==="Attributed"&&attribution.target)return `귀속 AP ${attribution.target.apId} · 장비 세대 ${attribution.target.deviceGenerationId}`;return ({Unknown:"AP 귀속 미확인",Ambiguous:"AP 귀속 후보 충돌",Stale:"과거 연결 근거 지연 · AP 귀속 미확인",OutsideBinding:"당시 대상 범위 밖 · AP 귀속 미확인"})[attribution?.status]||"AP 귀속 미확인";}
 export function settingsInput(profile,values){const interval=Number(values.interval);if(!profile||!Number.isInteger(interval)||interval<1||interval>60)throw new Error("상세 수집 주기는 1–60분이어야 합니다.");return {expectedConfigurationVersion:profile.configurationVersion,enrichmentIntervalMinutes:interval,connectionCollectionEnabled:values.connection===true,powerCollectionEnabled:values.power===true};}
 
-export function createEnrichmentController({api,onMessage,navigate,dateText,isCurrentView,onSettingsSaved,onHistory}){
+export function createEnrichmentController({api,onMessage,navigate,dateText,isCurrentView,onSettingsSaved,onHistory,onRuns}){
   const e=(tag,cls,text)=>{const node=document.createElement(tag);if(cls)node.className=cls;if(text!=null)node.textContent=String(text);return node;};
   const button=(label,handler,cls="")=>{const node=e("button",cls,label);node.type="button";node.addEventListener("click",()=>void handler());return node;};
   const note=value=>e("p","footnote",value),badge=(value,tone="")=>e("span",`badge ${tone}`,value);
@@ -99,7 +99,7 @@ export function createEnrichmentController({api,onMessage,navigate,dateText,isCu
   }
   async function overview(area,ticket){const healthRevision=state.healthRevision;const [capabilities,settings,health]=await Promise.all([api("/api/enrichment/capabilities"),api("/api/settings",{timeout:130000}),api("/api/health")]);if(!current(ticket))return;state.capabilities=capabilities;state.settings=settings;if(state.healthRevision===healthRevision)state.collector=health.collector;const mainHealth=e("div","enrichment-overview-health");mainHealth.append(healthPanel(state.collector));area.append(mainHealth);const controls=e("div","enrichment-overview-controls");area.append(controls);overviewControls(controls);
     for(const kind of capabilities.kinds||[]){const box=panel(`${kinds[kind.kind]||kind.kind} 제공 범위`);box.append(badge(availability[kind.decision?.availability]||availability.Unverified),note(`사용 설정 ${kind.enabled?"켜짐":"꺼짐"} · 실행 ${kind.decision?.canCollect?"가능":"안 함"} · 서버 판정 ${unknown(kind.decision?.reason)}`));for(const field of kind.fields||[]){const details=e("details","enrichment-capability"),evidence=field.evidence,key=evidence?.key;details.append(e("summary","",`${key?.field||"필드 미확인"} · ${availability[field.decision?.availability]||availability.Unverified}`),pairs([["장비 유형",key?.deviceFamily],["계약 버전",key?.contractRevision],["코드 지원",evidence?.implemented?"구현됨":"지원 코드 미확인"],["계약 검증",evidence?.contractVerified?"확인":"미검증"],["확인 방법",evidence?.verification],["근거 시각",dateText(evidence?.verifiedAtUtc)],["근거 설명",evidence?.safeReason],["근거 출처",sources[key?.profile?.source]],["설정·범위 버전",key?.profile?`${key.profile.configurationVersion} / ${key.profile.scopeVersion}`:null]]));box.append(details);}
-      const run=button("이 종류 지금 수집",async()=>{if(state.busy||!canRequest(kind.kind))return;setBusy(true);try{const result=await api("/api/collector/requests",{method:"POST",body:{kind:kind.kind,trigger:"Manual"}});onMessage(`${kinds[kind.kind]} 수집 요청: ${result.status}. 완료 여부는 수집 기록에서 확인하세요.`);}catch(error){onMessage(error.message,true);}finally{setBusy(false);}},"enrichment-run-button");run.dataset.kind=kind.kind;run.disabled=state.busy||!canRequest(kind.kind);box.append(run);area.append(box);}
+      const run=button("이 종류 지금 수집",async()=>{if(state.busy||!canRequest(kind.kind))return;setBusy(true);try{const result=await api("/api/collector/requests",{method:"POST",body:{kind:kind.kind,trigger:"Manual"}});onMessage(`${kinds[kind.kind]} 수집 요청: ${result.status}. 완료 여부는 수집 기록에서 확인하세요.`);}catch(error){onMessage(error.message,true);}finally{setBusy(false);}},"enrichment-run-button");run.dataset.kind=kind.kind;run.disabled=state.busy||!canRequest(kind.kind);box.append(run,button("이 종류 수집 기록",()=>onRuns(kind.kind)));area.append(box);}
 
   }
   function snapshotPanel(snapshot,title="선택한 관측에 저장된 연결·전력"){
@@ -117,20 +117,27 @@ export function createEnrichmentController({api,onMessage,navigate,dateText,isCu
   function table(headers,rows,render){const wrap=e("div","table-wrap"),table=e("table","data-table"),head=e("thead"),tr=e("tr"),body=e("tbody");for(const label of headers){const th=e("th","",label);th.scope="col";tr.append(th);}head.append(tr);for(const row of rows){const tr=e("tr");render(tr,row);body.append(tr);}table.append(head,body);wrap.append(table);return wrap;}
   function cell(tr,value){const td=e("td");if(value?.tagName)td.append(value);else td.textContent=unknown(value);tr.append(td);}
   function pager(area,page,total,pageSize,load){const bar=e("div","pager"),prev=button("이전",()=>load(page-1)),next=button("다음",()=>load(page+1));prev.disabled=page<=1;next.disabled=page*pageSize>=total;bar.append(note(`${total}건 · ${page} / ${Math.max(1,Math.ceil(total/pageSize))}`),prev,next);area.append(bar);}
-  function actions(selection){const box=panel("당시 범위의 전력 측정 이력");box.append(note("별도 표본 조회는 선택한 회차까지로 고정합니다. 사건에 저장된 스냅샷은 그대로 유지합니다."),button("보존 기간 내 전력 표본 보기",()=>show("power",selection)));if(onHistory)box.append(button("연결·전원 상태 전환 이력",()=>onHistory(selection)),note("상태 전환은 저장된 운영 이력에서 확인합니다. 전력 수치의 매번 변화는 변경 사건으로 만들지 않습니다."));return box;}
-  async function show(tab=state.tab,selection=undefined){state.tab=tab;if(selection!==undefined){state.selection=selection;state.power={page:1,through:null,metric:"",from:"",to:""};}navigate("enrichment");const ticket=++state.epoch,root=document.getElementById("enrichment-content"),tabs=e("div","tabs enrichment-tabs");for(const [key,label]of[["overview","수집·제공 범위"],["runs","상세 수집 기록"],["power","전력 표본"]]){const b=button(label,()=>show(key),`tab${tab===key?" active":""}`);b.setAttribute("aria-pressed",String(tab===key));tabs.append(b);}const area=e("div","enrichment-area");root.replaceChildren(tabs,area);try{if(tab==="overview")await overview(area,ticket);else if(tab==="runs")await runs(area,ticket);else await powerHistory(area,ticket);}catch(error){if(current(ticket))area.append(e("div","notice error",error.message));}}
-  // History readers below use server paging, recorded assessments and a pinned run boundary.
-  async function runs(area,ticket){
-    state.runs??={page:1,kind:"",scope:"",through:null};const value=state.runs,form=e("form","toolbar enrichment-filters");
-    field(form,"kind","수집 종류",{value:value.kind,options:[["","연결·전력 전체"],...Object.entries(kinds)]});field(form,"scope","범위 버전 (선택)",{type:"number",value:value.scope});
-    const search=e("button","","조건 적용 / 최신 기록");search.type="submit";form.append(search);form.addEventListener("submit",event=>{event.preventDefault();const v=read(form);state.runs={page:1,kind:v.kind,scope:v.scope,through:null};void show("runs");});area.append(form,note("상세 종류의 실행 기록입니다. AP 상태 수집의 성공·실패 시각과 분리하며, 페이지 이동은 같은 회차 상한을 유지합니다."));
-    const query=new URLSearchParams({page:value.page,pageSize:30});if(value.kind)query.set("kind",value.kind);if(value.scope)query.set("scopeVersion",value.scope);if(value.through)query.set("throughRunId",value.through);
-    const result=await api(`/api/enrichment/runs?${query}`);if(!current(ticket))return;value.through=result.throughRunId;
-    area.append(table(["회차 / 종류","시작 / 확정","결과 / 완전성","적용 범위","오류"],result.rows||[],(tr,row)=>{cell(tr,button(`회차 ${row.runId} · ${kinds[row.kind]||row.kind}`,()=>showRun(row.runId)));cell(tr,`${dateText(row.startedAtUtc)} / ${dateText(row.finalizedAtUtc)}`);cell(tr,`${unknown(row.outcome)} / ${unknown(row.completeness)}`);cell(tr,`${unknown(row.disposition)} · 범위 ${row.scopeVersion}`);cell(tr,(row.errors||[]).map(error=>error.safeMessage||error.category).join(" · ")||"기록 없음");}));
-    if(!result.rows?.length)area.append(note("표시할 상세 수집 기록이 없습니다."));pager(area,value.page,result.totalRows,30,page=>{value.page=page;void show("runs");});
+  function actions(selection){const box=panel("당시 범위의 전력 측정 이력");box.append(note("별도 표본 조회는 선택한 회차까지로 고정합니다. 사건에 저장된 스냅샷은 그대로 유지합니다."),button("보존 기간 내 전력 표본 보기",()=>show("power",selection)));if(onHistory)box.append(button("연결·전원 상태 전환 이력",()=>onHistory({...selection,kind:"Connection"})),note("상태 전환은 저장된 운영 이력에서 확인합니다. 전력 수치의 매번 변화는 변경 사건으로 만들지 않습니다."));return box;}
+  async function show(tab=state.tab,selection=undefined){
+    if(tab==="runs"){++state.epoch;return onRuns("connectionpower");}
+    state.tab=tab;
+    if(selection!==undefined){state.selection=selection;state.power={page:1,through:null,metric:"",from:"",to:""};}
+    navigate("enrichment");
+    const ticket=++state.epoch,root=document.getElementById("enrichment-content"),tabs=e("div","tabs enrichment-tabs");
+    for(const [key,label] of [["overview","수집·제공 범위"],["power","전력 표본"]]){
+      const item=button(label,()=>show(key),`tab${tab===key?" active":""}`);
+      item.setAttribute("aria-pressed",String(tab===key));tabs.append(item);
+    }
+    tabs.append(button("연결·전력 수집 기록",()=>show("runs")));
+    const area=e("div","enrichment-area");root.replaceChildren(tabs,area);
+    if(state.selection?.returnTo)root.prepend(button("선택한 상세로 돌아가기",state.selection.returnTo));
+    try{if(tab==="overview")await overview(area,ticket);else await powerHistory(area,ticket);}
+    catch(error){if(current(ticket))area.append(e("div","notice error",error.message));}
   }
   async function showRun(runId){
-    state.tab="runs";navigate("enrichment");const ticket=++state.epoch,root=document.getElementById("enrichment-content"),area=e("div","enrichment-area");root.replaceChildren(button("상세 수집 기록으로",()=>show("runs")),area);
+    navigate("enrichment");
+    const ticket=++state.epoch,root=document.getElementById("enrichment-content"),area=e("div","enrichment-area");
+    root.replaceChildren(button("수집 기록으로 돌아가기",()=>onRuns()),area);
     try{const detail=await api(`/api/enrichment/runs/${runId}`);if(!current(ticket))return;const run=detail.run;area.append(panel(`상세 수집 회차 ${run.runId}`),pairs([["수집 종류",kinds[run.kind]],["범위 / 설정 버전",`${run.scopeVersion} / ${run.configurationVersion}`],["출처",sources[run.source]],["시작",dateText(run.startedAtUtc)],["확정",dateText(run.finalizedAtUtc)],["결과 / 수명주기",`${unknown(run.outcome)} / ${run.lifecycle}`],["완전성",run.completeness],["적용 범위",run.disposition],["조회 수 / 포트 수",`${run.connectionQueryCount} / ${run.portCount}`],["전력 표본 / 공급 상태 수",`${run.powerSampleCount} / ${run.powerStateCount}`],["품질 공백",run.hasQualityGap?"있음":"표시 없음"]]));for(const error of run.errors||[])area.append(note(`${error.category} · ${error.safeMessage}`));area.append(snapshotPanel(detail.evidence,"이 상세 회차의 저장 관측"));}
     catch(error){if(current(ticket))area.append(e("div","notice error",error.message));}
   }

@@ -27,7 +27,8 @@ public sealed record PointListQuery(string? Search = null, int Page = 1, int Pag
 public sealed record PointPage(ImmutableArray<InstallationPointVersion> Rows, int TotalRows, int Page, int PageSize);
 public sealed record OperationsTimelineQuery(Guid? ApId = null, Guid? DeviceGenerationId = null,
     Guid? InstallationPointId = null, OperationHistoryKind? Kind = null, DateTimeOffset? FromUtc = null,
-    DateTimeOffset? ToUtc = null, long? ThroughEventId = null, int Page = 1, int PageSize = 50);
+    DateTimeOffset? ToUtc = null, long? ThroughEventId = null, int Page = 1, int PageSize = 50,
+    Guid? IncidentId = null, long? AsOfRunId = null);
 public sealed record OperationEventRecord(long EventId, OperationHistoryKind Kind, DateTimeOffset RecordedAtUtc,
     EvidenceSource? Source, string Action, string Field, string? BeforeValue, string? AfterValue,
     string? Reason, DateTimeOffset? ActualWorkAtUtc, ImmutableArray<WorkTarget> Targets,
@@ -35,7 +36,11 @@ public sealed record OperationEventRecord(long EventId, OperationHistoryKind Kin
     PlacementPeriod? Placement = null, InstallationPointVersion? Point = null,
     IncidentTrackingSnapshot? Incident = null, bool TimeNeedsReview = false, ConfirmedReplacement? ReplacementConfirmation = null);
 public sealed record OperationsTimelinePage(ImmutableArray<OperationEventRecord> Rows, int TotalRows,
-    long ThroughEventId, int Page, int PageSize);
+    long ThroughEventId, int Page, int PageSize)
+{
+    /// <summary>Pre-boundary AP runs can only prove the visibility of events tied to collection commits.</summary>
+    public bool HistoricalManualBoundaryUnavailable { get; init; }
+}
 
 public sealed class OperationsConflictException(string message) : InvalidOperationException(message);
 

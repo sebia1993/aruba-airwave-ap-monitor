@@ -28,7 +28,7 @@ function appStub() {
   const nodes = new Map();
   const document = { getElementById(id) { if (!nodes.has(id)) nodes.set(id, new StubNode()); return nodes.get(id); }, createElement(tag) { return new StubNode(tag); } };
   const context = { ...ui, document, Node:StubNode, URLSearchParams, AbortController, setTimeout, clearTimeout };
-  runInNewContext(`${appFunctions}\nglobalThis.subject = { state, updateControls, applySettings, loadHealth, metadataPanels, retryAuthentication };`, context);
+  runInNewContext(`${appFunctions}\nglobalThis.subject = { state, updateControls, applySettings, loadHealth, automaticInventoryPanels, retryAuthentication };`, context);
   return { ...context.subject, nodes, document, context };
 }
 const savedSettings = () => ({ mode:"live", profile:{datasetId:"dataset",origin:"https://example.invalid/",configurationVersion:1,scopeVersion:1,credentialsVersion:1,settings:{apIntervalMinutes:5},proxy:{mode:0}}, authenticationBlocked:false,credentialRegistrationPending:false,credentialStatus:"registered",executionAccount:"synthetic-account" });
@@ -123,7 +123,7 @@ const cases = [
   ["DOM stub: uptime main row displays raw value without inventing units and keeps evidence", () => {
     const app = appStub();
     const row = {sourceApId:"ap-1",device:{uptime:null},identity:{},location:{},controller:{},rawSourceValues:{snmp_uptime:"200"},fields:{snmp_uptime:{availability:"Provided",validity:"Valid",source:"Demo",freshness:"Unknown",collectedAtUtc:"2026-11-15T01:00:00Z"}}};
-    const general = app.metadataPanels(row)[0], pairs = general.childNodes[1].childNodes;
+    const general = app.automaticInventoryPanels(row)[0], pairs = general.childNodes[1].childNodes;
     const labelIndex = pairs.findIndex(node => node.textContent === "가동 시간 원문");
     const value = pairs[labelIndex + 1].firstChild;
     assert.equal(value.firstChild.textContent,"200");

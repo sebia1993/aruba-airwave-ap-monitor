@@ -182,14 +182,20 @@ public sealed partial class SqliteCollectionStore
         => row.ManualInventory?.ManualPreferredFields.Contains(field) == true && row.ManualInventory.Values.TryGetValue(field, out var preferred)
             ? preferred : field == InventoryField.Name ? row.Device.Name : row.Device.IpAddress;
 
-    private static bool MatchesSearch(ApSnapshotRow row, string search) => new[]
+    private static bool MatchesSearch(ApSnapshotRow row, string search)
     {
-        row.SourceApId, row.Device.Name, row.Device.IpAddress, row.Identity.SerialNumber, row.Identity.WiredMac,
-        row.Location.Site, row.Location.Building, row.Location.Floor, row.Location.Zone, row.Location.Detail,
-        row.Location.AirWaveRawLocation, row.Location.Folder, row.Location.Group,
-        row.Controller.SourceId, row.Controller.Name, row.Controller.IpAddress,
-        row.Upstream?.SourceSwitchId, row.Upstream?.PortIndex, row.Upstream?.PortName, row.Upstream?.ApInterface
-    }.Concat(row.ManualInventory?.Values.Values ?? []).Any(value => value?.Contains(search, StringComparison.OrdinalIgnoreCase) == true);
+        if (search.StartsWith("id:", StringComparison.OrdinalIgnoreCase))
+            return string.Equals(row.SourceApId, search[3..], StringComparison.Ordinal);
+
+        return new[]
+        {
+            row.SourceApId, row.Device.Name, row.Device.IpAddress, row.Identity.SerialNumber, row.Identity.WiredMac,
+            row.Location.Site, row.Location.Building, row.Location.Floor, row.Location.Zone, row.Location.Detail,
+            row.Location.AirWaveRawLocation, row.Location.Folder, row.Location.Group,
+            row.Controller.SourceId, row.Controller.Name, row.Controller.IpAddress,
+            row.Upstream?.SourceSwitchId, row.Upstream?.PortIndex, row.Upstream?.PortName, row.Upstream?.ApInterface
+        }.Concat(row.ManualInventory?.Values.Values ?? []).Any(value => value?.Contains(search, StringComparison.OrdinalIgnoreCase) == true);
+    }
 
     private static bool MatchesFilter(ApSnapshotRow row, DashboardFilter filter) => filter switch
     {

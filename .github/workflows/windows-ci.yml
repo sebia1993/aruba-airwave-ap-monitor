@@ -58,6 +58,7 @@ jobs:
           node tests/Frontend/enrichment.test.mjs
           node tests/Frontend/enrichment-dom.test.mjs
           node tests/Frontend/requirements-ui.test.mjs
+          node tests/Frontend/ap-console-dom.test.mjs
       - name: Restore
         run: dotnet restore AirWaveApMonitor.slnx
       - name: Build

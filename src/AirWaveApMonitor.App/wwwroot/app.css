@@ -159,3 +159,31 @@ summary { cursor:pointer; color:var(--blue); font-size:12px; padding:7px 0; over
 .pin-settings #pin-hours { max-width:9rem; }
 .pin-settings input[type=text], .pin-settings #pin-current, .pin-settings #pin-observed { font-family:ui-monospace,monospace; }
 .pin-settings .footnote:empty { display:none; }
+
+/* Keep the selected AP beside its list; the collection time and scope remain above both. */
+.ap-console-layout { display:grid; grid-template-columns:minmax(285px,.85fr) minmax(0,1.65fr); gap:16px; align-items:start; }
+.ap-console-layout > *, .ap-console-list .toolbar > * { min-width:0; }
+.ap-console-list .panel-head, .ap-console-list .toolbar, .ap-console-list .tabs, .global-history-tabs { flex-wrap:wrap; }
+.ap-console-list .search { flex:1 1 220px; }
+.ap-console-list .toolbar, .ap-console-list .tabs, .ap-console-list .panel-head { padding-inline:14px; }
+.ap-console-list .tab { padding:6px 8px; }
+.ap-console-list .pager { flex-wrap:wrap; gap:6px; padding-inline:12px; }
+.ap-console-detail { scroll-margin-block-start:12px; }
+.console-ap-rows { display:grid; max-height:min(65vh,650px); overflow-y:auto; padding:0 8px 8px; }
+.console-ap-row.ap-link { width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px; text-align:left; border:1px solid transparent; border-bottom-color:var(--line); border-radius:6px; color:var(--ink); font-size:14px; }
+.console-ap-row.ap-link[aria-pressed=true] { background:#e5f3ec; border-color:#9ac2ae; color:#164b40; }
+.ap-row-identity { display:grid; gap:3px; min-width:0; }
+.ap-row-identity small { color:var(--muted); font-size:12px; font-weight:400; }
+.global-history-tabs { margin-bottom:12px; }
+.global-history-tabs [aria-pressed=true] { background:#e5f3ec; border-color:#9ac2ae; color:#164b40; font-weight:650; }
+.metric[aria-pressed=true] { border-color:#619582; box-shadow:inset 0 0 0 1px #a3caba; }
+.sidebar { background:#163438; }
+.nav-item.active, .nav-item:hover { background:#24514e; }
+.brandmark { background:#b9ead5; color:#164b40; }
+@media(max-width:1050px) and (min-width:761px) {
+  .ap-console-layout { grid-template-columns:minmax(225px,.78fr) minmax(0,1.35fr); gap:10px; }
+}
+@media(max-width:760px) {
+  .ap-console-layout { grid-template-columns:minmax(0,1fr); }
+  .console-ap-rows { max-height:235px; }
+}

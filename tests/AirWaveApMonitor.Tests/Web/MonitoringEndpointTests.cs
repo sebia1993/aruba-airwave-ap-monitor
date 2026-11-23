@@ -13,6 +13,46 @@ public sealed class MonitoringEndpointTests
         => JsonDocument.Parse(await client.GetStringAsync(path)).RootElement;
 
     [Fact]
+    public async Task ConsoleSourceIdSearch_SelectsOnlyTheExactAP()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("1", ApState.Down), f.Ap("11", ApState.Up)]);
+        await using var host = await ReadApiHost.Start(f);
+        var page = await Json(host.Client, "/api/dashboard?filter=All&search=id%3A1");
+        Assert.Equal(1, page.GetProperty("totalRows").GetInt32());
+        Assert.Equal("1", page.GetProperty("rows")[0].GetProperty("sourceApId").GetString());
+    }
+
+    [Fact]
+    public async Task CombinedDetailRunFilter_PagesOnlyConnectionAndPowerRuns()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("100", ApState.Up)]);
+        var link = await f.Store.BeginRunAsync(f.Profile(), CollectionKind.ConnectionNeighbor, RunTrigger.Manual, default);
+        await f.Store.InterruptEnrichmentRunAsync(link, default);
+        var power = await f.Store.BeginRunAsync(f.Profile(), CollectionKind.Power, RunTrigger.Manual, default);
+        await using var host = await ReadApiHost.Start(f);
+        var result = await Json(host.Client, "/api/runs?enrichmentOnly=true&pageSize=1&page=2");
+        Assert.Equal(2, result.GetProperty("totalRows").GetInt32());
+        Assert.Equal(link.RunId, result.GetProperty("rows")[0].GetProperty("runId").GetInt64());
+        Assert.True(power.RunId > link.RunId);
+    }
+
+    [Fact]
+    public async Task IncidentsEndpoint_HonorsDeviceGenerationFilter()
+    {
+        using var f = new ReadFixture();
+        var run = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Down)]);
+        await using var host = await ReadApiHost.Start(f);
+        var all = await Json(host.Client, $"/api/incidents?asOfRunId={run.RunId}");
+        Assert.Equal(2, all.GetProperty("totalRows").GetInt32());
+        var generation = all.GetProperty("rows")[0].GetProperty("deviceGenerationId").GetGuid();
+        var filtered = await Json(host.Client, $"/api/incidents?asOfRunId={run.RunId}&deviceGenerationId={generation}");
+        var row = Assert.Single(filtered.GetProperty("rows").EnumerateArray());
+        Assert.Equal(generation, row.GetProperty("deviceGenerationId").GetGuid());
+    }
+
+    [Fact]
     public async Task DashboardAndExport_UseSameRun()
     {
         using var f = new ReadFixture();
