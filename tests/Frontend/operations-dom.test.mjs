@@ -52,6 +52,56 @@ const cases=[
     await h.controller.show('timeline',null);const all=new URL(h.calls.at(-1).path,'http://local').searchParams;
     assert.ok(!all.has('incidentId')&&!all.has('asOfRunId'));
   }],
+ ['Quick memo keeps its incident, text, work ID and command ID across retries and switches',async()=>{
+    const pending=deferred(), first=deferred(),saved=[];
+    let attempts=0;
+    const h=harness((path,options)=>{assert.equal(path,'/api/operations/work');return attempts++===0?first.promise:pending.promise;},()=>7);
+    const ctx={apId:ap,deviceGenerationId:old,incidentId:workId,selection:{datasetId:'demo'}};
+    const other={...ctx,incidentId:point};
+    const editor=(context)=>h.controller.incidentMemoForm(context,()=>true,()=>saved.push(context.incidentId));
+    const form=editor(ctx);await flush();
+    const area=input(form,'quickMemo');
+    assert.equal(form.querySelectorAll('[name]').length,1);
+    area.value='현장 케이블 확인';await area.fire('input');
+    assert.equal(h.controller.hasActiveIncidentDraft(ap,workId),true);
+    const second=editor(other);await flush();assert.equal(input(second,'quickMemo').value,'');
+    assert.equal(h.controller.hasActiveIncidentDraft(ap,point),false);
+    assert.equal(editor(ctx),form);
+    const sending=form.fire('submit');void form.fire('submit');await flush();
+    assert.equal(h.calls.length,1);
+    const body=h.calls[0].options.body;
+    assert.equal(body.content.content,'현장 케이블 확인');assert.equal(body.expectedRestoreEpoch,7);
+    assert.equal(body.content.workType,'조치 메모');assert.equal(body.content.status,'Completed');
+    assert.deepEqual(body.content.targets,[{apId:ap,deviceGenerationId:old,incidentId:workId,installationPointId:null}]);
+    first.reject(new Error('timeout'));await sending;
+    assert.equal(area.value,'현장 케이블 확인');
+    const retry=form.fire('submit');await flush();
+    assert.deepEqual(h.calls[1].options.body,body);
+    pending.resolve({version:1});await retry;
+    assert.deepEqual(saved,[workId]);assert.equal(area.value,'');
+    assert.equal(h.controller.hasActiveIncidentDraft(ap,workId),false);
+  }],
+ ['Restore conflict requires explicit incident review and a separate save with the new epoch',async()=>{
+    let version=4, attempts=0;
+    const ctx={apId:ap,deviceGenerationId:old,incidentId:workId,selection:{datasetId:'demo'}};
+    const h=harness((path,options)=>{
+      if(options.method==='POST' && ++attempts===1)throw Object.assign(new Error('기준 변경'),{code:'operations_conflict',status:409});
+      if(options.method==='POST')return {version:1};
+      if(path.includes('/work/'))throw Object.assign(new Error('없음'),{status:404});
+      if(path.includes('/dashboard?'))return {datasetId:'demo',scopeVersion:1,runId:6};
+      return {incidentId:workId,apId:ap,status:'Open',tracking:{firstDownAtUtc:'2026-11-23T01:00:00Z'},
+        detection:{device:{deviceGenerationId:old,metadata:{device:{name:'AP-A'}}}}};
+    },()=>version);
+    const form=h.controller.incidentMemoForm(ctx,()=>true,()=>{});await flush();
+    const area=input(form,'quickMemo');area.value='복원 후에도 확인할 내용';await area.fire('input');
+    version=5;await form.fire('submit');assert.equal(findButton(form,'조치 메모 저장').disabled,true);
+    await findButton(form,'사건과 저장 기준 다시 확인').fire('click');await flush();
+    assert.equal(attempts,1);assert.equal(area.value,'복원 후에도 확인할 내용');
+    assert.match(form.textContent,/AP-A/);await form.fire('submit');assert.equal(attempts,2);
+    const posts=h.calls.filter(call=>call.options.method==='POST').map(call=>call.options.body);
+    assert.deepEqual(posts.map(post=>post.expectedRestoreEpoch),[4,5]);assert.equal(posts[0].workId,posts[1].workId);
+    assert.notEqual(posts[0].commandId,posts[1].commandId);
+  }],
  ['Multi-AP work picks inventory names and submits exact server AP and generation IDs',async()=>{
     const rows=[{apId:ap,sourceApId:'1',deviceGenerationId:old,device:{name:'A'}},{apId:point,sourceApId:'2',deviceGenerationId:current,device:{name:'B'}}];
     const h=harness((path,options)=>path.startsWith('/api/dashboard?')?{rows,totalRows:2,runId:5,scopeVersion:1}:options.method==='POST'?new Promise(()=>{}):{});

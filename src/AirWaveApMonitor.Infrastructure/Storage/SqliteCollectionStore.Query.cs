@@ -126,9 +126,15 @@ public sealed partial class SqliteCollectionStore
             _ => query.Descending ? selected.OrderByDescending(row => DisplayValue(row, InventoryField.Name), StringComparer.OrdinalIgnoreCase)
                 : selected.OrderBy(row => DisplayValue(row, InventoryField.Name), StringComparer.OrdinalIgnoreCase)
         };
+        ordered = ordered.ThenBy(row => row.SourceApId, StringComparer.Ordinal);
+        if (query.Filter == DashboardFilter.NeedsAttention)
+        {
+            // LINQ's stable ordering keeps the selected sort and ID tie-breaker within each state.
+            ordered = ordered.OrderByDescending(row => row.CurrentState == ApState.Down);
+        }
         var offset = ((long)query.Page - 1) * query.PageSize;
         var page = offset > int.MaxValue ? ImmutableArray<ApSnapshotRow>.Empty
-            : ordered.ThenBy(row => row.SourceApId, StringComparer.Ordinal).Skip((int)offset).Take(query.PageSize).ToImmutableArray();
+            : ordered.Skip((int)offset).Take(query.PageSize).ToImmutableArray();
         return new(query.DatasetId, query.ScopeVersion, runId, context.StartedAtUtc, finalized, lifecycle,
             receipt.Outcome, receipt.Summary, page, selected.Count, completeness, errors, sourceEvidence, hidden);
     }
@@ -200,6 +206,7 @@ public sealed partial class SqliteCollectionStore
     private static bool MatchesFilter(ApSnapshotRow row, DashboardFilter filter) => filter switch
     {
         DashboardFilter.All => true,
+        DashboardFilter.NeedsAttention => row.CurrentState == ApState.Down || row.Classification == ObservationClassification.Unknown,
         DashboardFilter.OpenIncidents => row.OpenIncidentId is not null,
         DashboardFilter.Up => row.CurrentState == ApState.Up,
         DashboardFilter.Down => row.CurrentState == ApState.Down,

@@ -122,6 +122,8 @@ AP 기본 연결 → 상태·장애·회차별 현황 저장 → Down 우선 화
 
 ## Windows에서 시작하기
 
-[최신 릴리즈](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/latest)의 Windows ZIP 하나를 받고 **전체 압축 해제 → 최상위 `AirWaveAPMonitor.exe` 더블클릭**으로 실행합니다. 준비되면 기본 브라우저가 열립니다. `app/`은 실행 파일, `tools/`는 관리 도구, `docs/`는 안내, `metadata/`는 버전과 체크섬입니다.
+현장 확인용 [v0.1.3-preview.6 Windows ZIP](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/download/v0.1.3-preview.6/AirWaveAPMonitor-v0.1.3-preview.6-win-x64.zip)에서는 **AP 현황**에 장애·미확인 장비가 먼저 표시됩니다. 이름·IP로 전체 AP를 검색하거나 장애 AP를 눌러 해당 사건에 조치를 기록할 수 있습니다. **관리**에서 수집 기록·대장·연결 설정을 엽니다.
+
+[최신 정식 릴리즈](https://github.com/sebia1993/aruba-airwave-ap-monitor/releases/latest)의 Windows ZIP 하나를 받고 **전체 압축 해제 → 최상위 `AirWaveAPMonitor.exe` 더블클릭**으로 실행합니다. 준비되면 기본 브라우저가 열립니다. `app/`은 실행 파일, `tools/`는 관리 도구, `docs/`는 안내, `metadata/`는 버전과 체크섬입니다.
 
 v0.1.1 EXE 실행·구성 변경의 게시 결과, 실제 검증과 실환경 미확인 항목은 [추가 작업 기록](docs/LAUNCHER_RELEASE_STATUS.md)을 확인하세요.

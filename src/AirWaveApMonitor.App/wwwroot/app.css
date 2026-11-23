@@ -122,7 +122,7 @@ form button { margin-top:3px; }
 .timeline time { display:block; color:var(--muted); font-size:10px; }.timeline strong { display:block; color:var(--ink); margin:3px 0; font-size:12px; font-weight:600; }.timeline p { color:var(--muted); font-size:11px; }
 .timeline button { margin-top:6px; font-size:11px; }
 .health-panel { border-top:1px solid var(--line); margin-top:27px; padding-top:17px; }
-.health-panel h2 { font-size:12px; }.health-panel h2 .muted { font-size:10px; font-weight:400; margin-left:5px; }
+.health-panel summary { cursor:pointer; font-size:13px; font-weight:650; padding:5px 0; }.health-panel summary .muted { font-size:10px; font-weight:400; margin-left:5px; }
 .health-details { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px 18px; margin:10px 0 0; }
 .health-details div { min-width:0; }.health-details dt { color:var(--muted); font-size:10px; }.health-details dd { margin:3px 0 0; font-size:11px; }
 footer { display:flex; justify-content:space-between; flex-wrap:wrap; gap:9px; padding:11px 25px; border-top:1px solid var(--line); background:white; color:var(--muted); font-size:10px; }
@@ -187,3 +187,17 @@ summary { cursor:pointer; color:var(--blue); font-size:12px; padding:7px 0; over
   .ap-console-layout { grid-template-columns:minmax(0,1fr); }
   .console-ap-rows { max-height:235px; }
 }
+
+.admin-nav summary { cursor:pointer; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; }
+.admin-nav summary:hover, .admin-nav summary:focus-visible { background:#24514e; color:#fff; }
+.admin-links { padding-left:12px; margin-left:14px; border-left:1px solid #54706f; }
+.admin-nav[open] > summary { color:white; }
+@media (max-width:620px) {
+  .admin-nav { display:flex; flex-wrap:wrap; align-items:center; }
+  .admin-nav summary { padding:8px; font-size:12px; }
+  .admin-nav[open] { flex-basis:100%; }
+  .admin-links { display:flex; flex-wrap:wrap; margin:3px 0; padding-left:7px; }
+}
+
+.health-attention { display:none; color:var(--amber); margin-inline:4px; }
+.health-panel:has(#health-notice.warning, #health-notice.error) .health-attention { display:inline; }

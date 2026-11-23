@@ -29,7 +29,7 @@ public sealed record EnrichmentCommitReceipt(Guid DatasetId, CollectionKind Kind
     public EnrichmentApplicationDisposition? Disposition { get; init; }
 }
 
-public enum DashboardFilter { All, Down, NewDown, InitialDown, ExistingDown, Recovered, Unknown, OpenIncidents, Up }
+public enum DashboardFilter { All, Down, NewDown, InitialDown, ExistingDown, Recovered, Unknown, OpenIncidents, Up, NeedsAttention }
 public enum DashboardSort { Name, IpAddress, LastObservedAt, FirstDownAt }
 public enum ObservationClassification { Up, NewDown, InitialDown, ExistingDown, Recovered, Unknown }
 public sealed record DashboardQuery(Guid DatasetId, long ScopeVersion, long? RunId = null, string? Search = null,

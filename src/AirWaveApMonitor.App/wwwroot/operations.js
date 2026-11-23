@@ -80,6 +80,8 @@ export function commandForDraft(draft, payload, createId = () => crypto.randomUU
 export function createOperationsController({api,onMessage,navigate,dateText,isCurrentView,onReturnAp}) {
   let root = document.getElementById("operations-content");
   const drafts = new Map(), pendingControls = new Map();
+  const incidentMemos = new Map();
+  let currentMemo = null;
   const historyTabs = [["timeline","작업·변경 이력"],["work","작업·메모"]];
   const ledgerTabs = [["registration","AP 대장"],["points","설치 지점"],["import","CSV 가져오기"]];
   const targetFields = ["apId","deviceGenerationId","incidentId","installationPointId"];
@@ -402,6 +404,97 @@ export function createOperationsController({api,onMessage,navigate,dateText,isCu
     if(content.result)container.append(note(`결과 · ${content.result}`));
     if(content.notes)container.append(note(`메모 · ${content.notes}`));
   }
+  function hasActiveIncidentDraft(apId,incidentId) {
+    const draft=currentMemo;
+    return !!draft && draft.apId===apId && draft.incidentId===incidentId && draft.isCurrent() &&
+      (draft.pending || !!draft.input.value || document.activeElement===draft.input);
+  }
+  function memoKey(context) {
+    return JSON.stringify([context.selection.datasetId,context.apId,context.deviceGenerationId,context.incidentId]);
+  }
+  function hasSavedIncidentDraft(context) {
+    return incidentMemos.has(memoKey(context));
+  }
+  function incidentMemoForm(context,isCurrent,afterSave) {
+    const {apId,deviceGenerationId,incidentId}=context;
+    const key=memoKey(context);
+    const cached=incidentMemos.get(key);
+    if(cached) {
+      cached.isCurrent=isCurrent;
+      cached.afterSave=afterSave;
+      currentMemo=cached;
+      return cached.form;
+    }
+    const form=e("form","operation-form incident-quick-memo");
+    const input=field(form,"quickMemo","조치 내용",{type:"textarea",required:true});
+    const save=e("button","primary","조치 메모 저장"), message=e("p","footnote");
+    save.type="submit"; message.setAttribute("role","status"); form.append(save,message);
+    const draft={form,input,apId,incidentId,isCurrent,afterSave,pending:false,workId:crypto.randomUUID(),restoreEpoch:null};
+    currentMemo=draft;
+    function controls() {
+      input.readOnly=draft.pending;
+      save.disabled=draft.pending || draft.restoreEpoch===null || !input.value.trim();
+      save.textContent=draft.pending ? "저장 중" : "조치 메모 저장";
+    }
+    input.addEventListener("input",()=>{
+      if(input.value)incidentMemos.set(key,draft);
+      else incidentMemos.delete(key);
+      controls();
+    });
+    async function readVersion(review=false){
+      try {
+        const version=await api("/api/operations/version");
+        if(!Number.isSafeInteger(version.restoreEpoch)||version.restoreEpoch<0)throw new Error("기록 기준을 확인할 수 없습니다.");
+        if(review) {
+          const latest=await api("/api/dashboard?pageSize=1");
+          if(latest.datasetId!==context.selection.datasetId)throw new Error("다른 데이터 폴더의 사건입니다. 작성한 내용을 확인하세요.");
+          const query=new URLSearchParams({asOfRunId:latest.runId,scopeVersion:latest.scopeVersion});
+          const record=await api(`/api/incidents/${incidentId}?${query}`);
+          if(record.incidentId!==incidentId || record.apId!==apId || record.detection.device.deviceGenerationId!==deviceGenerationId)
+            throw new Error("이 사건의 현재 상태나 대상이 변경됐습니다. 작성한 내용을 확인하고 사건 이력을 다시 여세요.");
+          const status={Open:"미복구",Recovered:"복구 확인",TrackingEnded:"추적 종료"}[record.status]||"상태 미확인";
+          message.textContent=`${record.detection.device.metadata.device.name || "선택 AP"} · ${status} · 장애 감지 ${dateText(record.tracking.firstDownAtUtc)}. 내용을 검토한 뒤 저장하세요.`;
+        }else message.replaceChildren();
+        draft.restoreEpoch=version.restoreEpoch;
+        controls();
+      }catch(error){
+        message.replaceChildren(e("span","",error.message),b("저장 기준 다시 확인",()=>readVersion(review)));
+      }
+    }
+    form.addEventListener("submit",async event=>{
+      event.preventDefault();
+      if(!draft.isCurrent() || draft.pending || draft.restoreEpoch===null || !input.value.trim())return;
+      draft.pending=true;controls();message.textContent="";
+      const payload={workId:draft.workId,expectedVersion:0,expectedRestoreEpoch:draft.restoreEpoch,
+        content:{workType:"조치 메모",status:"Completed",content:input.value.trim(),causeStatus:"Unknown",
+          targets:workTargets([{apId,deviceGenerationId,incidentId}])}};
+      try{
+        const commandId=commandForDraft(draft,payload);
+        await api("/api/operations/work",{method:"POST",body:{...payload,commandId},timeout:30000});
+      }catch(error){
+        if(error.code==="operations_conflict"){
+          draft.restoreEpoch=null;
+          message.replaceChildren(e("span","",error.message),b("사건과 저장 기준 다시 확인",async()=>{
+            try{
+              await api(`/api/operations/work/${draft.workId}`);
+              message.replaceChildren(note("이 메모가 이미 저장되었습니다. 내용을 바꾸려면 저장된 작업을 여세요."),
+                b("저장된 작업 확인",()=>{state.context=context;return loadWork(draft.workId);}));
+            }catch(readError){
+              if(readError.status===404)await readVersion(true);
+              else showMessage(readError.message,true);
+            }
+          }));
+        }else message.textContent=error.message;
+        return;
+      }finally{
+        draft.pending=false;controls();
+      }
+      input.value="";draft.workId=crypto.randomUUID();incidentMemos.delete(key);
+      controls();message.textContent="이 사건에 조치 메모를 저장했습니다.";
+      if(draft.isCurrent())await draft.afterSave();
+    });
+    controls();void readVersion();return form;
+  }
   async function incidentEventsPanel(context){
     const panel=section("이 사건의 장애·조치 이력");
     if(!nonEmptyGuid(context?.incidentId)){panel.append(note("사건을 선택하면 연결된 이력이 표시됩니다."));return panel;}
@@ -425,5 +518,5 @@ export function createOperationsController({api,onMessage,navigate,dateText,isCu
     return panel;
   }
   function actions(context){const panel=section("등록 정보와 운영 작업"),buttons=e("div","actions");buttons.append(b("현재 등록 정보 편집",()=>show("registration",context)),b("이 대상의 운영 이력",()=>show("timeline",context)),b("이 대상에 작업·메모 기록",()=>writeWork(context)));panel.append(note(`선택 대상: AP ${text(context.apId)} · 장비 세대 ${text(context.deviceGenerationId)}${context.incidentId?` · 사건 ${context.incidentId}`:""}`),note("작업을 기록해도 장애가 자동 복구되지 않습니다. 과거 세대의 작업 대상은 그대로 보존합니다."),buttons);return panel;}
-  return {show,leave:()=>epoch(),snapshotPanel,actions,writeWork,incidentEventsPanel,displayValue:(row,field,fallback)=>inventoryValue(row,field).value??fallback};
+  return {show,leave:()=>epoch(),snapshotPanel,actions,writeWork,incidentMemoForm,hasActiveIncidentDraft,hasSavedIncidentDraft,incidentEventsPanel,displayValue:(row,field,fallback)=>inventoryValue(row,field).value??fallback};
 }

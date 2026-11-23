@@ -25,3 +25,35 @@
 .ap-saved-evidence[open]>.panel{margin-top:10px}
 @media(max-width:700px){#ap-console-detail .ap-identity{padding:12px}.ap-console-content{padding:8px;gap:8px}.ap-console-tabs{padding-inline:8px}.ap-console-tabs button,.ap-cases button{min-height:40px}}
 .ap-case-activity{min-width:0}.ap-case-controls{justify-content:space-between;gap:8px;margin:4px 0 10px}
+
+.home-heading { align-items:start; }
+.home-heading .subtitle { margin-bottom:0; }
+.home-tools { position:relative; }
+.home-tools > summary, .home-advanced > summary { font-weight:600; }
+.home-tools > summary { font-size:14px; padding:8px 12px; color:var(--ink); }
+.home-tools .actions { display:grid; position:absolute; right:0; z-index:2; min-width:135px; padding:8px; background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:0 4px 16px #172b4120; }
+.ap-console-layout:has(#ap-console-detail[hidden]) { grid-template-columns:minmax(0,1fr); }
+.ap-console-list .panel-head { padding:12px 14px 6px; }
+.home-filters { display:flex; flex-wrap:wrap; gap:5px; padding:4px 14px; }
+.home-filters button { min-height:32px; padding:5px 9px; }
+.home-filters button[aria-pressed=true] { border-color:var(--blue); background:var(--blue-bg); color:var(--blue); }
+.home-filters [data-filter=Down] b { color:var(--red); }
+.home-filters [data-filter=Unknown] b { color:var(--amber); }
+.home-search { display:block; margin:6px 14px 0; }
+.home-search input { width:100%; }
+.home-advanced { margin:0 14px 4px; }
+.home-advanced .toolbar { padding:6px 0; }
+.home-advanced > button { margin:0 0 12px; }
+.home-advanced .footnote { margin:4px 0 10px; }
+#active-ap-conditions { font-weight:400; }
+.console-ap-row.ap-link { padding:6px 9px; }
+.ap-console-layout:has(#ap-console-detail[hidden]) .ap-row-identity { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+.home-failure-detail { flex-basis:100%; }
+@media(max-width:700px) {
+  .home-tools .actions { left:0; right:auto; }
+  .ap-console-layout:has(#ap-console-detail[hidden]) .console-ap-rows { max-height:55vh; }
+}
+#home-connect-setup { margin-bottom:12px; }
+
+#ap-console-detail .detail-heading { flex-wrap:wrap; }
+.close-ap-detail { margin-inline-start:auto; }
