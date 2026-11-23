@@ -24,3 +24,5 @@ jobs:
       - name: Twelve Demo AP collections
         shell: powershell
         run: ./scripts/ci/windows-demo-soak.ps1 -AppDirectory ./artifacts/qa-app -Cycles 12
+
+# Recheck asynchronous safe JSON export sequencing
