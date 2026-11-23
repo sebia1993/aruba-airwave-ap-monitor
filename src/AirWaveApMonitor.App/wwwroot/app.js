@@ -2,12 +2,13 @@
 import { countText, createRequestGate, dashboardQuery, observationStatus, incidentElapsed, settingsIdentity, shouldFollowLatest, authenticationUiState, kstDateText, kstPeriod, addHistoryFilters } from "./ui-state.js";
 
 import { determineSetupStage, connectionSteps } from "./setup-guide.js";
+import { summarizeCollectionWarnings } from "./run-warnings.js";
 import { createOperationsController } from "./operations.js";
 import { createEnrichmentController } from "./enrichment.js";
 
 let operations = null, enrichment = null;
 const byId = id => document.getElementById(id);
-const labels = { dashboard: "AP 현황", incidents: "장애·작업 이력", runs: "수집 기록", settings: "연결 설정", detail: "상세 이력", operations: "AP·설치 대장", enrichment: "연결·전력" };
+const labels = { dashboard: "AP 현황", incidents: "장애·작업 이력", runs: "수집 기록", settings: "연결 설정", detail: "상세 이력", operations: "AP·설치 대장", enrichment: "연결·전력", help:"사용법·업데이트" };
 const statusLabels = { NewDown: "신규 Down", InitialDown: "최초 확인 Down · 실제 시작 미상", ExistingDown: "기존 Down", Recovered: "이번 복구 확인", Up: "Up 확인", Unknown: "이번 미확인" };
 const reasonLabels = { MissingRecord: "응답 목록 누락", UnknownState: "유효 상태 미제공", DuplicateIdentity: "중복 식별 제외", CollectionFailed: "수집 실패", Interrupted: "수집 중단", ScopeExcluded: "범위 일시 제외", TrackingEnded: "추적 종료", DatabaseRestored: "백업 복원으로 관측 공백" };
 const managementLabels = { Operating: "운영", PlannedWork: "계획 작업", Decommissioned: "철거", MonitoringExcluded: "감시 제외" };
@@ -124,6 +125,8 @@ function navigate(view, focus = true) {
     const active = node.dataset.view === parent;
     node.classList.toggle("active", active); if (active) node.setAttribute("aria-current", "page"); else node.removeAttribute("aria-current");
   });
+  const topics={ dashboard:"monitoring", incidents:"incidents", runs:"runs", operations:"inventory", settings:"setup", enrichment:"enrichment", detail:"monitoring", help:"monitoring" };
+  byId("help-context-button").dataset.helpTopic=topics[view] || "monitoring";
   byId("breadcrumb").textContent = labels[view]; document.title = `${labels[view]} · AirWave AP Monitor`;
   if (focus) byId("main").focus({ preventScroll:true });
 }
@@ -230,7 +233,7 @@ function renderDashboard(snapshot) {
       notice(banner, snapshot.lifecycle === "Interrupted" ? "AP 수집 중단" : "AP 수집 실패",
         `이번 장애 대수 확인 불가 · 기존 미복구 사건 ${countText(summary.openIncidents)}건 · 회차 ${snapshot.runId}`,"error");
       const details = el("details","home-failure-detail");
-      const reasons = [...new Set((snapshot.errors || []).map(error => error.safeMessage).filter(Boolean))];
+      const reasons = summarizeCollectionWarnings(snapshot).labels;
       details.append(el("summary","","실패 원인 보기"),el("p","",reasons.join(" · ") || "저장된 상세 오류가 없습니다."));
       banner.append(details);
     } else notice(banner,"일부 AP 미확인",`미확인 ${countText(summary.unknown)}대 · 회차 ${snapshot.runId}`,"warning");
@@ -274,9 +277,7 @@ function renderDashboard(snapshot) {
   const notes = byId("dashboard-footnotes"); notes.replaceChildren();
   [`기준 목록: ${summary.baselineStatus === "Confirmed" ? "확인됨" : "잠정 · 사내 대수 대조 필요"}`,`최초 확인 Down ${countText(summary.initialDown)} · 기존 Down ${countText(summary.existingDown)}`,`감시 제외 ${countText(summary.excludedCount)}대`, `화면 조회 ${dateText(state.lastDashboardRead)}`].forEach(text => notes.append(el("span","",text)));
   if (!failed) {
-    const reasons = new Map();
-    for (const error of snapshot.errors || []) if (error.safeMessage) reasons.set(error.safeMessage,(reasons.get(error.safeMessage) || 0) + 1);
-    for (const [message,count] of reasons) notes.append(el("span","amber",count > 1 ? `${message} · ${count}건` : message));
+    for (const message of summarizeCollectionWarnings(snapshot).labels) notes.append(el("span","amber",message));
   }
 }
 function locationText(location = {}) { return [location.site,location.building,location.floor,location.zone,location.detail].filter(Boolean).join(" · ") || location.airWaveRawLocation || "위치 미제공"; }
@@ -340,8 +341,22 @@ async function loadRuns() {
       cell(tr,"시작 / 확정 시각",dateText(row.startedAtUtc),row.finalizedAtUtc ? `확정 ${dateText(row.finalizedAtUtc)}` : "확정 전");
       const outcome = outcomeLabel(row); cell(tr,"종류 / 결과",badge(outcome.label,outcome.tone),row.kind === "ApStatus" ? "AP 상태" : kindLabels[row.kind] || row.kind);
       cell(tr,"확인 대수",row.kind !== "ApStatus" ? "종류별 상세에서 확인" : row.summary ? `Up ${countText(row.summary.confirmedUp)} · Down ${countText(row.summary.confirmedDown)}` : "확정 대수 없음",row.summary ? `미확인 ${countText(row.summary.unknown)} · 미복구 ${countText(row.summary.openIncidents)}` : row.kind !== "ApStatus" ? "연결·전력 관측" : "확정 대수 없음");
-      const errors = (row.errors || []).map(item => item.safeMessage).filter(Boolean);
-      cell(tr,"오류·검증 메모",errors.join(" · ") || (row.completeness === "Complete" ? "응답 완전성 확인" : row.lifecycle === "Running" ? "수집 진행 중" : "완전성 미확인"),row.sourceEvidence ? `파싱 ${countText(row.sourceEvidence.parsedApCount)} · 적용 ${countText(row.sourceEvidence.appliedStateCount)} · 제외 원천 레코드 ${countText(row.sourceEvidence.excludedRecords?.length)}` : "원천 집계 없음");
+      const warnings = summarizeCollectionWarnings(row);
+      const summary = warnings.labels.join(" · ");
+      const errorCell = cell(tr,"오류·검증 메모",
+        summary || (row.completeness === "Complete" ? "응답 완전성 확인" : row.lifecycle === "Running" ? "수집 진행 중" : "완전성 미확인"),
+        row.sourceEvidence ? `파싱 ${countText(row.sourceEvidence.parsedApCount)} · 적용 ${countText(row.sourceEvidence.appliedStateCount)} · 제외 원천 레코드 ${countText(row.sourceEvidence.excludedRecords?.length)}` : "원천 집계 없음");
+      if (warnings.exclusions.length) {
+        const details = el("details","run-warning-breakdown"), list = el("ul");
+        for (const group of warnings.exclusions) {
+          const item=el("li","",`${group.label}: ${countText(group.count)}건`);
+          if (group.sampleIds.length) item.append(el("small","cell-sub",`원천 장비 ID 예시: ${group.sampleIds.join(", ")}`));
+          list.append(item);
+        }
+        details.append(el("summary","","제외 사유·표본 ID 보기"),list,
+          el("p","footnote","제외 건수는 Down AP 대수가 아닙니다. 실제 AP 포함 여부는 AirWave에서 대조해야 합니다."));
+        errorCell.append(details);
+      }
     });
     updatePager("run",result.totalRows,state.runs.page,state.runs.pageSize);
   } catch (error) {
@@ -779,6 +794,36 @@ async function connectionGuideAction() {
   if (step.action==="dashboard") { state.setupGuideOpen=false; await currentDashboard(); }
 }
 
+// Read-only update status. This does not back up, stop a process, or change a profile.
+function renderUpdateSafety() {
+  const h=state.health,m=state.maintenance,s=state.settings;
+  byId("update-ui-version").textContent="v0.1.3-preview.8 · 실행 중 화면 파일 기준 (ZIP metadata/VERSION.json과 대조)";
+  byId("update-current-mode").textContent=state.mode==="demo" ? "Demo 전용 데이터 (Live와 분리)" : state.mode==="live" ? "Live · 사내 수집 PC 데이터" : "실행 모드 미확인";
+  byId("update-account-status").textContent=s?.credentialStatus==="registered" ? "등록됨 · 현재 Windows 실행 계정에서 복호화 확인" :
+    s?.credentialStatus==="missing" ? "미등록" : s?.credentialStatus==="reregistration-required" ? "재등록 필요" : "아직 확인되지 않음";
+  byId("update-collector-status").textContent=!h ? "수집기 상태 미확인" :
+    h.storageRecoveryPending ? "저장소 복구 대기 · 교체 금지" :
+    h.phase==="Stopped" ? "프로세스 중단" :
+    h.activeRunId ? `수집 진행 중 · 회차 ${h.activeRunId} (종료 전 완료 확인)` :
+    h.paused ? "일시정지 · 프로세스 종료가 아님" :
+    h.phase==="Idle" ? "실행 중 · 수집 대기" : (h.phase || "진행 상태 미확인");
+  byId("update-last-valid").textContent=h?.lastValidCommittedAtUtc ? dateText(h.lastValidCommittedAtUtc) : "미확인 · 수집 성공으로 간주하지 않음";
+  byId("update-backup-status").textContent=m?.backupStatus==="ready" && m.lastBackupAtUtc
+    ? `마지막 자동 백업 확인 ${dateText(m.lastBackupAtUtc)} · 업데이트 전 별도 백업 필요`
+    : m?.backupStatus==="failed" ? "백업 실패 · 데이터 확인 전 교체 금지" :
+    "업데이트 전 검증된 백업 미확인 · 별도 백업 필요";
+}
+function showHelp(topic="monitoring") {
+  navigate("help");
+  const detail=byId("help-"+topic);
+  if (detail) {
+    detail.open=true;
+    detail.scrollIntoView?.({block:"start"});
+    detail.querySelector?.("summary")?.focus?.({preventScroll:true});
+  }
+  renderUpdateSafety();
+}
+
 function updateControls() {
   const health = state.health, stopping = health && ["Stopping","Stopped"].includes(health.phase);
   const setupMissing = health?.configured === false || state.settings?.credentialRegistrationPending === true
@@ -797,6 +842,7 @@ function updateControls() {
   updateScopeControls();
   updateCertificatePinControls();
   renderConnectionGuide();
+  renderUpdateSafety();
 }
 async function perform(action) {
   if (state.mutationBusy) return;
@@ -1303,6 +1349,9 @@ operations = createOperationsController({
 });
 enrichment = createEnrichmentController({api,onMessage:setMessage,navigate,dateText,isCurrentView:()=>state.view === "enrichment",onRuns:openUnifiedRuns,onHistory:selection=>operations?.show("timeline",{...selection,asOfRunId:selection.asOfRunId ?? (state.historical ? selection.runId : undefined)}),onSettingsSaved:()=>{void loadSettings(false);void loadScope();void loadHealth();}});
 document.querySelectorAll("[data-action='current']").forEach(node => node.addEventListener("click",() => { clearTimeout(searchTimer); clearTimeout(incidentSearchTimer); setMessage(""); void currentDashboard(); }));
+document.querySelectorAll("[data-help-topic]").forEach(node => node.addEventListener("click",() => showHelp(node.dataset.helpTopic)));
+document.querySelectorAll("[data-help-go]").forEach(node => node.addEventListener("click",() => { void show(node.dataset.helpGo); }));
+byId("help-update-refresh").addEventListener("click",() => { void Promise.all([loadHealth(),loadSettings(false)]).then(renderUpdateSafety); });
 document.querySelectorAll("[data-filter]").forEach(node => node.addEventListener("click",() => quickFilter(node.dataset.filter)));
 byId("home-connect-setup").addEventListener("click",()=>{ void openConnectionGuide(); });
 byId("status-filter").addEventListener("change",event => filterChanged(event.target.value));

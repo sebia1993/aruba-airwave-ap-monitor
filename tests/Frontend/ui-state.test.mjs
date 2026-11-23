@@ -5,6 +5,7 @@ import { runInNewContext } from "node:vm";
 // Pure production helpers plus focused production-function DOM stubs. No browser or dependencies.
 const moduleUrl = new URL("../../src/AirWaveApMonitor.App/wwwroot/ui-state.js", import.meta.url);
 const ui = await import(`${moduleUrl.href}?check=${Date.now()}`);
+const {summarizeCollectionWarnings} = await import("../../src/AirWaveApMonitor.App/wwwroot/run-warnings.js");
 // These focused stubs execute the actual production functions, not a browser layout or DOM engine.
 class StubNode {
   constructor(tag = "div") { this.tagName = tag; this.childNodes = []; this.dataset = {}; this.value = ""; this._text = ""; }
@@ -27,7 +28,7 @@ const appFunctions = appSource.split(bindingStart)[0].replace(/^import .*;$/gm, 
 function appStub() {
   const nodes = new Map();
   const document = { getElementById(id) { if (!nodes.has(id)) nodes.set(id, new StubNode()); return nodes.get(id); }, createElement(tag) { return new StubNode(tag); } };
-  const context = { ...ui, document, Node:StubNode, URLSearchParams, AbortController, setTimeout, clearTimeout };
+  const context = { ...ui, summarizeCollectionWarnings, document, Node:StubNode, URLSearchParams, AbortController, setTimeout, clearTimeout };
   runInNewContext(`${appFunctions}\nglobalThis.subject = { state, updateControls, applySettings, loadHealth, automaticInventoryPanels, retryAuthentication };`, context);
   return { ...context.subject, nodes, document, context };
 }

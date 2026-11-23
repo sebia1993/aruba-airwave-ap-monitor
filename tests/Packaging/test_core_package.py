@@ -28,14 +28,14 @@ class CorePackageTests(unittest.TestCase):
         for relative in ("AirWaveApMonitor.App.exe", "AirWaveApMonitor.App.deps.json",
                          "AirWaveApMonitor.App.runtimeconfig.json", "coreclr.dll", "hostfxr.dll",
                          "hostpolicy.dll", "e_sqlite3.dll", "wwwroot/index.html", "wwwroot/app.js",
-                         "wwwroot/app.css", "wwwroot/ui-state.js", "wwwroot/operations.js", "wwwroot/enrichment.js"):
+                         "wwwroot/app.css", "wwwroot/ui-state.js", "wwwroot/run-warnings.js", "wwwroot/help.css", "wwwroot/operations.js", "wwwroot/enrichment.js"):
             file = self.publish / relative
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text("synthetic publish fixture", encoding="utf-8")
         self.scripts = ("Start-Monitor.ps1", "Monitor-Common.ps1", "Monitor-ServiceRecovery.ps1", "Install-Service.ps1",
                         "Remove-Service.ps1", "Install-ScheduledTask.ps1",
                         "Remove-ScheduledTask.ps1", "Backup-Restore.ps1")
-        self.guides = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "ONSITE_VALIDATION.md", "TLS_PROXY_TROUBLESHOOTING.md", "OPERATIONS.md",
+        self.guides = ("README_WINDOWS.md", "WINDOWS_RUN.md", "UPDATE_AND_RECOVERY.md", "UPDATE_CHECKLIST.md", "QUICK_START.md", "FIRST_CONNECTION_KO.md", "ONSITE_VALIDATION.md", "TLS_PROXY_TROUBLESHOOTING.md", "OPERATIONS.md",
                        "ENRICHMENT.md", "DATA_DICTIONARY.md", "CONFIGURATION_EXAMPLE.json", "MAC_DEVELOPMENT.md")
         for relative in [*("scripts/windows/" + name for name in self.scripts),
                          *("docs/guides/" + name for name in self.guides)]:
@@ -96,7 +96,7 @@ class CorePackageTests(unittest.TestCase):
             self.assertIn("app/wwwroot/ui-state.js", names)
             version = json.loads(bundle.read("metadata/VERSION.json"))
             self.assertEqual("core-monitoring", version["stage"])
-            self.assertEqual("0.1.3-preview.7", version["version"])
+            self.assertEqual("0.1.3-preview.8", version["version"])
             self.assertFalse(version["onsite_verified"])
             self.assertFalse(version["working_tree_dirty"])
             self.assertEqual("a" * 40, version["source_commit"])
@@ -108,6 +108,8 @@ class CorePackageTests(unittest.TestCase):
             self.assertIn("검증 완료 표시가 아닙니다", version["verification"])
             self.assertIn("app/wwwroot/enrichment.js", names)
             self.assertIn("app/wwwroot/operations.js", names)
+            self.assertIn("app/wwwroot/run-warnings.js", names)
+            self.assertIn("app/wwwroot/help.css", names)
             entries = bundle.read("metadata/SHA256SUMS.txt").decode().splitlines()
             for line in entries:
                 digest, name = line.split("  ", 1)

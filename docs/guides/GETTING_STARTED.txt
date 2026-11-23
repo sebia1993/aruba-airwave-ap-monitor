@@ -3,7 +3,8 @@ AirWave AP Monitor — 시작하기
 1. ZIP 전체를 새 폴더에 압축 해제하세요.
 2. 바로 보이는 AirWaveAPMonitor.exe를 더블클릭하세요.
 3. 준비가 끝나면 기본 브라우저로 감시 화면이 열립니다.
-4. 처음 연결할 때는 관리 → 연결 설정에서 AirWave 서버 주소와 읽기 계정을 등록하세요.
+4. 처음 연결할 때는 관리 → 연결 설정 → 처음 연결 안내에서 서버 IP·포트와 읽기 계정을 등록하세요.
+   사용법·업데이트 메뉴에서 빠른 시작·수집 기록·안전 교체 절차를 볼 수 있습니다.
 5. AP 현황에서 장애·미확인을 확인하세요. 이름이나 IP를 입력하면 정상 AP도 찾을 수 있습니다.
 6. 장애 AP를 선택하고 조치 내용을 입력한 뒤 저장하세요. 메모는 선택한 장애 사건에 기록됩니다.
 
@@ -36,6 +37,9 @@ AirWaveAPMonitor.exe를 다시 실행하면 같은 데이터의 실행 중인 �
 
 실행에 문제가 있으면 표시된 오류와 docs\guides\WINDOWS_RUN.md를 확인하세요.
 상세 업데이트: docs\guides\UPDATE_AND_RECOVERY.md
+업데이트 점검: docs\guides\UPDATE_CHECKLIST.md
+빠른 사용법: docs\guides\QUICK_START.md
+최초 Live 연결: docs\guides\FIRST_CONNECTION_KO.md
 이번 변경과 검증: docs\development\LAUNCHER_RELEASE_STATUS.md
 
 실제 사내 AirWave·AD·프록시·인증서, Windows 기본 브라우저 GUI와 조직 정책은 현장 확인이 필요합니다.

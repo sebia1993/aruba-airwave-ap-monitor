@@ -3,6 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
 import {runInNewContext} from 'node:vm';
 import * as ui from '../../src/AirWaveApMonitor.App/wwwroot/ui-state.js';
+import {summarizeCollectionWarnings} from '../../src/AirWaveApMonitor.App/wwwroot/run-warnings.js';
 
 const js=(await readFile(new URL('../../src/AirWaveApMonitor.App/wwwroot/app.js',import.meta.url),'utf8')).replace(/\r\n/g,'\n');
 const functions=js.split('\ndocument.querySelectorAll("[data-view]")')[0].replace(/^import .*;$/gm,'');
@@ -42,7 +43,7 @@ function harness(load){
   const ops={displayValue:(r,k,v)=>v,snapshotPanel:()=>tag('선택 회차의 대장'),actions:()=>tag('운영 작업'),show(){},
     writeWork:c=>work.push(c),hasSavedIncidentDraft:()=>false,incidentMemoForm:c=>tag('빠른 조치 입력 '+c.incidentId),async incidentEventsPanel(c){contexts.push(c);return tag('조치 메모 '+c.incidentId);}};
   const enrich={snapshotPanel:()=>tag('전력 측정 근거'),actions:()=>tag('전력 표본'),show(){}};
-  const context={...ui,document:doc,Node:Element,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,transport:load,ops,enrich,
+  const context={...ui,summarizeCollectionWarnings,document:doc,Node:Element,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,transport:load,ops,enrich,
     createOperationsController:()=>ops,createEnrichmentController:()=>enrich};
   runInNewContext(functions+'\napi=transport; operations=ops; enrichment=enrich; globalThis.subject={showAp,showIncident,state};',context);
   const h=context.subject;h.state.selection=selection;

@@ -51,6 +51,7 @@ jobs:
           node --check src/AirWaveApMonitor.App/wwwroot/app.js
           node --check src/AirWaveApMonitor.App/wwwroot/ui-state.js
           node --check src/AirWaveApMonitor.App/wwwroot/setup-guide.js
+          node --check src/AirWaveApMonitor.App/wwwroot/run-warnings.js
           node --check src/AirWaveApMonitor.App/wwwroot/operations.js
           node --check src/AirWaveApMonitor.App/wwwroot/enrichment.js
           node tests/Frontend/ui-state.test.mjs
@@ -61,6 +62,8 @@ jobs:
           node tests/Frontend/requirements-ui.test.mjs
           node tests/Frontend/ap-console-dom.test.mjs
           node tests/Frontend/setup-guide.test.mjs
+          node tests/Frontend/run-warnings.test.mjs
+          node tests/Frontend/help-ui.test.mjs
       - name: Restore
         run: dotnet restore AirWaveApMonitor.slnx
       - name: Build
