@@ -66,7 +66,7 @@ const cases=[
     x.state.runs.kind='connectionpower'; await x.loadRuns();
     assert.equal(calls.at(-1).searchParams.get('enrichmentOnly'),'true');
   }],
-  ['Dashboard never selects an arbitrary AP and a Down row opens its exact incident',async()=>{
+  ['Dashboard never selects an arbitrary AP and a Down row opens status with its exact incident retained',async()=>{
     const row={apId:'a',sourceApId:'one',currentState:'Down',openIncidentId:'case-a',device:{name:'A'},location:{}};
     const requests=[];const snap={...selection,summary:{targetCount:1,confirmedDown:1,unknown:0},outcome:'Succeeded',rows:[row],totalRows:1};
     const x=app(async url=>{requests.push(url);if(url.startsWith('/api/dashboard'))return snap;throw Error('detail stopped at test boundary');});
@@ -74,7 +74,7 @@ const cases=[
     assert.equal(x.state.selectedApId,null);assert.equal(requests.length,1);
     const rowButton=x.document.getElementById('ap-table').firstChild.firstChild;
     await rowButton.listeners.click();
-    assert.equal(x.state.selectedApId,'a');assert.equal(x.state.apTab,'incident');assert.equal(x.state.apIncidentId,'case-a');
+    assert.equal(x.state.selectedApId,'a');assert.equal(x.state.apTab,'status');assert.equal(x.state.apIncidentId,'case-a');
     snap.rows=[{...row,apId:'b'}];await x.loadDashboard(true);
     assert.equal(x.state.selectedApId,null);
   }],

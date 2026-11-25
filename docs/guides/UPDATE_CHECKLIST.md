@@ -1,12 +1,12 @@
 # AirWave AP Monitor — 안전한 Windows 업데이트 체크리스트
 
-대상: v0.1.3-preview.8 현장 검증용 ZIP. 실행/백업/복구는 수집 PC의 운영자가 직접 수행합니다.
+대상: v0.1.3-preview.9 현장 검증용 ZIP. 실행/백업/복구는 수집 PC의 운영자가 직접 수행합니다.
 
 ## 1. 파일 검증
 1. GitHub Releases에서 정확한 버전별 ZIP을 새 폴더에 내려받습니다.
 2. 릴리스의 SHA-256을 아래 명령 결과와 대조합니다.
 
-   `Get-FileHash -Path '.\AirWaveAPMonitor-v0.1.3-preview.8-win-x64.zip' -Algorithm SHA256`
+   `Get-FileHash -Path '.\AirWaveAPMonitor-v0.1.3-preview.9-win-x64.zip' -Algorithm SHA256`
 
 3. ZIP 전체를 별도 폴더에 압축 해제하고 `metadata\VERSION.json`의 `version`, `source_commit`, `working_tree_dirty`를 확인합니다. `onsite_verified=false`는 실장비 현장 검증 대기를 의미합니다.
 4. GitHub Windows CI 통과는 사내 Live 연결을 보증하지 않습니다.

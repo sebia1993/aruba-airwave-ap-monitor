@@ -49,21 +49,37 @@ jobs:
       - name: Frontend syntax and state behavior
         run: |
           node --check src/AirWaveApMonitor.App/wwwroot/app.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check src/AirWaveApMonitor.App/wwwroot/ui-state.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check src/AirWaveApMonitor.App/wwwroot/setup-guide.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check src/AirWaveApMonitor.App/wwwroot/run-warnings.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check src/AirWaveApMonitor.App/wwwroot/operations.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check src/AirWaveApMonitor.App/wwwroot/enrichment.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/ui-state.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/operations.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/operations-dom.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/enrichment.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/enrichment-dom.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/requirements-ui.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/ap-console-dom.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/setup-guide.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/run-warnings.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/help-ui.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Restore
         run: dotnet restore AirWaveApMonitor.slnx
       - name: Build
@@ -78,6 +94,24 @@ jobs:
       - name: Common behavior tests on Windows
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/AirWaveApMonitor.Tests -c Release --no-build --logger "trx;LogFileName=common-windows.trx"
+      - name: Record AP history scale and regression test evidence
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $trx = Get-Content -LiteralPath tests/AirWaveApMonitor.Tests/TestResults/common-windows.trx -Raw
+          $xml = [xml]$trx
+          $results = @($xml.SelectNodes("//*[local-name()='UnitTestResult']"))
+          $scale = @($results | Where-Object { $_.testName -like '*RepeatHistoryScaleTests*' })
+          if ($scale.Count -ne 2) { throw 'Expected both real SQLite scale cases (2000 and 5000 APs).' }
+          $selected = @($results | Where-Object {
+            $_.testName -match 'RepeatHistoryScaleTests|MonitoringReadTests|ExportQueryContextTests|HostedDemo_CollectsWithoutBrowserAndResumesCommittedFrame'
+          })
+          foreach ($result in $selected) {
+            Write-Host ("{0}: {1}, duration={2}" -f $result.testName, $result.outcome, $result.duration)
+            $stdout = $result.SelectSingleNode("*[local-name()='Output']/*[local-name()='StdOut']")
+            if ($stdout -and $result.testName -like '*RepeatHistoryScaleTests*') { Write-Host $stdout.InnerText }
+          }
+          if (@($scale | Where-Object { $_.outcome -ne 'Passed' }).Count -ne 0) { throw 'AP history scale verification failed.' }
       - name: Windows-specific tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/AirWaveApMonitor.WindowsTests -c Release --no-build --logger "trx;LogFileName=windows-specific.trx"

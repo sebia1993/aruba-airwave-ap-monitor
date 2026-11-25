@@ -29,13 +29,14 @@ public sealed record EnrichmentCommitReceipt(Guid DatasetId, CollectionKind Kind
     public EnrichmentApplicationDisposition? Disposition { get; init; }
 }
 
-public enum DashboardFilter { All, Down, NewDown, InitialDown, ExistingDown, Recovered, Unknown, OpenIncidents, Up, NeedsAttention }
-public enum DashboardSort { Name, IpAddress, LastObservedAt, FirstDownAt }
+public enum DashboardFilter { All, Down, NewDown, InitialDown, ExistingDown, Recovered, Unknown, OpenIncidents, Up, NeedsAttention, RepeatSuspected, RepeatPriority, FollowUp }
+public enum DashboardSort { Name, IpAddress, LastObservedAt, FirstDownAt, RecentDownCount }
 public enum ObservationClassification { Up, NewDown, InitialDown, ExistingDown, Recovered, Unknown }
 public sealed record DashboardQuery(Guid DatasetId, long ScopeVersion, long? RunId = null, string? Search = null,
     DashboardFilter Filter = DashboardFilter.All, DashboardSort Sort = DashboardSort.Name,
     bool Descending = false, int Page = 1, int PageSize = 50,
-    OperationalStatus? ManagementStatus = null, bool HidePlanned = false, long? MinimumOpenElapsedSeconds = null);
+    OperationalStatus? ManagementStatus = null, bool HidePlanned = false, long? MinimumOpenElapsedSeconds = null,
+    int RepeatThreshold = 3, int PriorityThreshold = 5, bool IncludeStatusHistory = false);
 public sealed record ApSnapshotRow(Guid ApId, string SourceApId, Guid DeviceGenerationId, Guid MonitoringIntervalId,
     DeviceIdentity Identity, DeviceDetails Device, LocationDetails Location, ControllerDetails Controller,
     ApState? CurrentState, ApState? LastValidState, DateTimeOffset? LastValidObservedAtUtc,
@@ -47,6 +48,8 @@ public sealed record ApSnapshotRow(Guid ApId, string SourceApId, Guid DeviceGene
     ImmutableDictionary<string, string>? RawSourceValues = null, ManualInventorySnapshot? ManualInventory = null)
 {
     public EnrichmentSnapshot? EnrichmentDetail { get; init; }
+    public ApStatusHistorySummary? StatusHistory { get; init; }
+    public bool IsFollowUp => ManualInventory?.Values.GetValueOrDefault(InventoryField.FollowUp) == "true";
 }
 public sealed record DashboardSnapshot(Guid DatasetId, long ScopeVersion, long RunId,
     DateTimeOffset StartedAtUtc, DateTimeOffset FinalizedAtUtc, RunLifecycle Lifecycle, RunOutcome? Outcome,
@@ -55,4 +58,6 @@ public sealed record DashboardSnapshot(Guid DatasetId, long ScopeVersion, long R
     int HiddenPlannedCount = 0)
 {
     public int SchemaVersion => 1;
+    public int? RepeatSuspectedCount { get; init; }
+    public int? RepeatPriorityCount { get; init; }
 }

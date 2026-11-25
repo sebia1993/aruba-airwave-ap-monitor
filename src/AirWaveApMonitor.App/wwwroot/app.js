@@ -3,6 +3,7 @@ import { countText, createRequestGate, dashboardQuery, observationStatus, incide
 
 import { determineSetupStage, connectionSteps } from "./setup-guide.js";
 import { summarizeCollectionWarnings } from "./run-warnings.js";
+import { buildSafeDiagnostic,serializeSafeDiagnostic } from "./safe-diagnostic.js";
 import { createOperationsController } from "./operations.js";
 import { createEnrichmentController } from "./enrichment.js";
 
@@ -19,13 +20,13 @@ const sourceLabels = { AirWave: "AirWave", Demo: "가상 자료", Manual: "직�
 const state = {
   view: "dashboard", backView: "dashboard", historical: false, selection: null, snapshot: null,
   selectedApId: null, apTab: "status", apDetailSelection: null, apIncidentId: null, incidentMode: "cases",
-  filters: { search: "", filter: "NeedsAttention", sort: "FirstDownAt", descending: true, managementStatus: "", hidePlanned: false, minimumOpenElapsedSeconds: "", page: 1, pageSize: 50 },
+  filters: { search: "", filter: "NeedsAttention", sort: "FirstDownAt", descending: true, managementStatus: "", hidePlanned: false, minimumOpenElapsedSeconds: "", page: 1, pageSize: 50, repeatThreshold:3, priorityThreshold:5 },
   incident: { status: "", search: "", fromUtc: null, toUtc: null, minimumOpenElapsedSeconds: "", page: 1, pageSize: 50 },
   runs: { kind: "", scopeVersion: "", fromUtc: null, toUtc: null, page: 1, pageSize: 50, throughRunId: null },
   health: null, maintenance: null, settings: null, mode: null, mutationBusy: false, settingsDirty: false, draftRevision: 0, pinDraftBase: null, pinProbe: null,
   scope: {data:null,dirty:false,revision:0,baseVersion:null,baselineDirty:false,baselineRevision:0,baselineBase:null},
   token: null, tokenPromise: null, diagnosticIdentity: null, lastDiagnosticReport: null, guideRequiresFreshDiagnostic: false,
-  setupGuideOpen: false, setupAutoHandled: false, lastDashboardRead: null
+  setupGuideOpen: false, setupAutoHandled: false, lastDashboardRead: null, buildInfo: null
 };
 const gates = { dashboard: createRequestGate(), incidents: createRequestGate(), runs: createRequestGate(), detail: createRequestGate(), settings: createRequestGate(), scope: createRequestGate(), health: createRequestGate() };
 let searchTimer, incidentSearchTimer;
@@ -215,9 +216,9 @@ function syncApPanel(snapshot) {
 }
 
 const filterLabels = { NeedsAttention:"확인할 AP", Down:"장애 AP", Unknown:"미확인 AP", All:"전체 AP", Up:"정상 AP",
-  OpenIncidents:"미복구 사건 AP", NewDown:"신규 Down", InitialDown:"최초 확인 Down", ExistingDown:"기존 Down", Recovered:"이번 복구" };
+  OpenIncidents:"미복구 사건 AP", NewDown:"신규 Down", InitialDown:"최초 확인 Down", ExistingDown:"기존 Down", Recovered:"이번 복구", RepeatSuspected:"반복 장애 의심 AP", RepeatPriority:"중점 관리 권고 AP", FollowUp:"사용자 관리 대상 AP" };
 function resetMetrics() {
-  for (const id of ["metric-total","metric-down","metric-unknown","nav-count"]) byId(id).textContent = "—";
+  for (const id of ["metric-total","metric-down","metric-unknown","metric-repeat","metric-repeat-priority","nav-count"]) byId(id).textContent = "—";
 }
 function renderDashboard(snapshot) {
   const focusedApId = document.activeElement?.dataset?.apId;
@@ -225,6 +226,8 @@ function renderDashboard(snapshot) {
   byId("metric-down").textContent = summary.confirmedDown == null ? "미확인" : countText(summary.confirmedDown) + "대";
   byId("metric-total").textContent = countText(summary.targetCount) + "대";
   byId("metric-unknown").textContent = countText(summary.unknown) + "대";
+  byId("metric-repeat").textContent = snapshot.repeatSuspectedCount == null ? "—" : countText(snapshot.repeatSuspectedCount) + "대";
+  byId("metric-repeat-priority").textContent = countText(snapshot.repeatPriorityCount);
   byId("nav-count").textContent = countText(summary.openIncidents);
   const banner = byId("dashboard-notice");
   banner.hidden = !failed && snapshot.outcome !== "Partial";
@@ -257,7 +260,7 @@ function renderDashboard(snapshot) {
       const item = button("", () => {
         if (state.selectedApId === row.apId) return showAp(row.apId,selectionOf(snapshot),state.apTab,true,state.apIncidentId);
         const incident = row.currentState === "Down" ? row.openIncidentId : null;
-        return showAp(row.apId,selectionOf(snapshot),incident ? "incident" : "status",true,incident);
+        return showAp(row.apId,selectionOf(snapshot),"status",true,incident);
       }, "ap-link console-ap-row");
       item.dataset.apId = row.apId;
       item.setAttribute("aria-pressed",String(row.apId === state.selectedApId));
@@ -266,6 +269,13 @@ function renderDashboard(snapshot) {
         el("small","",`${displayed(row,"IpAddress",row.device.ipAddress) || "IP 미제공"} · ${displayedLocation(row)}`));
       const status = observationStatus(row);
       item.append(identity,badge(status.label,status.tone));
+      const history = row.statusHistory;
+      if (history) {
+        const count = history.newDownCount24Hours;
+        const level = count >= state.filters.priorityThreshold ? " · 중점 권고" : count >= state.filters.repeatThreshold ? " · 반복 의심" : "";
+        identity.append(el("small","",`24h 신규 Down ${countText(count)}회${level} · 최근 Down ${dateText(history.recentDownAtUtc)} · 마지막 Up ${dateText(history.lastUpObservedAtUtc)}`));
+      }
+      if (row.isFollowUp) identity.append(el("small","","사용자 관리 대상"));
       if (row.manualManagement) identity.append(el("small","",managementLabels[row.manualManagement.status] || row.manualManagement.status));
       list.append(item);
     });
@@ -450,6 +460,35 @@ function apObservations(result) {
   if (result.moreObservations) detail.append(el("p","footnote","최근 50개 관측을 표시합니다. 이전 관측은 수집 기록에서 과거 회차를 선택하세요."));
   section.append(detail); return section;
 }
+function apSimpleHistory(result, chooseIncident) {
+  const row = result.row, summary = result.statusHistory, section = panel("AP Up/Down 이력",true);
+  section.append(pairs([["현재 상태",observationStatus(row).label],
+    ["최근 Down 감지",summary?.recentDownAtUtc ? dateText(summary.recentDownAtUtc) + (summary.recentDownIsInitial ? " · 최초 확인 Down" : "") : "저장된 감지 없음"],
+    ["마지막 Up 관측",dateText(summary?.lastUpObservedAtUtc)],
+    ["최근 Up 복구 확인",dateText(summary?.lastRecoveryAtUtc)],
+    ["최근 24시간 신규 Down",summary ? countText(summary.newDownCount24Hours) + "회" : "미확인"],
+    ["사용자 관리 대상",row.isFollowUp ? "지정됨" : "미지정"]]));
+  if (!state.historical && operations) section.append(button("관리 대상 지정·해제",()=>operations.show("registration",apActionContext(result)),"ap-primary-action"));
+  if (row.currentState == null) section.append(el("p","footnote","이번 상태 미확인 · 마지막 유효 관측과 구분합니다."));
+  if (summary?.timeReviewCount || row.timeNeedsReview) section.append(el("p","notice warning","시간 검토가 필요한 사건은 24시간 횟수에서 제외했습니다."));
+  if (summary?.hasObservationGap) section.append(el("p","footnote","최근 사건에 관측 공백이 있습니다."));
+  section.append(el("p","footnote","현재 장비·감시 구간의 저장된 관측 기준입니다. 실제 장애 발생·복구 시각이 아니며 최초 확인 Down은 신규 횟수에서 제외합니다."));
+  const recent = (result.incidents || []).filter(item => !item.monitoringIntervalId || item.monitoringIntervalId === row.monitoringIntervalId).slice(0,10);
+  if (!recent.length) section.append(el("p","footnote","현재 감시 구간에 표시할 저장된 장애 이력이 없습니다."));
+  else {
+    const table = el("div","ap-history-table");
+    buildTable(table,["Down 감지","Up 복구 확인","관측 경과"],recent,(tr,item) => {
+      const tracking = item.tracking;
+      cell(tr,"Down 감지",button(dateText(tracking.firstDownAtUtc),()=>chooseIncident(item.incidentId),"ap-link"),tracking.isInitialDown ? "최초 확인 Down" : "신규 Down");
+      cell(tr,"Up 복구 확인",tracking.recoveredAtUtc ? dateText(tracking.recoveredAtUtc) : item.status === "Open" ? "미복구" : "추적 종료");
+      cell(tr,"관측 경과",tracking.timeNeedsReview ? "시간 확인 필요" : durationText(item.observedElapsedSeconds == null ? null : item.observedElapsedSeconds * 1000),tracking.hasObservationGap ? "관측 공백 포함" : item.status === "Open" ? "진행 중" : null);
+    });
+    section.append(table);
+    if (result.moreIncidents || (result.incidents || []).length > 10) section.append(el("p","footnote","최근 10개까지 표시합니다. 이전 기록은 장애·조치 탭에서 조회할 수 있습니다."));
+  }
+  return section;
+}
+
 function apStatusPane(result, chooseIncident) {
   const row=result.row, statusPanel=panel("선택 회차의 AP 상태",true);
   statusPanel.append(pairs([["모델",displayed(row,"Model",row.device.model)],["이번 확인",statusLabels[row.classification] || observationStatus(row).label],
@@ -459,7 +498,9 @@ function apStatusPane(result, chooseIncident) {
     ["시간 검토",row.timeNeedsReview ? "시계 역행 등으로 경과 시간 확인 필요" : "순서 이상 표시 없음"]]));
   if (row.openIncidentId) statusPanel.append(button("미복구 사건 보기",() => chooseIncident(row.openIncidentId),"ap-primary-action"));
   const gaps=panel("관측 공백",true); appendGaps(gaps,result.observationGaps,result.moreObservationGaps);
-  return [statusPanel,apObservations(result),gaps,apSourceQuality(row)];
+  const advanced = el("details","ap-saved-evidence wide");
+  advanced.append(el("summary","","상세 수집·관측 근거 보기"),statusPanel,apObservations(result),gaps,apSourceQuality(row));
+  return [apSimpleHistory(result,chooseIncident),advanced];
 }
 function apInventoryPane(result) {
   const row=result.row, nodes=automaticInventoryPanels(row);
@@ -795,9 +836,46 @@ async function connectionGuideAction() {
 }
 
 // Read-only update status. This does not back up, stop a process, or change a profile.
+function safeDiagnosticJson() {
+  const validReport=state.diagnosticIdentity && state.settings?.profile &&
+    state.diagnosticIdentity===settingsIdentity(state.settings.profile) ? state.lastDiagnosticReport : null;
+  return serializeSafeDiagnostic(buildSafeDiagnostic({
+    mode:state.mode,version:state.buildInfo,health:state.health,run:state.snapshot,report:validReport
+  }));
+}
+function renderSafeDiagnosticStatus() {
+  byId("safe-diagnostic-summary").textContent=state.snapshot
+    ? "현재 조회한 수집 회차의 상태·건수만 사용하며 원천 장비 식별자는 제외합니다."
+    : "조회한 수집 회차가 없습니다. 미확인 값은 Down 0대로 바꾸지 않습니다.";
+}
+async function safeDiagnosticCopy() {
+  try {
+    if(!navigator.clipboard?.writeText) throw Error("no permission");
+    await navigator.clipboard.writeText(safeDiagnosticJson());
+    byId("safe-diagnostic-result").textContent="안전 진단을 복사했습니다.";
+  } catch { byId("safe-diagnostic-result").textContent="복사 권한이 없습니다. JSON 저장을 사용하세요."; }
+}
+function safeDiagnosticSave() {
+  const blob=new Blob([safeDiagnosticJson()],{type:"application/json;charset=utf-8"});
+  const url=URL.createObjectURL(blob),link=el("a");
+  link.href=url; link.download="airwave-safe-diagnostic.json";
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  byId("safe-diagnostic-result").textContent="안전 진단 JSON 저장을 요청했습니다. 외부 공유 전 파일을 확인하세요.";
+}
+async function loadBuildInfo() {
+  try {
+    const info=await api("/api/build-info");
+    state.buildInfo=info?.packaged===true &&
+      /^\d+\.\d+\.\d+(?:-preview\.\d+)?$/.test(info.version) &&
+      /^[a-f0-9]{40}$/.test(info.sourceCommit)
+      ? {version:info.version,sourceCommit:info.sourceCommit,packaged:true}:null;
+  } catch { state.buildInfo=null; }
+  renderUpdateSafety();
+}
 function renderUpdateSafety() {
   const h=state.health,m=state.maintenance,s=state.settings;
-  byId("update-ui-version").textContent="v0.1.3-preview.8 · 실행 중 화면 파일 기준 (ZIP metadata/VERSION.json과 대조)";
+  byId("update-ui-version").textContent=state.buildInfo?.packaged===true ? `${state.buildInfo.version} · 소스 ${state.buildInfo.sourceCommit?.slice(0,12) || "미확인"}` : "실행 패키지 버전 미확인 · ZIP metadata/VERSION.json 별도 확인";
   byId("update-current-mode").textContent=state.mode==="demo" ? "Demo 전용 데이터 (Live와 분리)" : state.mode==="live" ? "Live · 사내 수집 PC 데이터" : "실행 모드 미확인";
   byId("update-account-status").textContent=s?.credentialStatus==="registered" ? "등록됨 · 현재 Windows 실행 계정에서 복호화 확인" :
     s?.credentialStatus==="missing" ? "미등록" : s?.credentialStatus==="reregistration-required" ? "재등록 필요" : "아직 확인되지 않음";
@@ -843,6 +921,7 @@ function updateControls() {
   updateCertificatePinControls();
   renderConnectionGuide();
   renderUpdateSafety();
+  renderSafeDiagnosticStatus();
 }
 async function perform(action) {
   if (state.mutationBusy) return;
@@ -1308,7 +1387,8 @@ function applySearch(value) {
   if (value.trim()) {
     if (!filters.search.trim()) state.beforeApSearch = {filter:filters.filter,managementStatus:filters.managementStatus,
       hidePlanned:filters.hidePlanned,minimumOpenElapsedSeconds:filters.minimumOpenElapsedSeconds};
-    Object.assign(filters,{filter:"All",managementStatus:"",hidePlanned:false,minimumOpenElapsedSeconds:""});
+    if (!["RepeatSuspected","RepeatPriority","FollowUp"].includes(filters.filter))
+      Object.assign(filters,{filter:"All",managementStatus:"",hidePlanned:false,minimumOpenElapsedSeconds:""});
   } else if (filters.search.trim()) {
     Object.assign(filters,state.beforeApSearch || {filter:"NeedsAttention"});
     state.beforeApSearch = null;
@@ -1321,6 +1401,9 @@ function quickFilter(filter) {
   byId("ap-search").value = ""; state.beforeApSearch = null;
   Object.assign(state.filters,{search:"",managementStatus:"",minimumOpenElapsedSeconds:"",hidePlanned:false});
   byId("management-filter").value = ""; byId("ap-minimum-elapsed").value = ""; byId("hide-planned").checked = false;
+  if (["RepeatSuspected","RepeatPriority"].includes(filter)) {
+    state.filters.sort = "RecentDownCount"; state.filters.descending = true; byId("ap-sort").value = "repeat";
+  }
   filterChanged(filter);
 }
 function filterChanged(filter) {
@@ -1351,7 +1434,9 @@ enrichment = createEnrichmentController({api,onMessage:setMessage,navigate,dateT
 document.querySelectorAll("[data-action='current']").forEach(node => node.addEventListener("click",() => { clearTimeout(searchTimer); clearTimeout(incidentSearchTimer); setMessage(""); void currentDashboard(); }));
 document.querySelectorAll("[data-help-topic]").forEach(node => node.addEventListener("click",() => showHelp(node.dataset.helpTopic)));
 document.querySelectorAll("[data-help-go]").forEach(node => node.addEventListener("click",() => { void show(node.dataset.helpGo); }));
-byId("help-update-refresh").addEventListener("click",() => { void Promise.all([loadHealth(),loadSettings(false)]).then(renderUpdateSafety); });
+byId("help-update-refresh").addEventListener("click",() => { void Promise.all([loadHealth(),loadSettings(false),loadBuildInfo()]).then(renderUpdateSafety); });
+byId("safe-diagnostic-copy").addEventListener("click",safeDiagnosticCopy);
+byId("safe-diagnostic-save").addEventListener("click",safeDiagnosticSave);
 document.querySelectorAll("[data-filter]").forEach(node => node.addEventListener("click",() => quickFilter(node.dataset.filter)));
 byId("home-connect-setup").addEventListener("click",()=>{ void openConnectionGuide(); });
 byId("status-filter").addEventListener("change",event => filterChanged(event.target.value));
@@ -1360,8 +1445,16 @@ byId("ap-search").addEventListener("input",event => {
   clearTimeout(searchTimer); searchTimer = setTimeout(() => { if (state.view === "dashboard") void loadDashboard(); },250);
 });
 byId("ap-sort").addEventListener("change",event => {
-  const sorts = { recent:["FirstDownAt",true],oldest:["FirstDownAt",false],name:["Name",false],ip:["IpAddress",false],observed:["LastObservedAt",true] };
+  const sorts = { recent:["FirstDownAt",true],oldest:["FirstDownAt",false],name:["Name",false],ip:["IpAddress",false],observed:["LastObservedAt",true],repeat:["RecentDownCount",true] };
   [state.filters.sort,state.filters.descending] = sorts[event.target.value]; state.filters.page = 1; clearTimeout(searchTimer); void loadDashboard();
+});
+byId("repeat-threshold-form").addEventListener("submit",event => {
+  event.preventDefault();
+  const repeat = Number(byId("repeat-threshold").value), priority = Number(byId("priority-threshold").value);
+  if (!Number.isInteger(repeat) || !Number.isInteger(priority) || repeat < 1 || priority < repeat || priority > 720) {
+    setMessage("반복 장애 기준은 1~720회이며 중점 기준은 반복 기준 이상이어야 합니다.",true); return;
+  }
+  Object.assign(state.filters,{repeatThreshold:repeat,priorityThreshold:priority,page:1}); setMessage(""); clearTimeout(searchTimer); void loadDashboard();
 });
 byId("management-filter").addEventListener("change",event => { state.filters.managementStatus = event.target.value; state.filters.page = 1; clearTimeout(searchTimer); void loadDashboard(); });
 byId("hide-planned").addEventListener("change",event => { state.filters.hidePlanned = event.target.checked; state.filters.page = 1; clearTimeout(searchTimer); void loadDashboard(); });
@@ -1414,7 +1507,7 @@ byId("retry-authentication").addEventListener("click",retryAuthentication); byId
 document.addEventListener("visibilitychange",() => { if (!document.hidden) void loadHealth(); });
 
 updateControls();
-void loadDashboard(true); void loadHealth(); void loadSettings(true);
+void loadDashboard(true); void loadHealth(); void loadSettings(true); void loadBuildInfo();
 void ensureToken().catch(error => setMessage(error.message,true));
 void api("/api/capabilities/windows").then(value => { byId("windows-detail").textContent = value.message; }).catch(() => { byId("windows-detail").textContent = "Windows 기능 정보를 읽지 못했습니다."; });
 // This timer only reads health. Collection schedules and persistence belong to the server worker.

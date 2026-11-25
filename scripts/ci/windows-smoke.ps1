@@ -149,6 +149,20 @@ try {
     if ($diagnostic.connectionPath -ne 'synthetic-memory' -or $null -ne $diagnostic.httpStatus -or $null -ne $diagnostic.runId) {
         throw 'Diagnostic reported a live HTTP result or operational run identity.'
     }
+    # An actual headless Edge browser checks rendered navigation, AP selection and the incident editor.
+    $edgeCandidates = @(
+        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe')
+    )
+    $edge = $edgeCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    if (-not $edge) { throw 'Microsoft Edge is required for the real GUI smoke.' }
+    $env:AIRWAVE_EDGE_PATH = $edge
+    try {
+        & node (Join-Path $PSScriptRoot '../../tests/Browser/edge-gui-smoke.mjs') 'http://127.0.0.1:18765/'
+        if ($LASTEXITCODE -ne 0) { throw 'Real Edge GUI smoke failed.' }
+    } finally { Remove-Item Env:AIRWAVE_EDGE_PATH -ErrorAction SilentlyContinue }
+    $buildInfo = Invoke-RestMethod -Uri 'http://127.0.0.1:18765/api/build-info' -TimeoutSec 10
+    if ($buildInfo.packaged -ne $false) { throw 'Copied standalone app should not claim package metadata.' }
     $dashboard = Invoke-RestMethod -Uri 'http://127.0.0.1:18765/api/dashboard' -TimeoutSec 10
     if ([long]$dashboard.runId -ne [long]$health.collector.lastFinalRunId -or
         $dashboard.summary.confirmedDown -ne 8 -or $dashboard.summary.confirmedUp -ne 2040 -or
@@ -186,6 +200,13 @@ try {
     }
     $restartedInstanceId = (Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8 | ConvertFrom-Json).InstanceId
     if ($restartedInstanceId -ne $firstInstanceId) { throw 'Restart replaced the Demo physical instance identity.' }
+    # The first Edge run saved a management target, but did not advance the scenario.
+    # Verify that the restarted real collector has applied it, then clear via Edge.
+    $env:AIRWAVE_EDGE_PATH = $edge
+    try {
+        & node (Join-Path $PSScriptRoot '../../tests/Browser/edge-gui-smoke.mjs') 'http://127.0.0.1:18765/' 'follow-up-after-restart'
+        if ($LASTEXITCODE -ne 0) { throw 'Real Edge follow-up persistence and clear smoke failed.' }
+    } finally { Remove-Item Env:AIRWAVE_EDGE_PATH -ErrorAction SilentlyContinue }
     $listeners = @(Get-NetTCPConnection -State Listen -OwningProcess $process.Id)
     if ($listeners.Count -eq 0) { throw 'No listening socket found.' }
     if (@($listeners | Where-Object { $_.LocalAddress -notin @('127.0.0.1', '::1') }).Count -gt 0) {

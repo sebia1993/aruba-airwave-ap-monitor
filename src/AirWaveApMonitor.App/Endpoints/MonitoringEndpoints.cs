@@ -89,7 +89,8 @@ internal static class MonitoringHttp
             EnumValue<DashboardSort>(http, "sort") ?? DashboardSort.FirstDownAt,
             Boolean(http, "descending", true), Int(http, "page", 1), Int(http, "pageSize", 50, 500),
             EnumValue<OperationalStatus>(http, "managementStatus"), Boolean(http, "hidePlanned", false),
-            Long(http, "minimumOpenElapsedSeconds"));
+            Long(http, "minimumOpenElapsedSeconds"), Int(http, "repeatThreshold", 3, 720),
+            Int(http, "priorityThreshold", 5, 720), IncludeStatusHistory: true);
     }
     internal static async Task<long> Scope(HttpContext http, IMonitoringReadStore reads, Guid dataset, long run, CancellationToken ct)
     {

@@ -64,6 +64,12 @@ export function dashboardQuery(filters = {}, selection = null, exportAll = false
   if (filters.managementStatus) params.set("managementStatus", filters.managementStatus);
   params.set("hidePlanned", String(!!filters.hidePlanned));
   addMinimumElapsed(params, filters.minimumOpenElapsedSeconds);
+  if (filters.repeatThreshold != null || filters.priorityThreshold != null) {
+    const repeat = Number(filters.repeatThreshold ?? 3), priority = Number(filters.priorityThreshold ?? 5);
+    if (!Number.isInteger(repeat) || !Number.isInteger(priority) || repeat < 1 || priority < repeat || priority > 720)
+      throw new Error("반복 장애 기준은 1~720회이며 중점 기준은 반복 기준 이상이어야 합니다.");
+    params.set("repeatThreshold",repeat); params.set("priorityThreshold",priority);
+  }
   if (!exportAll) {
     params.set("page", filters.page || 1);
     params.set("pageSize", filters.pageSize || 50);

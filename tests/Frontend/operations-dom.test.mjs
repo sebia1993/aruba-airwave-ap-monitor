@@ -22,6 +22,62 @@ const findButton=(root,label)=>{const result=root.querySelectorAll('button').fin
 const input=(root,name)=>{const result=root.querySelectorAll('[name]').find(n=>n.name===name);assert.ok(result,`input ${name}`);return result;};
 const formOf=node=>{while(node&&node.tagName!=='form')node=node.parent;return node;};
 const cases=[
+  ['Follow-up saves and explicitly clears only its own inventory value with version and restore epoch',async()=>{
+    let stored=registration();const sent=[];
+    const h=harness((path,options)=>{
+      if(options.method==='POST'){
+        assert.equal(path,'/api/operations/inventory');const payload=options.body;sent.push(payload);
+        const inv=stored.registration.inventory;
+        assert.equal(payload.expectedVersion,inv.version);assert.equal(payload.expectedCurrentGenerationId,current);
+        const values={...inv.values,...payload.setValues};for(const key of payload.clearFields)delete values[key];
+        stored={...stored,registration:{...stored.registration,inventory:{...inv,version:inv.version+1,values}}};
+        return {};
+      }
+      return stored;
+    },()=>7);
+    await h.controller.show('registration',{apId:ap,deviceGenerationId:current});
+    let marked=input(h.root,'marked');assert.equal(marked.checked,false);
+    marked.checked=true;await marked.fire('change');await formOf(marked).fire('submit');await flush();
+    assert.equal(sent.length,1);assert.deepEqual(sent[0].setValues,{FollowUp:'true'});
+    assert.deepEqual(sent[0].clearFields,[]);assert.equal(sent[0].expectedRestoreEpoch,7);
+    assert.equal(stored.registration.inventory.values.Name,'saved');assert.equal(sent[0].manualPreferredFields,undefined);
+    marked=input(h.root,'marked');assert.equal(marked.checked,true);
+    marked.checked=false;await marked.fire('change');await formOf(marked).fire('submit');await flush();
+    assert.equal(sent.length,1);assert.ok(h.messages.some(([message,error])=>error&&message.includes('해제 사유')));
+    const reason=input(formOf(marked),'reason');reason.value='checked';await reason.fire('input');
+    await formOf(marked).fire('submit');await flush();
+    assert.equal(sent.length,2);assert.deepEqual(sent[1].setValues,{});assert.deepEqual(sent[1].clearFields,['FollowUp']);
+    assert.equal(sent[1].clearReason,'checked');assert.equal(sent[1].expectedVersion,4);
+    assert.equal(stored.registration.inventory.values.FollowUp,undefined);assert.equal(stored.registration.inventory.values.Name,'saved');
+    assert.equal(input(h.root,'marked').checked,false);
+    await h.controller.show('registration',{apId:ap,deviceGenerationId:old});
+    assert.ok(h.root.textContent.includes('과거 장비 세대에서는 관리 대상을 변경할 수 없습니다'));
+    assert.ok(!h.root.querySelectorAll('[name]').some(n=>n.name==='marked'));
+  }],
+  ['Follow-up preserves a stale draft on conflict and requires explicit reload to accept new epoch',async()=>{
+    let epoch=2,stored=registration();const sent=[];
+    const h=harness((path,options)=>{
+      if(options.method==='POST'){
+        sent.push(options.body);
+        if(sent.length===1)throw Object.assign(new Error('stale generation or epoch'),{status:409});
+        return {};
+      }
+      return stored;
+    },()=>epoch);
+    await h.controller.show('registration',{apId:ap,deviceGenerationId:current});
+    let marked=input(h.root,'marked');marked.checked=true;await marked.fire('change');
+    epoch=3;stored={...stored,registration:{...stored.registration,inventory:{...stored.registration.inventory,version:4}}};
+    await formOf(marked).fire('submit');await flush();
+    assert.equal(sent[0].expectedRestoreEpoch,2);assert.equal(sent[0].expectedVersion,3);
+    assert.ok(h.messages.some(([message,error])=>error&&message.includes('입력은 유지')));
+    assert.equal(input(h.root,'marked').checked,true);
+    await findButton(h.root,'현재 관리 대상 다시 읽기').fire('click');
+    await findButton(h.root,'서버 값으로 다시 채우기').fire('click');await flush();
+    marked=input(h.root,'marked');assert.equal(marked.checked,false);
+    marked.checked=true;await marked.fire('change');await formOf(marked).fire('submit');await flush();
+    assert.equal(sent.length,2);assert.equal(sent[1].expectedRestoreEpoch,3);assert.equal(sent[1].expectedVersion,4);
+    assert.notEqual(sent[0].commandId,sent[1].commandId);
+  }],
  ['Global work and ledger use separate menus and registration lists searchable APs',async()=>{
     const h=harness(path=>path.startsWith('/api/dashboard?')?{rows:[{apId:ap,deviceGenerationId:old,sourceApId:'10',device:{name:'가상 AP'}}],totalRows:1,runId:9,scopeVersion:2}:path.endsWith('registration')?registration():{rows:[],totalRows:0});
     await h.controller.show('timeline',null);

@@ -6,6 +6,7 @@ import { runInNewContext } from "node:vm";
 const moduleUrl = new URL("../../src/AirWaveApMonitor.App/wwwroot/ui-state.js", import.meta.url);
 const ui = await import(`${moduleUrl.href}?check=${Date.now()}`);
 const {summarizeCollectionWarnings} = await import("../../src/AirWaveApMonitor.App/wwwroot/run-warnings.js");
+const {determineSetupStage,connectionSteps} = await import("../../src/AirWaveApMonitor.App/wwwroot/setup-guide.js");
 // These focused stubs execute the actual production functions, not a browser layout or DOM engine.
 class StubNode {
   constructor(tag = "div") { this.tagName = tag; this.childNodes = []; this.dataset = {}; this.value = ""; this._text = ""; }
@@ -19,21 +20,33 @@ class StubNode {
     }
   }
   replaceChildren(...nodes) { this.childNodes.forEach(node => { node.parentNode = null; }); this.childNodes = []; this._text = ""; this.append(...nodes); }
+  setAttribute(key,value) { (this.attributes ??= {})[key] = String(value); }
+  removeAttribute(key) { if (this.attributes) delete this.attributes[key]; }
   querySelector() { if (!this.firstChild) this.append(new StubNode("button")); return this.firstChild; }
 }
-const appSource = await readFile(new URL("../../src/AirWaveApMonitor.App/wwwroot/app.js", import.meta.url), "utf8");
+const appSource = (await readFile(new URL("../../src/AirWaveApMonitor.App/wwwroot/app.js", import.meta.url), "utf8")).replace(/\r\n/g,"\n");
 const bindingStart = '\ndocument.querySelectorAll("[data-view]")';
 assert.equal(appSource.split(bindingStart).length, 2, "Locate the production event-binding boundary");
 const appFunctions = appSource.split(bindingStart)[0].replace(/^import .*;$/gm, "");
 function appStub() {
   const nodes = new Map();
   const document = { getElementById(id) { if (!nodes.has(id)) nodes.set(id, new StubNode()); return nodes.get(id); }, createElement(tag) { return new StubNode(tag); } };
-  const context = { ...ui, summarizeCollectionWarnings, document, Node:StubNode, URLSearchParams, AbortController, setTimeout, clearTimeout };
+  const context = { ...ui, summarizeCollectionWarnings, determineSetupStage, connectionSteps, document, Node:StubNode, URLSearchParams, AbortController, setTimeout, clearTimeout };
   runInNewContext(`${appFunctions}\nglobalThis.subject = { state, updateControls, applySettings, loadHealth, automaticInventoryPanels, retryAuthentication };`, context);
   return { ...context.subject, nodes, document, context };
 }
 const savedSettings = () => ({ mode:"live", profile:{datasetId:"dataset",origin:"https://example.invalid/",configurationVersion:1,scopeVersion:1,credentialsVersion:1,settings:{apIntervalMinutes:5},proxy:{mode:0}}, authenticationBlocked:false,credentialRegistrationPending:false,credentialStatus:"registered",executionAccount:"synthetic-account" });
 const cases = [
+  ["Repeat thresholds are preserved in dashboard and CSV query and invalid pairs rejected",()=>{
+  const filters={filter:"RepeatSuspected",sort:"RecentDownCount",repeatThreshold:2,priorityThreshold:4,page:3};
+  for(const exporting of [false,true]){
+    const q=ui.dashboardQuery(filters,{runId:12,scopeVersion:1},exporting);
+    assert.equal(q.get("repeatThreshold"),"2"); assert.equal(q.get("priorityThreshold"),"4");
+    assert.equal(q.get("filter"),"RepeatSuspected"); assert.equal(q.get("sort"),"RecentDownCount");
+    assert.equal(q.has("page"),!exporting);
+  }
+  for(const pair of [[0,5],[4,3],[1,721],[1.5,5]])assert.throws(()=>ui.dashboardQuery({repeatThreshold:pair[0],priorityThreshold:pair[1]}));
+}],
   ["Failed counts stay unknown instead of becoming zero", () => {
     assert.equal(ui.countText(null), "—");
     assert.equal(ui.countText(undefined), "—");

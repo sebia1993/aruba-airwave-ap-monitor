@@ -26,7 +26,7 @@ public sealed record ChangeEvent(OperationHistoryKind Kind, ChangeSemantics Sema
 public enum InventoryField
 {
     Name, IpAddress, Model, Firmware, Site, Building, Floor, Zone, Detail, RawLocation, Folder, Group,
-    ControllerId, ControllerName, ControllerIp, SwitchName, SwitchIp, PortName, ApInterface, AssetTag, Notes
+    ControllerId, ControllerName, ControllerIp, SwitchName, SwitchIp, PortName, ApInterface, AssetTag, Notes, FollowUp
 }
 
 public sealed record ManualInventorySnapshot(long Version, Guid DeviceGenerationId, EvidenceSource Source,

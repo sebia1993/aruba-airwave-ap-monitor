@@ -1,9 +1,144 @@
+using System.Collections.Immutable;
 using AirWaveApMonitor.Core.Contracts;
 
 namespace AirWaveApMonitor.Tests.Web;
 
 public sealed class MonitoringReadTests
 {
+    [Fact]
+    public async Task FollowUp_IsGenerationBound_IndependentOfMonitoring_AndHistoricalSnapshots()
+    {
+        using var f = new ReadFixture();
+        var initial = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var ap = (await f.Dashboard()).Rows.Single(r => r.SourceApId == "100");
+        var mark = new InventoryEdit(Guid.NewGuid(), ap.ApId, ap.DeviceGenerationId, 0,
+            ImmutableDictionary<InventoryField,string>.Empty.Add(InventoryField.FollowUp,"true"), []);
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Store.SaveInventoryAsync(mark with
+            { SetValues = mark.SetValues.SetItem(InventoryField.FollowUp,"false") }, default));
+        var receipt = await f.Store.SaveInventoryAsync(mark, default);
+        Assert.Equal(1, receipt.Version);
+        Assert.True((await f.Store.GetRegistrationAsync(ap.ApId, default)).Registration.PendingNextCollection);
+        Assert.Empty((await f.Dashboard(initial.RunId, filter: DashboardFilter.FollowUp)).Rows);
+        var applied = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var marked = Assert.Single((await f.Dashboard(applied.RunId, filter: DashboardFilter.FollowUp)).Rows);
+        Assert.True(marked.IsFollowUp);
+        Assert.Equal(ApState.Up, marked.CurrentState);
+        Assert.Equal(ap.MonitoringIntervalId, marked.MonitoringIntervalId);
+        await f.Store.SaveInventoryAsync(new(Guid.NewGuid(), ap.ApId, ap.DeviceGenerationId, 1,
+            ImmutableDictionary<InventoryField,string>.Empty, [InventoryField.FollowUp], ClearReason:"점검 완료"), default);
+        var cleared = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        Assert.Empty((await f.Dashboard(cleared.RunId, filter: DashboardFilter.FollowUp)).Rows);
+        Assert.True(Assert.Single((await f.Dashboard(applied.RunId, filter: DashboardFilter.FollowUp)).Rows).IsFollowUp);
+        await f.Store.SaveInventoryAsync(mark with { CommandId = Guid.NewGuid(), ExpectedVersion = 2 }, default);
+        var replaced = await f.Apply([f.Ap("100", ApState.Up, serial:"NEW-SERIAL"), f.Ap("200", ApState.Up)]);
+        Assert.Empty((await f.Dashboard(replaced.RunId, filter: DashboardFilter.FollowUp)).Rows);
+        Assert.NotEqual(ap.DeviceGenerationId, (await f.Dashboard(replaced.RunId)).Rows.Single(r=>r.SourceApId=="100").DeviceGenerationId);
+    }
+
+    [Fact]
+    public async Task StatusHistory_CountsAllRecentTransitionsBeforePagination_AndPreservesHistoricalCutoff()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var firstDown = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        await f.Apply([], outcome: RunOutcome.Failed);
+        var recovery = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var secondDown = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        var ap = (await f.Dashboard()).Rows.Single(r => r.SourceApId == "100");
+        var current = await f.Store.GetApDetailAsync(new(f.Location.DatasetId, 1, secondDown.RunId, ap.ApId, 1), default);
+        Assert.True(current.MoreIncidents);
+        var history = Assert.IsType<ApStatusHistorySummary>(current.StatusHistory);
+        Assert.Equal(2, history.NewDownCount24Hours);
+        Assert.Equal(secondDown.StartedAtUtc, history.RecentDownAtUtc);
+        Assert.Equal(recovery.StartedAtUtc, history.LastUpObservedAtUtc);
+        Assert.Equal(recovery.StartedAtUtc, history.LastRecoveryAtUtc);
+        var past = await f.Store.GetApDetailAsync(new(f.Location.DatasetId, 1, firstDown.RunId, ap.ApId, 1), default);
+        Assert.Equal(1, past.StatusHistory!.NewDownCount24Hours);
+        Assert.Equal(firstDown.StartedAtUtc, past.StatusHistory.RecentDownAtUtc);
+        Assert.NotEqual(recovery.StartedAtUtc, past.StatusHistory.LastRecoveryAtUtc);
+        f.AdvanceTime(TimeSpan.FromHours(25));
+        var later = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        var aged = await f.Store.GetApDetailAsync(new(f.Location.DatasetId, 1, later.RunId, ap.ApId, 1), default);
+        Assert.Equal(0, aged.StatusHistory!.NewDownCount24Hours);
+        Assert.Equal(secondDown.StartedAtUtc, aged.StatusHistory.RecentDownAtUtc);
+    }
+
+    [Fact]
+    public async Task RepeatDashboard_IncludesRecoveredAp_CountsBeforePage_AndPreservesSelectedGenerationAndTime()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Down)]);
+        var before = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Down)]);
+        for (var i = 0; i < 2; i++)
+        {
+            await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Down)]);
+            await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Down)]);
+        }
+        var last = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Down)]);
+        var query = new DashboardQuery(f.Location.DatasetId, 1, last.RunId, Filter: DashboardFilter.RepeatSuspected,
+            Sort: DashboardSort.RecentDownCount, Descending: true, PageSize: 1);
+        var view = await f.Store.GetDashboardAsync(query, default);
+        Assert.Equal(1, view.TotalRows);
+        Assert.Equal(1, view.RepeatSuspectedCount);
+        Assert.Equal(0, view.RepeatPriorityCount);
+        var row = Assert.Single(view.Rows);
+        Assert.Equal("100", row.SourceApId); Assert.Equal(ApState.Up, row.CurrentState);
+        Assert.Equal(3, row.StatusHistory!.NewDownCount24Hours);
+        Assert.Equal(last.StartedAtUtc, row.StatusHistory.LastUpObservedAtUtc);
+        Assert.Equal(1, (await f.Store.GetDashboardAsync(query with { Page = 2 }, default)).TotalRows);
+        Assert.Empty((await f.Store.GetDashboardAsync(query with { Page = 2 }, default)).Rows);
+        var all = await f.Store.GetDashboardAsync(query with { RepeatThreshold = 1, PriorityThreshold = 3 }, default);
+        Assert.Equal(2, all.TotalRows); Assert.Equal(2, all.RepeatSuspectedCount); Assert.Equal(1, all.RepeatPriorityCount);
+        var priority = await f.Store.GetDashboardAsync(query with { Filter = DashboardFilter.RepeatPriority, RepeatThreshold = 1, PriorityThreshold = 3 }, default);
+        Assert.Equal("100", Assert.Single(priority.Rows).SourceApId);
+        var earlier = await f.Store.GetDashboardAsync(query with { RunId = before.RunId }, default);
+        Assert.Equal(0, earlier.TotalRows);
+        var gap = await f.Apply([], outcome: RunOutcome.Failed);
+        var unknown = await f.Store.GetDashboardAsync(query with { RunId = gap.RunId }, default);
+        Assert.Null(Assert.Single(unknown.Rows).CurrentState);
+        Assert.Equal(3, unknown.Rows[0].StatusHistory!.NewDownCount24Hours);
+        var replacement = await f.Apply([f.Ap("100", ApState.Down, serial:"REPLACEMENT"), f.Ap("200", ApState.Down)]);
+        Assert.Equal(0, (await f.Store.GetDashboardAsync(query with { RunId = replacement.RunId }, default)).TotalRows);
+        Assert.Equal(1, (await f.Store.GetDashboardAsync(query, default)).TotalRows);
+    }
+
+    [Fact]
+    public async Task RepeatWindow_IsOpenAtExactly24Hours_AndDoesNotCarryIntoNewMonitoringInterval()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var down = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        var ap = (await f.Dashboard()).Rows.Single(r => r.SourceApId == "100");
+        f.AdvanceTime(TimeSpan.FromHours(23) + TimeSpan.FromMinutes(50));
+        var before = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        var boundary = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        Assert.Equal(down.StartedAtUtc.AddHours(24), boundary.StartedAtUtc);
+        var query = new DashboardQuery(f.Location.DatasetId, 1, before.RunId, Filter: DashboardFilter.RepeatSuspected,
+            RepeatThreshold: 1, PriorityThreshold: 2);
+        Assert.Single((await f.Store.GetDashboardAsync(query, default)).Rows);
+        Assert.Empty((await f.Store.GetDashboardAsync(query with { RunId = boundary.RunId }, default)).Rows);
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var recent = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        Assert.Single((await f.Store.GetDashboardAsync(query with { RunId = recent.RunId }, default)).Rows);
+        await f.Store.SaveTrackingPolicyAsync(new(Guid.NewGuid(), ap.ApId, ap.DeviceGenerationId, 0,
+            OperationalStatus.MonitoringExcluded, "end tracking", MonitoringDirective.EndTracking), default);
+        await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        await f.Store.SaveTrackingPolicyAsync(new(Guid.NewGuid(), ap.ApId, ap.DeviceGenerationId, 1,
+            OperationalStatus.Operating, "resume"), default);
+        var reentry = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        var row = (await f.Store.GetDashboardAsync(query with { RunId = reentry.RunId, Filter = DashboardFilter.All,
+            IncludeStatusHistory = true }, default)).Rows.Single(r => r.ApId == ap.ApId);
+        Assert.NotEqual(ap.MonitoringIntervalId, row.MonitoringIntervalId);
+        Assert.True(row.StatusHistory!.RecentDownIsInitial);
+        Assert.Equal(0, row.StatusHistory.NewDownCount24Hours);
+        Assert.Null(row.StatusHistory.LastUpObservedAtUtc);
+        Assert.Null(row.StatusHistory.LastRecoveryAtUtc);
+        Assert.Single((await f.Store.GetDashboardAsync(query with { RunId = recent.RunId }, default)).Rows);
+    }
+
     [Fact]
     public async Task UnknownAp_RemainsInOpenIncidentView()
     {
