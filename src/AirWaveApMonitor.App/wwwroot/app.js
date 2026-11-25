@@ -20,7 +20,7 @@ const sourceLabels = { AirWave: "AirWave", Demo: "가상 자료", Manual: "직�
 const state = {
   view: "dashboard", backView: "dashboard", historical: false, selection: null, snapshot: null,
   selectedApId: null, apTab: "status", apDetailSelection: null, apIncidentId: null, incidentMode: "cases",
-  filters: { search: "", filter: "NeedsAttention", sort: "FirstDownAt", descending: true, managementStatus: "", hidePlanned: false, minimumOpenElapsedSeconds: "", page: 1, pageSize: 50 },
+  filters: { search: "", filter: "NeedsAttention", sort: "FirstDownAt", descending: true, managementStatus: "", hidePlanned: false, minimumOpenElapsedSeconds: "", page: 1, pageSize: 50, repeatThreshold:3, priorityThreshold:5 },
   incident: { status: "", search: "", fromUtc: null, toUtc: null, minimumOpenElapsedSeconds: "", page: 1, pageSize: 50 },
   runs: { kind: "", scopeVersion: "", fromUtc: null, toUtc: null, page: 1, pageSize: 50, throughRunId: null },
   health: null, maintenance: null, settings: null, mode: null, mutationBusy: false, settingsDirty: false, draftRevision: 0, pinDraftBase: null, pinProbe: null,
@@ -216,9 +216,9 @@ function syncApPanel(snapshot) {
 }
 
 const filterLabels = { NeedsAttention:"확인할 AP", Down:"장애 AP", Unknown:"미확인 AP", All:"전체 AP", Up:"정상 AP",
-  OpenIncidents:"미복구 사건 AP", NewDown:"신규 Down", InitialDown:"최초 확인 Down", ExistingDown:"기존 Down", Recovered:"이번 복구" };
+  OpenIncidents:"미복구 사건 AP", NewDown:"신규 Down", InitialDown:"최초 확인 Down", ExistingDown:"기존 Down", Recovered:"이번 복구", RepeatSuspected:"반복 장애 의심 AP", RepeatPriority:"중점 관리 권고 AP" };
 function resetMetrics() {
-  for (const id of ["metric-total","metric-down","metric-unknown","nav-count"]) byId(id).textContent = "—";
+  for (const id of ["metric-total","metric-down","metric-unknown","metric-repeat","metric-repeat-priority","nav-count"]) byId(id).textContent = "—";
 }
 function renderDashboard(snapshot) {
   const focusedApId = document.activeElement?.dataset?.apId;
@@ -226,6 +226,8 @@ function renderDashboard(snapshot) {
   byId("metric-down").textContent = summary.confirmedDown == null ? "미확인" : countText(summary.confirmedDown) + "대";
   byId("metric-total").textContent = countText(summary.targetCount) + "대";
   byId("metric-unknown").textContent = countText(summary.unknown) + "대";
+  byId("metric-repeat").textContent = snapshot.repeatSuspectedCount == null ? "—" : countText(snapshot.repeatSuspectedCount) + "대";
+  byId("metric-repeat-priority").textContent = countText(snapshot.repeatPriorityCount);
   byId("nav-count").textContent = countText(summary.openIncidents);
   const banner = byId("dashboard-notice");
   banner.hidden = !failed && snapshot.outcome !== "Partial";
@@ -267,6 +269,12 @@ function renderDashboard(snapshot) {
         el("small","",`${displayed(row,"IpAddress",row.device.ipAddress) || "IP 미제공"} · ${displayedLocation(row)}`));
       const status = observationStatus(row);
       item.append(identity,badge(status.label,status.tone));
+      const history = row.statusHistory;
+      if (history) {
+        const count = history.newDownCount24Hours;
+        const level = count >= state.filters.priorityThreshold ? " · 중점 권고" : count >= state.filters.repeatThreshold ? " · 반복 의심" : "";
+        identity.append(el("small","",`24h 신규 Down ${countText(count)}회${level} · 최근 Down ${dateText(history.recentDownAtUtc)} · 마지막 Up ${dateText(history.lastUpObservedAtUtc)}`));
+      }
       if (row.manualManagement) identity.append(el("small","",managementLabels[row.manualManagement.status] || row.manualManagement.status));
       list.append(item);
     });
@@ -1376,7 +1384,8 @@ function applySearch(value) {
   if (value.trim()) {
     if (!filters.search.trim()) state.beforeApSearch = {filter:filters.filter,managementStatus:filters.managementStatus,
       hidePlanned:filters.hidePlanned,minimumOpenElapsedSeconds:filters.minimumOpenElapsedSeconds};
-    Object.assign(filters,{filter:"All",managementStatus:"",hidePlanned:false,minimumOpenElapsedSeconds:""});
+    if (!["RepeatSuspected","RepeatPriority"].includes(filters.filter))
+      Object.assign(filters,{filter:"All",managementStatus:"",hidePlanned:false,minimumOpenElapsedSeconds:""});
   } else if (filters.search.trim()) {
     Object.assign(filters,state.beforeApSearch || {filter:"NeedsAttention"});
     state.beforeApSearch = null;
@@ -1389,6 +1398,9 @@ function quickFilter(filter) {
   byId("ap-search").value = ""; state.beforeApSearch = null;
   Object.assign(state.filters,{search:"",managementStatus:"",minimumOpenElapsedSeconds:"",hidePlanned:false});
   byId("management-filter").value = ""; byId("ap-minimum-elapsed").value = ""; byId("hide-planned").checked = false;
+  if (["RepeatSuspected","RepeatPriority"].includes(filter)) {
+    state.filters.sort = "RecentDownCount"; state.filters.descending = true; byId("ap-sort").value = "repeat";
+  }
   filterChanged(filter);
 }
 function filterChanged(filter) {
@@ -1430,8 +1442,16 @@ byId("ap-search").addEventListener("input",event => {
   clearTimeout(searchTimer); searchTimer = setTimeout(() => { if (state.view === "dashboard") void loadDashboard(); },250);
 });
 byId("ap-sort").addEventListener("change",event => {
-  const sorts = { recent:["FirstDownAt",true],oldest:["FirstDownAt",false],name:["Name",false],ip:["IpAddress",false],observed:["LastObservedAt",true] };
+  const sorts = { recent:["FirstDownAt",true],oldest:["FirstDownAt",false],name:["Name",false],ip:["IpAddress",false],observed:["LastObservedAt",true],repeat:["RecentDownCount",true] };
   [state.filters.sort,state.filters.descending] = sorts[event.target.value]; state.filters.page = 1; clearTimeout(searchTimer); void loadDashboard();
+});
+byId("repeat-threshold-form").addEventListener("submit",event => {
+  event.preventDefault();
+  const repeat = Number(byId("repeat-threshold").value), priority = Number(byId("priority-threshold").value);
+  if (!Number.isInteger(repeat) || !Number.isInteger(priority) || repeat < 1 || priority < repeat || priority > 720) {
+    setMessage("반복 장애 기준은 1~720회이며 중점 기준은 반복 기준 이상이어야 합니다.",true); return;
+  }
+  Object.assign(state.filters,{repeatThreshold:repeat,priorityThreshold:priority,page:1}); setMessage(""); clearTimeout(searchTimer); void loadDashboard();
 });
 byId("management-filter").addEventListener("change",event => { state.filters.managementStatus = event.target.value; state.filters.page = 1; clearTimeout(searchTimer); void loadDashboard(); });
 byId("hide-planned").addEventListener("change",event => { state.filters.hidePlanned = event.target.checked; state.filters.page = 1; clearTimeout(searchTimer); void loadDashboard(); });

@@ -52,19 +52,25 @@
                 <button type="button" data-filter="NeedsAttention" aria-pressed="true">확인할 AP</button>
                 <button type="button" data-filter="Down" aria-pressed="false">장애 <b id="metric-down">—</b></button>
                 <button type="button" data-filter="Unknown" aria-pressed="false">미확인 <b id="metric-unknown">—</b></button>
+                <button type="button" data-filter="RepeatSuspected" aria-pressed="false">반복 장애 <b id="metric-repeat">—</b></button>
                 <button type="button" data-filter="All" aria-pressed="false">전체 AP <b id="metric-total">—</b></button>
               </div>
               <label class="home-search"><span class="sr-only">전체 AP 검색</span><input id="ap-search" type="search" placeholder="전체 AP 검색 · 이름, IP, 위치, 스위치·포트" autocomplete="off"></label>
               <details id="ap-filter-details" class="home-advanced">
                 <summary>상세 필터<span id="active-ap-conditions"></span></summary>
                 <div class="toolbar">
-                  <label class="compact-label">상태<select id="status-filter"><option value="NeedsAttention" selected>확인할 AP</option><option value="All">전체 AP</option><option value="Down">이번 Down</option><option value="Unknown">이번 미확인</option><option value="Up">이번 Up</option><option value="OpenIncidents">미복구 사건 AP</option><option value="NewDown">신규 Down</option><option value="InitialDown">최초 확인 Down</option><option value="ExistingDown">기존 Down</option><option value="Recovered">이번 복구</option></select></label>
-                  <label class="compact-label">정렬<select id="ap-sort"><option value="recent">최근 감지순</option><option value="oldest">오래된 미복구순</option><option value="name">AP 이름순</option><option value="ip">IP 주소순</option><option value="observed">최근 확인순</option></select></label>
+                  <label class="compact-label">상태<select id="status-filter"><option value="NeedsAttention" selected>확인할 AP</option><option value="All">전체 AP</option><option value="Down">이번 Down</option><option value="Unknown">이번 미확인</option><option value="Up">이번 Up</option><option value="OpenIncidents">미복구 사건 AP</option><option value="NewDown">신규 Down</option><option value="InitialDown">최초 확인 Down</option><option value="ExistingDown">기존 Down</option><option value="Recovered">이번 복구</option><option value="RepeatSuspected">반복 장애 의심</option><option value="RepeatPriority">중점 관리 권고</option></select></label>
+                  <label class="compact-label">정렬<select id="ap-sort"><option value="recent">최근 감지순</option><option value="oldest">오래된 미복구순</option><option value="name">AP 이름순</option><option value="ip">IP 주소순</option><option value="observed">최근 확인순</option><option value="repeat">24시간 신규 Down 횟수순</option></select></label>
                   <label class="compact-label">관리 상태<select id="management-filter"><option value="">모든 관리 상태</option><option value="Operating">운영</option><option value="PlannedWork">계획 작업</option><option value="Decommissioned">철거</option><option value="MonitoringExcluded">감시 제외</option></select></label>
                   <label class="check"><input id="hide-planned" type="checkbox">계획 작업 숨기기</label>
                   <label class="compact-label">미복구 관측 경과<select id="ap-minimum-elapsed"><option value="">경과 제한 없음</option><option value="3600">1시간 이상 미복구</option><option value="86400">24시간 이상 미복구</option></select></label>
                 </div>
-                <p class="footnote">미복구 경과는 첫 Down 관측부터 선택 회차까지 계산합니다.</p>
+                <form id="repeat-threshold-form" class="toolbar">
+                  <label class="compact-label">반복 장애 기준 (회)<input id="repeat-threshold" type="number" min="1" max="720" value="3" required></label>
+                  <label class="compact-label">중점 권고 기준 (회)<input id="priority-threshold" type="number" min="1" max="720" value="5" required></label>
+                  <button type="submit">횟수 기준 적용</button>
+                </form>
+                <p class="footnote">최근 24시간 신규 Down 관측 기준 · 중점 권고 <span id="metric-repeat-priority">—</span>대 · 기준 변경은 현재 화면 세션에 적용됩니다. 미복구 경과는 첫 Down 관측부터 선택 회차까지 계산합니다.</p>
                 <button type="button" id="export-csv" disabled>CSV 내보내기</button>
               </details>
               <div id="ap-table" aria-live="polite"></div>

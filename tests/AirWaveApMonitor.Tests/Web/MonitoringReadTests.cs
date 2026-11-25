@@ -35,6 +35,46 @@ public sealed class MonitoringReadTests
     }
 
     [Fact]
+    public async Task RepeatDashboard_IncludesRecoveredAp_CountsBeforePage_AndPreservesSelectedGenerationAndTime()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Down)]);
+        var before = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Down)]);
+        for (var i = 0; i < 2; i++)
+        {
+            await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Down)]);
+            await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Down)]);
+        }
+        var last = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Down)]);
+        var query = new DashboardQuery(f.Location.DatasetId, 1, last.RunId, Filter: DashboardFilter.RepeatSuspected,
+            Sort: DashboardSort.RecentDownCount, Descending: true, PageSize: 1);
+        var view = await f.Store.GetDashboardAsync(query, default);
+        Assert.Equal(1, view.TotalRows);
+        Assert.Equal(1, view.RepeatSuspectedCount);
+        Assert.Equal(0, view.RepeatPriorityCount);
+        var row = Assert.Single(view.Rows);
+        Assert.Equal("100", row.SourceApId); Assert.Equal(ApState.Up, row.CurrentState);
+        Assert.Equal(3, row.StatusHistory!.NewDownCount24Hours);
+        Assert.Equal(last.StartedAtUtc, row.StatusHistory.LastUpObservedAtUtc);
+        Assert.Equal(1, (await f.Store.GetDashboardAsync(query with { Page = 2 }, default)).TotalRows);
+        Assert.Empty((await f.Store.GetDashboardAsync(query with { Page = 2 }, default)).Rows);
+        var all = await f.Store.GetDashboardAsync(query with { RepeatThreshold = 1, PriorityThreshold = 3 }, default);
+        Assert.Equal(2, all.TotalRows); Assert.Equal(2, all.RepeatSuspectedCount); Assert.Equal(1, all.RepeatPriorityCount);
+        var priority = await f.Store.GetDashboardAsync(query with { Filter = DashboardFilter.RepeatPriority, RepeatThreshold = 1, PriorityThreshold = 3 }, default);
+        Assert.Equal("100", Assert.Single(priority.Rows).SourceApId);
+        var earlier = await f.Store.GetDashboardAsync(query with { RunId = before.RunId }, default);
+        Assert.Equal(0, earlier.TotalRows);
+        var gap = await f.Apply([], outcome: RunOutcome.Failed);
+        var unknown = await f.Store.GetDashboardAsync(query with { RunId = gap.RunId }, default);
+        Assert.Null(Assert.Single(unknown.Rows).CurrentState);
+        Assert.Equal(3, unknown.Rows[0].StatusHistory!.NewDownCount24Hours);
+        var replacement = await f.Apply([f.Ap("100", ApState.Down, serial:"REPLACEMENT"), f.Ap("200", ApState.Down)]);
+        Assert.Equal(0, (await f.Store.GetDashboardAsync(query with { RunId = replacement.RunId }, default)).TotalRows);
+        Assert.Equal(1, (await f.Store.GetDashboardAsync(query, default)).TotalRows);
+    }
+
+    [Fact]
     public async Task UnknownAp_RemainsInOpenIncidentView()
     {
         using var f = new ReadFixture();

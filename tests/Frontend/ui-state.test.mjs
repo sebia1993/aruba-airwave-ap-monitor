@@ -157,3 +157,14 @@ export const results = await Promise.all(cases.map(async ([name, run]) => {
 console.log(JSON.stringify(results, null, 2));
 const failed = results.filter(result => !result.passed);
 if (failed.length) throw new Error(`${failed.length} UI state behavior checks failed: ${failed.map(result => result.name).join("; ")}`);
+
+test("Repeat thresholds are preserved in dashboard and CSV query and invalid pairs rejected",()=>{
+  const filters={filter:"RepeatSuspected",sort:"RecentDownCount",repeatThreshold:2,priorityThreshold:4,page:3};
+  for(const exporting of [false,true]){
+    const q=ui.dashboardQuery(filters,{runId:12,scopeVersion:1},exporting);
+    assert.equal(q.get("repeatThreshold"),"2"); assert.equal(q.get("priorityThreshold"),"4");
+    assert.equal(q.get("filter"),"RepeatSuspected"); assert.equal(q.get("sort"),"RecentDownCount");
+    assert.equal(q.has("page"),!exporting);
+  }
+  for(const pair of [[0,5],[4,3],[1,721],[1.5,5]])assert.throws(()=>ui.dashboardQuery({repeatThreshold:pair[0],priorityThreshold:pair[1]}));
+});

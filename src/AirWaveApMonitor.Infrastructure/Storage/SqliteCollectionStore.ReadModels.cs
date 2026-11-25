@@ -45,17 +45,7 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
         var seeds = ReadIncidentSeeds(connection, transaction, selection, new(query.DatasetId, query.ScopeVersion, query.RunId,
             query.ApId, PageSize: query.HistoryLimit, DeviceGenerationId: row.DeviceGenerationId), ct);
         var incidents = seeds.Take(query.HistoryLimit).Select(seed => BuildIncident(connection, transaction, selection, seed, ct)).ToImmutableArray();
-        var currentInterval = seeds.Where(seed => seed.IntervalId == row.MonitoringIntervalId).Select(seed => seed.Tracking).ToArray();
-        var latest = currentInterval.FirstOrDefault();
-        var lastUp = row.LastValidState == ApState.Up ? row.LastValidObservedAtUtc
-            : row.LastValidState == ApState.Down ? latest?.LastUpAtUtc : null;
-        var lastRecovery = currentInterval.Where(item => item.RecoveredRunId is not null)
-            .OrderByDescending(item => item.RecoveredRunId).FirstOrDefault()?.RecoveredAtUtc;
-        var windowStart = selection.FinalizedAtUtc.AddHours(-24);
-        var statusHistory = new ApStatusHistorySummary(latest?.FirstDownAtUtc, latest?.IsInitialDown ?? false,
-            lastUp, lastRecovery, currentInterval.Count(item => !item.IsInitialDown && !item.TimeNeedsReview &&
-                item.FirstDownAtUtc > windowStart && item.FirstDownAtUtc <= selection.FinalizedAtUtc),
-            currentInterval.Count(item => item.TimeNeedsReview), latest?.HasObservationGap ?? false);
+        var statusHistory = BuildStatusHistory(row, seeds, selection.FinalizedAtUtc);
         var gaps = ReadGaps(connection, transaction, query.ApId, row.DeviceGenerationId, query.RunId, null, ct);
         var observations = new List<ApObservationHistoryItem>();
         using var command = Command(connection, transaction, """
@@ -136,14 +126,33 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
             seeds.Count(seed => !seed.Tracking.IsInitialDown), seeds.Count(seed => seed.Tracking.IsInitialDown));
     }
 
-    private static List<IncidentSeed> ReadIncidentSeeds(SqliteConnection connection, SqliteTransaction transaction,
-        RunSelection selection, IncidentQuery query, CancellationToken ct)
+    private static ApStatusHistorySummary BuildStatusHistory(ApSnapshotRow row, IEnumerable<IncidentSeed> seeds, DateTimeOffset finalized)
     {
-        var targets = ReadSnapshotRows(connection, transaction, query.AsOfRunId, ct).ToDictionary(row => row.ApId);
+        var current = seeds.Where(seed => seed.GenerationId == row.DeviceGenerationId && seed.IntervalId == row.MonitoringIntervalId)
+            .Select(seed => seed.Tracking).OrderByDescending(item => item.FirstDownRunId).ToArray();
+        var latest = current.FirstOrDefault();
+        var lastUp = row.LastValidState == ApState.Up ? row.LastValidObservedAtUtc
+            : row.LastValidState == ApState.Down ? latest?.LastUpAtUtc : null;
+        var lastRecovery = current.Where(item => item.RecoveredRunId is not null)
+            .OrderByDescending(item => item.RecoveredRunId).FirstOrDefault()?.RecoveredAtUtc;
+        var windowStart = finalized.AddHours(-24);
+        return new(latest?.FirstDownAtUtc, latest?.IsInitialDown ?? false, lastUp, lastRecovery,
+            current.Count(item => !item.IsInitialDown && !item.TimeNeedsReview &&
+                item.FirstDownAtUtc > windowStart && item.FirstDownAtUtc <= finalized),
+            current.Count(item => item.TimeNeedsReview), latest?.HasObservationGap ?? false);
+    }
+
+    private static List<IncidentSeed> ReadIncidentSeeds(SqliteConnection connection, SqliteTransaction transaction,
+        RunSelection selection, IncidentQuery query, CancellationToken ct,
+        IReadOnlyDictionary<Guid, ApSnapshotRow>? targets = null, bool currentIntervalOnly = false)
+    {
+        targets ??= ReadSnapshotRows(connection, transaction, query.AsOfRunId, ct).ToDictionary(row => row.ApId);
         using var command = Command(connection, transaction, """
             WITH latest AS (
                 SELECT incident_id,MAX(run_id) AS run_id
-                FROM run_transitions WHERE run_id<=$run
+                FROM run_transitions x WHERE x.run_id<=$run
+                    AND ($current=0 OR EXISTS (SELECT 1 FROM historical_ap_rows r
+                        WHERE r.run_id=$run AND r.ap_id=x.ap_id AND r.generation_id=x.generation_id AND r.interval_id=x.interval_id))
                 GROUP BY incident_id
             )
             SELECT t.ap_id,a.source_ap_id,t.generation_id,t.interval_id,t.incident_id,t.tracking_json
@@ -152,7 +161,7 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
             WHERE a.dataset_id=$dataset
                 AND EXISTS (SELECT 1 FROM historical_ap_rows r WHERE r.run_id=$run AND r.ap_id=t.ap_id)
                 AND ($ap IS NULL OR t.ap_id=$ap) AND ($generation IS NULL OR t.generation_id=$generation)
-            """, ("$dataset", query.DatasetId), ("$run", query.AsOfRunId), ("$ap", query.ApId), ("$generation", query.DeviceGenerationId));
+            """, ("$dataset", query.DatasetId), ("$run", query.AsOfRunId), ("$ap", query.ApId), ("$generation", query.DeviceGenerationId), ("$current", currentIntervalOnly ? 1 : 0));
         using var reader = command.ExecuteReader(); var seeds = new List<IncidentSeed>();
         while (reader.Read())
         {

@@ -62,6 +62,7 @@ public sealed partial class SqliteCollectionStore
         if (query.ScopeVersion <= 0 || query.Page <= 0 || query.PageSize is < 1 or > 10000 ||
             !Enum.IsDefined(query.Filter) || !Enum.IsDefined(query.Sort) ||
             query.RunId is <= 0 || query.MinimumOpenElapsedSeconds is <= 0 ||
+            query.RepeatThreshold is < 1 or > 720 || query.PriorityThreshold < query.RepeatThreshold || query.PriorityThreshold > 720 ||
             (query.ManagementStatus is { } management && !Enum.IsDefined(management)))
         {
             throw new ArgumentOutOfRangeException(nameof(query));
@@ -104,7 +105,29 @@ public sealed partial class SqliteCollectionStore
             }
         }
         var rows = ReadSnapshotRows(connection, transaction, runId, ct);
-        IEnumerable<ApSnapshotRow> filtered = rows.Where(row => MatchesFilter(row, query.Filter));
+        var includeHistory = query.IncludeStatusHistory || query.Filter is DashboardFilter.RepeatSuspected or DashboardFilter.RepeatPriority
+            || query.Sort == DashboardSort.RecentDownCount;
+        int? repeatSuspected = null, repeatPriority = null;
+        if (includeHistory)
+        {
+            var selection = new RunSelection(query.DatasetId, query.ScopeVersion, runId, context.StartedAtUtc, finalized, lifecycle, receipt.Outcome);
+            var seeds = ReadIncidentSeeds(connection, transaction, selection, new(query.DatasetId, query.ScopeVersion, runId),
+                ct, rows.ToDictionary(row => row.ApId), currentIntervalOnly: true).ToLookup(seed => seed.ApId);
+            for (var index = 0; index < rows.Count; index++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var row = rows[index];
+                rows[index] = row with { StatusHistory = BuildStatusHistory(row, seeds[row.ApId], finalized) };
+            }
+            repeatSuspected = rows.Count(row => row.StatusHistory!.NewDownCount24Hours >= query.RepeatThreshold);
+            repeatPriority = rows.Count(row => row.StatusHistory!.NewDownCount24Hours >= query.PriorityThreshold);
+        }
+        IEnumerable<ApSnapshotRow> filtered = rows.Where(row => query.Filter switch
+        {
+            DashboardFilter.RepeatSuspected => row.StatusHistory!.NewDownCount24Hours >= query.RepeatThreshold,
+            DashboardFilter.RepeatPriority => row.StatusHistory!.NewDownCount24Hours >= query.PriorityThreshold,
+            _ => MatchesFilter(row, query.Filter)
+        });
         if (!string.IsNullOrWhiteSpace(query.Search))
             filtered = filtered.Where(row => MatchesSearch(row, query.Search));
         if (query.ManagementStatus is { } managementStatus)
@@ -123,6 +146,8 @@ public sealed partial class SqliteCollectionStore
                 : selected.OrderBy(row => row.LastValidObservedAtUtc),
             DashboardSort.FirstDownAt => query.Descending ? selected.OrderByDescending(row => row.FirstDownAtUtc)
                 : selected.OrderBy(row => row.FirstDownAtUtc),
+            DashboardSort.RecentDownCount => query.Descending ? selected.OrderByDescending(row => row.StatusHistory!.NewDownCount24Hours)
+                : selected.OrderBy(row => row.StatusHistory!.NewDownCount24Hours),
             _ => query.Descending ? selected.OrderByDescending(row => DisplayValue(row, InventoryField.Name), StringComparer.OrdinalIgnoreCase)
                 : selected.OrderBy(row => DisplayValue(row, InventoryField.Name), StringComparer.OrdinalIgnoreCase)
         };
@@ -136,7 +161,8 @@ public sealed partial class SqliteCollectionStore
         var page = offset > int.MaxValue ? ImmutableArray<ApSnapshotRow>.Empty
             : ordered.Skip((int)offset).Take(query.PageSize).ToImmutableArray();
         return new(query.DatasetId, query.ScopeVersion, runId, context.StartedAtUtc, finalized, lifecycle,
-            receipt.Outcome, receipt.Summary, page, selected.Count, completeness, errors, sourceEvidence, hidden);
+            receipt.Outcome, receipt.Summary, page, selected.Count, completeness, errors, sourceEvidence, hidden)
+        { RepeatSuspectedCount = repeatSuspected, RepeatPriorityCount = repeatPriority };
     }
 
     public async Task<CollectionSuccessTimes> GetSuccessTimesAsync(Guid datasetId, long scopeVersion, CancellationToken ct)
