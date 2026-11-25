@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using AirWaveApMonitor.Core.Contracts;
@@ -7,6 +8,47 @@ namespace AirWaveApMonitor.Tests.Web;
 
 public sealed class ExportQueryContextTests
 {
+    [Fact]
+    public async Task CsvRepeatAndFollowUp_AgreeWithPinnedDashboard_AndDoNotLeakFutureClear()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Down)]);
+        var ap = (await f.Dashboard()).Rows.Single(r => r.SourceApId == "100");
+        await f.Store.SaveInventoryAsync(new(Guid.NewGuid(), ap.ApId, ap.DeviceGenerationId, 0,
+            ImmutableDictionary<InventoryField,string>.Empty.Add(InventoryField.FollowUp,"true"), []), default);
+        await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Down)]);
+        var recovered = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Down)]);
+        await f.Store.SaveInventoryAsync(new(Guid.NewGuid(), ap.ApId, ap.DeviceGenerationId, 1,
+            ImmutableDictionary<InventoryField,string>.Empty, [InventoryField.FollowUp], ClearReason:"checked"), default);
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Down)]);
+        var expected = Assert.Single((await f.Store.GetDashboardAsync(new(f.Location.DatasetId, 1, recovered.RunId,
+            Filter: DashboardFilter.RepeatSuspected, RepeatThreshold: 1, PriorityThreshold: 2), default)).Rows);
+        await using var host = await ReadApiHost.Start(f);
+        foreach (var filter in new[] {"RepeatSuspected", "FollowUp"})
+        {
+            using var response = await host.Client.GetAsync($"/api/export.csv?runId={recovered.RunId}&scopeVersion=1&filter={filter}&repeatThreshold=1&priorityThreshold=2&page=99&pageSize=1");
+            response.EnsureSuccessStatusCode();
+            Assert.Equal("1", response.Headers.GetValues("X-AirWave-Row-Count").Single());
+            using var parser = new TextFieldParser(new MemoryStream(await response.Content.ReadAsByteArrayAsync()));
+            parser.SetDelimiters(","); parser.HasFieldsEnclosedInQuotes = true;
+            var headers = parser.ReadFields()!;
+            var context = headers.Zip(parser.ReadFields()!).ToDictionary(p => p.First, p => p.Second);
+            var row = headers.Zip(parser.ReadFields()!).ToDictionary(p => p.First, p => p.Second);
+            using var json = JsonDocument.Parse(context["QueryConditions"]);
+            Assert.Equal(filter, json.RootElement.GetProperty("filter").GetString());
+            Assert.Equal(1, json.RootElement.GetProperty("repeatThreshold").GetInt32());
+            Assert.Equal(2, json.RootElement.GetProperty("priorityThreshold").GetInt32());
+            Assert.Equal("100", row["원천 AP ID"]);
+            Assert.Equal("Up", row["이번 상태"]);
+            Assert.Equal("지정", row["사용자 관리 대상"]);
+            Assert.Equal("1", row["최근 24시간 신규 Down 횟수"]);
+            Assert.Equal(expected.StatusHistory!.RecentDownAtUtc, DateTimeOffset.Parse(row["최근 Down 감지 UTC"]));
+            Assert.Equal(expected.StatusHistory.LastUpObservedAtUtc, DateTimeOffset.Parse(row["마지막 Up 관측 UTC"]));
+            Assert.Equal(expected.StatusHistory.LastRecoveryAtUtc, DateTimeOffset.Parse(row["최근 Up 복구 확인 UTC"]));
+            Assert.True(parser.EndOfData);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

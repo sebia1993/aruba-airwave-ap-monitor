@@ -106,6 +106,40 @@ public sealed class MonitoringReadTests
     }
 
     [Fact]
+    public async Task RepeatWindow_IsOpenAtExactly24Hours_AndDoesNotCarryIntoNewMonitoringInterval()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var down = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        var ap = (await f.Dashboard()).Rows.Single(r => r.SourceApId == "100");
+        f.AdvanceTime(TimeSpan.FromHours(23) + TimeSpan.FromMinutes(50));
+        var before = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        var boundary = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        Assert.Equal(down.StartedAtUtc.AddHours(24), boundary.StartedAtUtc);
+        var query = new DashboardQuery(f.Location.DatasetId, 1, before.RunId, Filter: DashboardFilter.RepeatSuspected,
+            RepeatThreshold: 1, PriorityThreshold: 2);
+        Assert.Single((await f.Store.GetDashboardAsync(query, default)).Rows);
+        Assert.Empty((await f.Store.GetDashboardAsync(query with { RunId = boundary.RunId }, default)).Rows);
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var recent = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        Assert.Single((await f.Store.GetDashboardAsync(query with { RunId = recent.RunId }, default)).Rows);
+        await f.Store.SaveTrackingPolicyAsync(new(Guid.NewGuid(), ap.ApId, ap.DeviceGenerationId, 0,
+            OperationalStatus.MonitoringExcluded, "end tracking", MonitoringDirective.EndTracking), default);
+        await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        await f.Store.SaveTrackingPolicyAsync(new(Guid.NewGuid(), ap.ApId, ap.DeviceGenerationId, 1,
+            OperationalStatus.Operating, "resume"), default);
+        var reentry = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        var row = (await f.Store.GetDashboardAsync(query with { RunId = reentry.RunId, Filter = DashboardFilter.All,
+            IncludeStatusHistory = true }, default)).Rows.Single(r => r.ApId == ap.ApId);
+        Assert.NotEqual(ap.MonitoringIntervalId, row.MonitoringIntervalId);
+        Assert.True(row.StatusHistory!.RecentDownIsInitial);
+        Assert.Equal(0, row.StatusHistory.NewDownCount24Hours);
+        Assert.Null(row.StatusHistory.LastUpObservedAtUtc);
+        Assert.Null(row.StatusHistory.LastRecoveryAtUtc);
+        Assert.Single((await f.Store.GetDashboardAsync(query with { RunId = recent.RunId }, default)).Rows);
+    }
+
+    [Fact]
     public async Task UnknownAp_RemainsInOpenIncidentView()
     {
         using var f = new ReadFixture();
