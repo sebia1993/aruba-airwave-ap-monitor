@@ -42,4 +42,9 @@ public sealed record ApObservationHistoryItem(long RunId, long ScopeVersion, Dat
 public sealed record ApDetailSnapshot(RunSelection Selection, ApSnapshotRow Row,
     ImmutableArray<IncidentReadModel> Incidents, ImmutableArray<ObservationGap> ObservationGaps,
     ImmutableArray<ApObservationHistoryItem> Observations, bool MoreIncidents = false,
-    bool MoreObservationGaps = false, bool MoreObservations = false);
+    bool MoreObservationGaps = false, bool MoreObservations = false, ApStatusHistorySummary? StatusHistory = null);
+
+// Times refer to observations of the selected generation and monitoring interval, not device event timestamps.
+public sealed record ApStatusHistorySummary(DateTimeOffset? RecentDownAtUtc, bool RecentDownIsInitial,
+    DateTimeOffset? LastUpObservedAtUtc, DateTimeOffset? LastRecoveryAtUtc, int NewDownCount24Hours,
+    int TimeReviewCount, bool HasObservationGap);

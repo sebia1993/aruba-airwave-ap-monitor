@@ -5,6 +5,36 @@ namespace AirWaveApMonitor.Tests.Web;
 public sealed class MonitoringReadTests
 {
     [Fact]
+    public async Task StatusHistory_CountsAllRecentTransitionsBeforePagination_AndPreservesHistoricalCutoff()
+    {
+        using var f = new ReadFixture();
+        await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var firstDown = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        await f.Apply([], outcome: RunOutcome.Failed);
+        var recovery = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var secondDown = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        var ap = (await f.Dashboard()).Rows.Single(r => r.SourceApId == "100");
+        var current = await f.Store.GetApDetailAsync(new(f.Location.DatasetId, 1, secondDown.RunId, ap.ApId, 1), default);
+        Assert.True(current.MoreIncidents);
+        var history = Assert.IsType<ApStatusHistorySummary>(current.StatusHistory);
+        Assert.Equal(2, history.NewDownCount24Hours);
+        Assert.Equal(secondDown.StartedAtUtc, history.RecentDownAtUtc);
+        Assert.Equal(recovery.StartedAtUtc, history.LastUpObservedAtUtc);
+        Assert.Equal(recovery.StartedAtUtc, history.LastRecoveryAtUtc);
+        var past = await f.Store.GetApDetailAsync(new(f.Location.DatasetId, 1, firstDown.RunId, ap.ApId, 1), default);
+        Assert.Equal(1, past.StatusHistory!.NewDownCount24Hours);
+        Assert.Equal(firstDown.StartedAtUtc, past.StatusHistory.RecentDownAtUtc);
+        Assert.NotEqual(recovery.StartedAtUtc, past.StatusHistory.LastRecoveryAtUtc);
+        f.AdvanceTime(TimeSpan.FromHours(25));
+        var later = await f.Apply([f.Ap("100", ApState.Down), f.Ap("200", ApState.Up)]);
+        var aged = await f.Store.GetApDetailAsync(new(f.Location.DatasetId, 1, later.RunId, ap.ApId, 1), default);
+        Assert.Equal(0, aged.StatusHistory!.NewDownCount24Hours);
+        Assert.Equal(secondDown.StartedAtUtc, aged.StatusHistory.RecentDownAtUtc);
+    }
+
+    [Fact]
     public async Task UnknownAp_RemainsInOpenIncidentView()
     {
         using var f = new ReadFixture();

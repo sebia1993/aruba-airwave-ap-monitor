@@ -61,6 +61,8 @@ try{
   assert.equal(await evalExpr('document.querySelector("[data-screen=dashboard]")?.hidden'),false);
   await evalExpr('document.querySelector("#ap-table [data-ap-id]").click()');
   await expectEventually('document.querySelector("#ap-console-detail")?.hidden===false','selected AP detail');
+  await expectEventually('document.querySelector("#ap-console-detail")?.textContent?.includes("AP Up/Down 이력")','simple AP status history');
+  await evalExpr('document.querySelector("#ap-console-detail [data-ap-tab=incident]").click()');
   await expectEventually('document.querySelector("#ap-console-detail textarea")!==null','incident note editor');
   await evalExpr('document.querySelector("[data-view=help]").click()');
   await expectEventually('document.querySelector("[data-screen=help]")?.hidden===false','help route');

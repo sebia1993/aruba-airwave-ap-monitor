@@ -258,7 +258,7 @@ function renderDashboard(snapshot) {
       const item = button("", () => {
         if (state.selectedApId === row.apId) return showAp(row.apId,selectionOf(snapshot),state.apTab,true,state.apIncidentId);
         const incident = row.currentState === "Down" ? row.openIncidentId : null;
-        return showAp(row.apId,selectionOf(snapshot),incident ? "incident" : "status",true,incident);
+        return showAp(row.apId,selectionOf(snapshot),"status",true,incident);
       }, "ap-link console-ap-row");
       item.dataset.apId = row.apId;
       item.setAttribute("aria-pressed",String(row.apId === state.selectedApId));
@@ -451,6 +451,33 @@ function apObservations(result) {
   if (result.moreObservations) detail.append(el("p","footnote","최근 50개 관측을 표시합니다. 이전 관측은 수집 기록에서 과거 회차를 선택하세요."));
   section.append(detail); return section;
 }
+function apSimpleHistory(result, chooseIncident) {
+  const row = result.row, summary = result.statusHistory, section = panel("AP Up/Down 이력",true);
+  section.append(pairs([["현재 상태",observationStatus(row).label],
+    ["최근 Down 감지",summary?.recentDownAtUtc ? dateText(summary.recentDownAtUtc) + (summary.recentDownIsInitial ? " · 최초 확인 Down" : "") : "저장된 감지 없음"],
+    ["마지막 Up 관측",dateText(summary?.lastUpObservedAtUtc)],
+    ["최근 Up 복구 확인",dateText(summary?.lastRecoveryAtUtc)],
+    ["최근 24시간 신규 Down",summary ? countText(summary.newDownCount24Hours) + "회" : "미확인"]]));
+  if (row.currentState == null) section.append(el("p","footnote","이번 상태 미확인 · 마지막 유효 관측과 구분합니다."));
+  if (summary?.timeReviewCount || row.timeNeedsReview) section.append(el("p","notice warning","시간 검토가 필요한 사건은 24시간 횟수에서 제외했습니다."));
+  if (summary?.hasObservationGap) section.append(el("p","footnote","최근 사건에 관측 공백이 있습니다."));
+  section.append(el("p","footnote","현재 장비·감시 구간의 저장된 관측 기준입니다. 실제 장애 발생·복구 시각이 아니며 최초 확인 Down은 신규 횟수에서 제외합니다."));
+  const recent = (result.incidents || []).filter(item => !item.monitoringIntervalId || item.monitoringIntervalId === row.monitoringIntervalId).slice(0,10);
+  if (!recent.length) section.append(el("p","footnote","현재 감시 구간에 표시할 저장된 장애 이력이 없습니다."));
+  else {
+    const table = el("div","ap-history-table");
+    buildTable(table,["Down 감지","Up 복구 확인","관측 경과"],recent,(tr,item) => {
+      const tracking = item.tracking;
+      cell(tr,"Down 감지",button(dateText(tracking.firstDownAtUtc),()=>chooseIncident(item.incidentId),"ap-link"),tracking.isInitialDown ? "최초 확인 Down" : "신규 Down");
+      cell(tr,"Up 복구 확인",tracking.recoveredAtUtc ? dateText(tracking.recoveredAtUtc) : item.status === "Open" ? "미복구" : "추적 종료");
+      cell(tr,"관측 경과",tracking.timeNeedsReview ? "시간 확인 필요" : durationText(item.observedElapsedSeconds == null ? null : item.observedElapsedSeconds * 1000),tracking.hasObservationGap ? "관측 공백 포함" : item.status === "Open" ? "진행 중" : null);
+    });
+    section.append(table);
+    if (result.moreIncidents || (result.incidents || []).length > 10) section.append(el("p","footnote","최근 10개까지 표시합니다. 이전 기록은 장애·조치 탭에서 조회할 수 있습니다."));
+  }
+  return section;
+}
+
 function apStatusPane(result, chooseIncident) {
   const row=result.row, statusPanel=panel("선택 회차의 AP 상태",true);
   statusPanel.append(pairs([["모델",displayed(row,"Model",row.device.model)],["이번 확인",statusLabels[row.classification] || observationStatus(row).label],
@@ -460,7 +487,9 @@ function apStatusPane(result, chooseIncident) {
     ["시간 검토",row.timeNeedsReview ? "시계 역행 등으로 경과 시간 확인 필요" : "순서 이상 표시 없음"]]));
   if (row.openIncidentId) statusPanel.append(button("미복구 사건 보기",() => chooseIncident(row.openIncidentId),"ap-primary-action"));
   const gaps=panel("관측 공백",true); appendGaps(gaps,result.observationGaps,result.moreObservationGaps);
-  return [statusPanel,apObservations(result),gaps,apSourceQuality(row)];
+  const advanced = el("details","ap-saved-evidence wide");
+  advanced.append(el("summary","","상세 수집·관측 근거 보기"),statusPanel,apObservations(result),gaps,apSourceQuality(row));
+  return [apSimpleHistory(result,chooseIncident),advanced];
 }
 function apInventoryPane(result) {
   const row=result.row, nodes=automaticInventoryPanels(row);

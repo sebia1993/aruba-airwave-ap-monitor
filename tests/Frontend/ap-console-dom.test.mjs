@@ -100,3 +100,23 @@ test('a deep link for an earlier hardware generation cannot attach work to the c
   await h.showAp('AP-A',selection,'incident',false,'archived');
   assert.equal(h.contexts.length,0);assert.match(h.panel.textContent,/장비 세대/);
 });
+
+test('AP status prioritizes observed Down, latest Up, recovery and full-window count',async()=>{
+  const d=detail('AP-A');
+  d.statusHistory={recentDownAtUtc:'2026-11-16T00:00:00Z',lastUpObservedAtUtc:'2026-11-15T23:55:00Z',lastRecoveryAtUtc:'2026-11-15T23:50:00Z',newDownCount24Hours:5,hasObservationGap:true};
+  const h=harness(()=>d);await h.showAp('AP-A',selection);
+  assert.ok(h.panel.textContent.includes('AP Up/Down 이력'));
+  assert.match(h.panel.textContent,/최근 Down 감지/);
+  assert.match(h.panel.textContent,/마지막 Up 관측/);
+  assert.match(h.panel.textContent,/최근 Up 복구 확인/);
+  assert.match(h.panel.textContent,/최근 24시간 신규 Down 5회/);
+  assert.match(h.panel.textContent,/관측 공백/);
+  assert.match(h.panel.textContent,/미복구/);
+  assert.ok(find(h.panel,'summary','상세 수집·관측 근거 보기'));
+});
+test('missing current observation is never displayed as a new down',async()=>{
+  const d=detail('AP-A');d.row.currentState=null;d.row.classification='Unknown';d.statusHistory={newDownCount24Hours:0};
+  const h=harness(()=>d);await h.showAp('AP-A',selection);
+  assert.match(h.panel.textContent,/이번 상태 미확인/);
+  assert.match(h.panel.textContent,/최근 24시간 신규 Down 0회/);
+});

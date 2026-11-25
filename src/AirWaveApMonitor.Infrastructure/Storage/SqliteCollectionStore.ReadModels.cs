@@ -42,8 +42,20 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
         var row = ReadSnapshotRows(connection, transaction, query.RunId, ct).SingleOrDefault(row => row.ApId == query.ApId)
             ?? throw new KeyNotFoundException("선택한 회차에 AP가 없습니다.");
         var selection = Select(snapshot);
-        var incidents = ReadIncidents(connection, transaction, selection, new(query.DatasetId, query.ScopeVersion, query.RunId,
+        var seeds = ReadIncidentSeeds(connection, transaction, selection, new(query.DatasetId, query.ScopeVersion, query.RunId,
             query.ApId, PageSize: query.HistoryLimit, DeviceGenerationId: row.DeviceGenerationId), ct);
+        var incidents = seeds.Take(query.HistoryLimit).Select(seed => BuildIncident(connection, transaction, selection, seed, ct)).ToImmutableArray();
+        var currentInterval = seeds.Where(seed => seed.IntervalId == row.MonitoringIntervalId).Select(seed => seed.Tracking).ToArray();
+        var latest = currentInterval.FirstOrDefault();
+        var lastUp = row.LastValidState == ApState.Up ? row.LastValidObservedAtUtc
+            : row.LastValidState == ApState.Down ? latest?.LastUpAtUtc : null;
+        var lastRecovery = currentInterval.Where(item => item.RecoveredRunId is not null)
+            .OrderByDescending(item => item.RecoveredRunId).FirstOrDefault()?.RecoveredAtUtc;
+        var windowStart = selection.FinalizedAtUtc.AddHours(-24);
+        var statusHistory = new ApStatusHistorySummary(latest?.FirstDownAtUtc, latest?.IsInitialDown ?? false,
+            lastUp, lastRecovery, currentInterval.Count(item => !item.IsInitialDown && !item.TimeNeedsReview &&
+                item.FirstDownAtUtc > windowStart && item.FirstDownAtUtc <= selection.FinalizedAtUtc),
+            currentInterval.Count(item => item.TimeNeedsReview), latest?.HasObservationGap ?? false);
         var gaps = ReadGaps(connection, transaction, query.ApId, row.DeviceGenerationId, query.RunId, null, ct);
         var observations = new List<ApObservationHistoryItem>();
         using var command = Command(connection, transaction, """
@@ -61,9 +73,9 @@ public sealed partial class SqliteCollectionStore : IMonitoringReadStore
                 (RunLifecycle)reader.GetInt32(2), ReadStored<CommitReceipt>(reader.GetString(4)).Outcome,
                 facts.CurrentState, facts.Classification, facts.UnknownReason, facts.TimeNeedsReview));
         }
-        return new(selection, row, incidents.Rows, gaps.Take(query.HistoryLimit).ToImmutableArray(),
-            observations.Take(query.HistoryLimit).ToImmutableArray(), incidents.TotalRows > query.HistoryLimit,
-            gaps.Count > query.HistoryLimit, observations.Count > query.HistoryLimit);
+        return new(selection, row, incidents, gaps.Take(query.HistoryLimit).ToImmutableArray(),
+            observations.Take(query.HistoryLimit).ToImmutableArray(), seeds.Count > query.HistoryLimit,
+            gaps.Count > query.HistoryLimit, observations.Count > query.HistoryLimit, statusHistory);
     }
 
     public async Task<IncidentPage> GetIncidentsAsync(IncidentQuery query, CancellationToken ct)
