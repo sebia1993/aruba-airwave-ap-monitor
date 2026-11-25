@@ -169,11 +169,15 @@ public sealed class ManualImportValidator
         {
             if (!Enum.IsDefined(field) || string.IsNullOrWhiteSpace(value) || value.Length > limits.MaxCellCharacters || HasInvalidControl(value))
                 errors.Add(new("invalid_manual_value", "수동 값의 항목·길이·내용이 올바르지 않습니다.", Column: Column(field)));
+            else if (field == InventoryField.FollowUp && value != "true")
+                errors.Add(new("invalid_follow_up", "관리 대상 지정은 true 또는 명시 해제로만 변경할 수 있습니다.", Column: Column(field)));
             else if (field is InventoryField.IpAddress or InventoryField.ControllerIp or InventoryField.SwitchIp && !IPAddress.TryParse(value, out _))
                 errors.Add(new("invalid_ip", "IP 주소 형식이 올바르지 않습니다.", Column: Column(field)));
         }
         if (mutation.ClearFields.Any(field => !Enum.IsDefined(field)) || mutation.ManualPreferredFields?.Any(field => !Enum.IsDefined(field)) == true)
             errors.Add(new("invalid_manual_field", "지원하지 않는 수동 항목입니다."));
+        if (mutation.ManualPreferredFields?.Contains(InventoryField.FollowUp) == true)
+            errors.Add(new("invalid_follow_up_preference", "관리 대상은 자동 관측값의 표시 출처가 아닙니다."));
         if (mutation.SetValues.Keys.Any(mutation.ClearFields.Contains)) errors.Add(new("set_clear_conflict", "같은 항목을 지정하면서 해제할 수 없습니다."));
         if (!mutation.ClearFields.IsEmpty && string.IsNullOrWhiteSpace(mutation.ClearReason)) errors.Add(new("clear_reason_required", "명시적 해제 사유가 필요합니다."));
         if (mutation.ManagementStatus is { } status && (!Enum.IsDefined(status) || string.IsNullOrWhiteSpace(mutation.ManagementReason)))

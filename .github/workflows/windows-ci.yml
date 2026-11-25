@@ -49,21 +49,37 @@ jobs:
       - name: Frontend syntax and state behavior
         run: |
           node --check src/AirWaveApMonitor.App/wwwroot/app.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check src/AirWaveApMonitor.App/wwwroot/ui-state.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check src/AirWaveApMonitor.App/wwwroot/setup-guide.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check src/AirWaveApMonitor.App/wwwroot/run-warnings.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check src/AirWaveApMonitor.App/wwwroot/operations.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check src/AirWaveApMonitor.App/wwwroot/enrichment.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/ui-state.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/operations.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/operations-dom.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/enrichment.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/enrichment-dom.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/requirements-ui.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/ap-console-dom.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/setup-guide.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/run-warnings.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/Frontend/help-ui.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Restore
         run: dotnet restore AirWaveApMonitor.slnx
       - name: Build

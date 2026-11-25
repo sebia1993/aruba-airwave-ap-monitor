@@ -216,7 +216,7 @@ function syncApPanel(snapshot) {
 }
 
 const filterLabels = { NeedsAttention:"확인할 AP", Down:"장애 AP", Unknown:"미확인 AP", All:"전체 AP", Up:"정상 AP",
-  OpenIncidents:"미복구 사건 AP", NewDown:"신규 Down", InitialDown:"최초 확인 Down", ExistingDown:"기존 Down", Recovered:"이번 복구", RepeatSuspected:"반복 장애 의심 AP", RepeatPriority:"중점 관리 권고 AP" };
+  OpenIncidents:"미복구 사건 AP", NewDown:"신규 Down", InitialDown:"최초 확인 Down", ExistingDown:"기존 Down", Recovered:"이번 복구", RepeatSuspected:"반복 장애 의심 AP", RepeatPriority:"중점 관리 권고 AP", FollowUp:"사용자 관리 대상 AP" };
 function resetMetrics() {
   for (const id of ["metric-total","metric-down","metric-unknown","metric-repeat","metric-repeat-priority","nav-count"]) byId(id).textContent = "—";
 }
@@ -275,6 +275,7 @@ function renderDashboard(snapshot) {
         const level = count >= state.filters.priorityThreshold ? " · 중점 권고" : count >= state.filters.repeatThreshold ? " · 반복 의심" : "";
         identity.append(el("small","",`24h 신규 Down ${countText(count)}회${level} · 최근 Down ${dateText(history.recentDownAtUtc)} · 마지막 Up ${dateText(history.lastUpObservedAtUtc)}`));
       }
+      if (row.isFollowUp) identity.append(el("small","","사용자 관리 대상"));
       if (row.manualManagement) identity.append(el("small","",managementLabels[row.manualManagement.status] || row.manualManagement.status));
       list.append(item);
     });
@@ -465,7 +466,9 @@ function apSimpleHistory(result, chooseIncident) {
     ["최근 Down 감지",summary?.recentDownAtUtc ? dateText(summary.recentDownAtUtc) + (summary.recentDownIsInitial ? " · 최초 확인 Down" : "") : "저장된 감지 없음"],
     ["마지막 Up 관측",dateText(summary?.lastUpObservedAtUtc)],
     ["최근 Up 복구 확인",dateText(summary?.lastRecoveryAtUtc)],
-    ["최근 24시간 신규 Down",summary ? countText(summary.newDownCount24Hours) + "회" : "미확인"]]));
+    ["최근 24시간 신규 Down",summary ? countText(summary.newDownCount24Hours) + "회" : "미확인"],
+    ["사용자 관리 대상",row.isFollowUp ? "지정됨" : "미지정"]]));
+  if (!state.historical && operations) section.append(button("관리 대상 지정·해제",()=>operations.show("registration",apActionContext(result)),"ap-primary-action"));
   if (row.currentState == null) section.append(el("p","footnote","이번 상태 미확인 · 마지막 유효 관측과 구분합니다."));
   if (summary?.timeReviewCount || row.timeNeedsReview) section.append(el("p","notice warning","시간 검토가 필요한 사건은 24시간 횟수에서 제외했습니다."));
   if (summary?.hasObservationGap) section.append(el("p","footnote","최근 사건에 관측 공백이 있습니다."));
@@ -1384,7 +1387,7 @@ function applySearch(value) {
   if (value.trim()) {
     if (!filters.search.trim()) state.beforeApSearch = {filter:filters.filter,managementStatus:filters.managementStatus,
       hidePlanned:filters.hidePlanned,minimumOpenElapsedSeconds:filters.minimumOpenElapsedSeconds};
-    if (!["RepeatSuspected","RepeatPriority"].includes(filters.filter))
+    if (!["RepeatSuspected","RepeatPriority","FollowUp"].includes(filters.filter))
       Object.assign(filters,{filter:"All",managementStatus:"",hidePlanned:false,minimumOpenElapsedSeconds:""});
   } else if (filters.search.trim()) {
     Object.assign(filters,state.beforeApSearch || {filter:"NeedsAttention"});

@@ -120,3 +120,12 @@ test('missing current observation is never displayed as a new down',async()=>{
   assert.match(h.panel.textContent,/이번 상태 미확인/);
   assert.match(h.panel.textContent,/최근 24시간 신규 Down 0회/);
 });
+
+test('manual follow-up is distinct from automatic outage and historical editing is hidden',async()=>{
+  const d=detail('AP-A');d.row.isFollowUp=true;d.row.currentState='Up';d.row.classification='Up';
+  const h=harness(()=>d);await h.showAp('AP-A',selection);
+  assert.match(h.panel.textContent,/사용자 관리 대상 지정됨/);
+  assert.ok(find(h.panel,'button','관리 대상 지정·해제'));
+  h.state.historical=true;await h.showAp('AP-A',selection);
+  assert.equal(find(h.panel,'button','관리 대상 지정·해제'),undefined);
+});

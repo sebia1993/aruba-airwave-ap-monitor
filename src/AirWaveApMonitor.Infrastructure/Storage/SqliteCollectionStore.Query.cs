@@ -232,6 +232,7 @@ public sealed partial class SqliteCollectionStore
     private static bool MatchesFilter(ApSnapshotRow row, DashboardFilter filter) => filter switch
     {
         DashboardFilter.All => true,
+        DashboardFilter.FollowUp => row.IsFollowUp,
         DashboardFilter.NeedsAttention => row.CurrentState == ApState.Down || row.Classification == ObservationClassification.Unknown,
         DashboardFilter.OpenIncidents => row.OpenIncidentId is not null,
         DashboardFilter.Up => row.CurrentState == ApState.Up,

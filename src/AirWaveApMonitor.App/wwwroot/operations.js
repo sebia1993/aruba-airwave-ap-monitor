@@ -17,7 +17,7 @@ const causes = { Unknown:"미확인",Investigating:"확인 중",Confirmed:"확�
 const guidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const nonEmptyGuid = x => guidPattern.test(x) && x !== "00000000-0000-0000-0000-000000000000";
 const text = x => x == null || x === "" ? "미제공" : String(x);
-const operationFields = {...Object.fromEntries(inventoryFields.map(([key,label])=>[key,label])),installationPoint:"설치 지점",manualPreferredFields:"수동 값 우선 표시",managementStatus:"관리 상태 / 감시 지시",incident:"장애 상태",work:"작업 내용"};
+const operationFields = {...Object.fromEntries(inventoryFields.map(([key,label])=>[key,label])),installationPoint:"설치 지점",manualPreferredFields:"수동 값 우선 표시",managementStatus:"관리 상태 / 감시 지시",incident:"장애 상태",work:"작업 내용",FollowUp:"사용자 관리 대상"};
 export function operationValue(item, value) {
   if (value == null || value === "") return "미제공";
   if (item.field === "installationPoint" && (item.action === "PointRegistered" || item.action === "PointCorrected")) {
@@ -35,6 +35,7 @@ export function operationValue(item, value) {
   }
   if(item.field==="manualPreferredFields")return String(value).split(",").map(key=>operationFields[key.trim()]||key).join(", ");
   if(item.field==="managementStatus")return String(value).split("/").map(key=>({Operating:"운영",PlannedWork:"계획 작업",MonitoringExcluded:"감시 제외",Decommissioned:"철거",Observe:"관측 유지",TemporarilyExclude:"일시 제외",EndTracking:"추적 종료"})[key]||key).join(" / ");
+  if(item.field==="FollowUp")return value==="true"?"지정":String(value);
   if(item.field==="incident")return ({Open:"미복구",Recovered:"복구 관측",TrackingEnded:"추적 종료"})[value]||String(value);
   return String(value);
 }
@@ -268,6 +269,28 @@ export function createOperationsController({api,onMessage,navigate,dateText,isCu
       field(form,"clearReason","명시 해제 사유");form.append(note("빈 입력은 기존 등록값을 지우지 않습니다. 해제 선택과 사유로만 삭제하며, 수동값은 자동 관측을 변경하지 않습니다."));
       submit(form,draft,"대장 등록 저장","/api/operations/inventory",(v,base)=>{const setValues={},clearFields=[],manualPreferredFields=[];for(const [name]of inventoryFields){if(v[`clear-${name}`])clearFields.push(name);else if(v[`value-${name}`]?.trim())setValues[name]=v[`value-${name}`].trim();if(v[`prefer-${name}`]&&!v[`clear-${name}`])manualPreferredFields.push(name);}return {apId:target.apId,expectedCurrentGenerationId:base.registration.currentDeviceGenerationId,expectedVersion:base.registration.inventory?.version||0,setValues,clearFields,manualPreferredFields,clearReason:v.clearReason||null};},()=>show("registration"));
     });inventory.append(note(`편집 기준 장비 세대 ${built.draft.base.registration.currentDeviceGenerationId} · 등록 출처 ${sources[current.inventory?.source]||"미등록"} · 버전 ${current.inventory?.version||0} · ${dateText(current.inventory?.recordedAtUtc)}`),built.form,b("서버 등록 다시 읽기",()=>resetDraft(key,()=>show("registration"))));grid.append(inventory);
+    const followUp=section("사용자 관리 대상"),followUpKey=`follow-up:${target.apId}`;
+    const marked=current.inventory?.values?.FollowUp==="true";
+    followUp.append(note(marked?"현재 관리 대상으로 지정됨":"현재 관리 대상 미지정"),note("장비 세대별 수동 지정입니다. 감시 제외·철거·복구 처리와 무관하며, 다음 AP 수집부터 현황 목록에 반영됩니다."));
+    if(target.deviceGenerationId&&target.deviceGenerationId!==current.currentDeviceGenerationId) {
+      followUp.append(note("과거 장비 세대에서는 관리 대상을 변경할 수 없습니다. 현재 AP 현황에서 다시 선택하세요."));
+    } else {
+      const edit=tracked(followUpKey,data,(form,draft)=>{
+        const saved=draft.base.registration.inventory?.values?.FollowUp==="true";
+        field(form,"marked","관리 대상으로 지정",{type:"checkbox",value:saved});
+        field(form,"reason","해제 사유 (해제 시 필수)",{max:4096});
+        submit(form,draft,"관리 대상 저장","/api/operations/inventory",(v,base)=>{
+          const wasMarked=base.registration.inventory?.values?.FollowUp==="true";
+          if(v.marked===wasMarked)throw Error("변경할 관리 대상 상태를 선택하세요.");
+          if(!v.marked&&!v.reason.trim())throw Error("관리 대상 해제 사유를 입력하세요.");
+          return {apId:target.apId,expectedCurrentGenerationId:base.registration.currentDeviceGenerationId,
+            expectedVersion:base.registration.inventory?.version||0,setValues:v.marked?{FollowUp:"true"}:{},
+            clearFields:v.marked?[]:["FollowUp"],clearReason:v.marked?null:v.reason.trim()};
+        },()=>show("registration"));
+      });
+      followUp.append(edit.form,b("현재 관리 대상 다시 읽기",()=>resetDraft(followUpKey,()=>show("registration"))));
+    }
+    grid.prepend(followUp);
     const policy=section("관리 상태와 감시 의도"),trackingKey=`tracking:${target.apId}`;
     const tracking=tracked(trackingKey,data,(form,draft)=>{const saved=draft.base.registration.trackingPolicy;field(form,"status","관리 상태",{options:Object.entries(management),value:saved?.status||"Operating"});field(form,"directive","감시 제외 방식",{options:[["TemporarilyExclude","일시 제외 · 기존 사건 유지"],["EndTracking","명시 추적 종료 · 재편입 시 새 구간"]],value:saved?.directive==="EndTracking"?"EndTracking":"TemporarilyExclude"});field(form,"reason","변경 사유",{type:"textarea",required:true});form.append(note("계획 작업은 Down 관측을 유지합니다. 제외·철거는 복구가 아니며 다음 수집부터 반영합니다. 운영으로 저장해야 다시 감시합니다."));submit(form,draft,"관리 상태 저장","/api/operations/tracking",(v,base)=>({apId:target.apId,expectedCurrentGenerationId:base.registration.currentDeviceGenerationId,expectedVersion:base.registration.trackingPolicy?.version||0,status:v.status,reason:v.reason,directive:v.status==="MonitoringExcluded"?v.directive:v.status==="Decommissioned"?"EndTracking":"Observe"}),()=>show("registration"));});policy.append(note(`현재 ${management[current.trackingPolicy?.status]||"미등록"} · ${text(current.trackingPolicy?.reason)} · ${dateText(current.trackingPolicy?.recordedAtUtc)}`),tracking.form,b("현재 정책 다시 읽기",()=>resetDraft(trackingKey,()=>show("registration"))));grid.append(policy);
     const placement=section("설치 지점 배치"),placementKey=`placement:${target.apId}`;

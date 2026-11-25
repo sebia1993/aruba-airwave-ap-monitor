@@ -1,9 +1,40 @@
+using System.Collections.Immutable;
 using AirWaveApMonitor.Core.Contracts;
 
 namespace AirWaveApMonitor.Tests.Web;
 
 public sealed class MonitoringReadTests
 {
+    [Fact]
+    public async Task FollowUp_IsGenerationBound_IndependentOfMonitoring_AndHistoricalSnapshots()
+    {
+        using var f = new ReadFixture();
+        var initial = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var ap = (await f.Dashboard()).Rows.Single(r => r.SourceApId == "100");
+        var mark = new InventoryEdit(Guid.NewGuid(), ap.ApId, ap.DeviceGenerationId, 0,
+            ImmutableDictionary<InventoryField,string>.Empty.Add(InventoryField.FollowUp,"true"), []);
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Store.SaveInventoryAsync(mark with
+            { SetValues = mark.SetValues.SetItem(InventoryField.FollowUp,"false") }, default));
+        var receipt = await f.Store.SaveInventoryAsync(mark, default);
+        Assert.Equal(1, receipt.Version);
+        Assert.True((await f.Store.GetRegistrationAsync(ap.ApId, default)).Registration.PendingNextCollection);
+        Assert.Empty((await f.Dashboard(initial.RunId, filter: DashboardFilter.FollowUp)).Rows);
+        var applied = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        var marked = Assert.Single((await f.Dashboard(applied.RunId, filter: DashboardFilter.FollowUp)).Rows);
+        Assert.True(marked.IsFollowUp);
+        Assert.Equal(ApState.Up, marked.CurrentState);
+        Assert.Equal(ap.MonitoringIntervalId, marked.MonitoringIntervalId);
+        await f.Store.SaveInventoryAsync(new(Guid.NewGuid(), ap.ApId, ap.DeviceGenerationId, 1,
+            ImmutableDictionary<InventoryField,string>.Empty, [InventoryField.FollowUp], ClearReason:"점검 완료"), default);
+        var cleared = await f.Apply([f.Ap("100", ApState.Up), f.Ap("200", ApState.Up)]);
+        Assert.Empty((await f.Dashboard(cleared.RunId, filter: DashboardFilter.FollowUp)).Rows);
+        Assert.True(Assert.Single((await f.Dashboard(applied.RunId, filter: DashboardFilter.FollowUp)).Rows).IsFollowUp);
+        await f.Store.SaveInventoryAsync(mark with { CommandId = Guid.NewGuid(), ExpectedVersion = 2 }, default);
+        var replaced = await f.Apply([f.Ap("100", ApState.Up, serial:"NEW-SERIAL"), f.Ap("200", ApState.Up)]);
+        Assert.Empty((await f.Dashboard(replaced.RunId, filter: DashboardFilter.FollowUp)).Rows);
+        Assert.NotEqual(ap.DeviceGenerationId, (await f.Dashboard(replaced.RunId)).Rows.Single(r=>r.SourceApId=="100").DeviceGenerationId);
+    }
+
     [Fact]
     public async Task StatusHistory_CountsAllRecentTransitionsBeforePagination_AndPreservesHistoricalCutoff()
     {
