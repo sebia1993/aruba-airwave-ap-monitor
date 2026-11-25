@@ -200,6 +200,13 @@ try {
     }
     $restartedInstanceId = (Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8 | ConvertFrom-Json).InstanceId
     if ($restartedInstanceId -ne $firstInstanceId) { throw 'Restart replaced the Demo physical instance identity.' }
+    # The first Edge run saved a management target, but did not advance the scenario.
+    # Verify that the restarted real collector has applied it, then clear via Edge.
+    $env:AIRWAVE_EDGE_PATH = $edge
+    try {
+        & node (Join-Path $PSScriptRoot '../../tests/Browser/edge-gui-smoke.mjs') 'http://127.0.0.1:18765/' 'follow-up-after-restart'
+        if ($LASTEXITCODE -ne 0) { throw 'Real Edge follow-up persistence and clear smoke failed.' }
+    } finally { Remove-Item Env:AIRWAVE_EDGE_PATH -ErrorAction SilentlyContinue }
     $listeners = @(Get-NetTCPConnection -State Listen -OwningProcess $process.Id)
     if ($listeners.Count -eq 0) { throw 'No listening socket found.' }
     if (@($listeners | Where-Object { $_.LocalAddress -notin @('127.0.0.1', '::1') }).Count -gt 0) {

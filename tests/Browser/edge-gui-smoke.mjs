@@ -49,14 +49,79 @@ try{
     if(result.exceptionDetails)throw Error(result.exceptionDetails.text||"Browser expression failed");
     return result.result?.value;
   };
-  const expectEventually=async (expression,label)=>{
-    for(let i=0;i<80;i++){
+  const expectEventually=async (expression,label,attempts=80)=>{
+    for(let i=0;i<attempts;i++){
       if(await evalExpr(expression))return;
       await sleep(200);
     }
     throw Error("GUI assertion failed: "+label);
   };
+  const getJson=path=>evalExpr('fetch('+JSON.stringify(path)+').then(async r=>{if(!r.ok)throw Error("HTTP "+r.status);return r.json()})');
+  const clickText=label=>evalExpr('(()=>{const b=[...document.querySelectorAll("button")].find(n=>n.textContent=== '+JSON.stringify(label)+' && n.getClientRects().length);if(!b)throw Error("Button missing");b.click()})()');
+  const followForm='form[data-draft-key^="follow-up:"]';
+  const markInput=followForm+' input[name="marked"]';
+  const reasonInput=followForm+' input[name="reason"]';
+  const followSave=followForm+' button[type="submit"]';
+  const followButton='document.querySelector("#ap-console-detail")?.textContent?.includes("관리 대상 지정·해제")';
+  const openFollowUp=async()=>{
+    await expectEventually(followButton,'selected AP follow-up action');
+    await clickText("관리 대상 지정·해제");
+    await expectEventually('!!document.querySelector('+JSON.stringify(markInput)+') && !document.querySelector('+JSON.stringify(followSave)+')?.disabled','registration form ready');
+  };
+  const submitFollowUp=async (mark)=>{
+    assert.equal(await evalExpr('document.querySelector('+JSON.stringify(markInput)+').checked'),!mark);
+    await evalExpr('document.querySelector('+JSON.stringify(markInput)+').click()');
+    if(!mark){
+      // The real form must reject an empty reason and keep the saved value.
+      await evalExpr('document.querySelector('+JSON.stringify(followSave)+').click()');
+      await expectEventually('!document.querySelector("#global-error")?.hidden && document.querySelector("#global-error")?.textContent.includes("해제 사유")','required clear reason');
+      await evalExpr('(()=>{const n=document.querySelector('+JSON.stringify(reasonInput)+');n.value="synthetic Edge verification";n.dispatchEvent(new Event("input",{bubbles:true}))})()');
+    }
+    await evalExpr('document.querySelector('+JSON.stringify(followSave)+').click()');
+    const savedText=mark?"현재 관리 대상으로 지정됨":"현재 관리 대상 미지정";
+    await expectEventually('document.querySelector("#operations-content")?.textContent.includes('+JSON.stringify(savedText)+') && document.querySelector('+JSON.stringify(markInput)+')?.checked==='+mark+' && !document.querySelector('+JSON.stringify(followSave)+')?.disabled','saved follow-up state');
+  };
+  const selectAp=async apId=>{
+    const selector='#ap-table [data-ap-id="'+apId+'"]';
+    await expectEventually('!!document.querySelector('+JSON.stringify(selector)+')','expected AP visible in list');
+    await evalExpr('document.querySelector('+JSON.stringify(selector)+').click()');
+    await expectEventually('document.querySelector("#ap-console-detail")?.textContent?.includes("AP Up/Down 이력")','selected AP simple history');
+  };
+  const followUpPath=runId=>'/api/dashboard?filter=FollowUp&pageSize=500&runId='+runId;
   await expectEventually('document.querySelector("#home-health")?.textContent?.includes("마지막 유효 수집")','collector header');
+
+  if(process.argv[3]==="follow-up-after-restart"){
+    // windows-smoke verifies the normal restart scenario before running this branch.
+    const initial=await getJson('/api/dashboard?filter=All&pageSize=1');
+    const marked=await getJson(followUpPath(initial.runId));
+    assert.equal(marked.totalRows,1);
+    const row=marked.rows[0];
+    assert.equal(row.sourceApId,"9");
+    assert.equal(row.currentState,"Up");
+    assert.equal(row.isFollowUp,true);
+    await evalExpr('document.querySelector("[data-filter=FollowUp]").click()');
+    await expectEventually('document.querySelector("[data-filter=FollowUp]")?.getAttribute("aria-pressed")==="true" && document.querySelector("#ap-table")?.textContent.includes("사용자 관리 대상")','marked AP displayed after restart');
+    await selectAp(row.apId);
+    await openFollowUp();
+    await submitFollowUp(false);
+    const registration=await getJson('/api/operations/aps/'+row.apId+'/registration');
+    assert.notEqual(registration.registration.inventory?.values?.FollowUp,"true");
+    assert.equal((await getJson(followUpPath(initial.runId))).totalRows,1,'clearing must not rewrite a committed run');
+    await evalExpr('document.querySelector("[data-view=dashboard]").click()');
+    await expectEventually('!document.querySelector("#collect-now")?.disabled && document.querySelector("[data-screen=dashboard]")?.hidden===false','manual collection available');
+    await evalExpr('document.querySelector("#collect-now").click()');
+    await expectEventually('fetch("/api/health").then(r=>r.json()).then(h=>h.collector.phase==="Idle" && h.collector.lastFinalRunId>'+initial.runId+')','new committed AP collection after clearing',225);
+    const next=await getJson('/api/dashboard?filter=FollowUp&pageSize=500');
+    assert.ok(next.runId>initial.runId);
+    assert.equal(next.outcome,"Succeeded");
+    assert.equal(next.totalRows,0);
+    assert.equal((await getJson(followUpPath(initial.runId))).totalRows,1,'older selection retains marked AP');
+    await evalExpr('document.querySelector("#refresh-dashboard").click()');
+    await expectEventually('document.querySelector("#ap-table")?.textContent.includes("조건에 맞는 AP가 없습니다") && document.querySelector("[data-filter=FollowUp]")?.getAttribute("aria-pressed")==="true"','cleared AP disappears from management filter');
+    console.log("PASS: actual Edge management filter persists across restart; reason-required clear is reflected only in a subsequent committed collection");
+    passed=true;
+  }else{
+
   await expectEventually('document.querySelector("#ap-table [data-ap-id]")!==null','AP list populated');
   assert.equal(await evalExpr('document.querySelector("[data-screen=dashboard]")?.hidden'),false);
   await evalExpr('document.querySelector("#ap-table [data-ap-id]").click()');
@@ -64,6 +129,24 @@ try{
   await expectEventually('document.querySelector("#ap-console-detail")?.textContent?.includes("AP Up/Down 이력")','simple AP status history');
   await evalExpr('document.querySelector("#ap-console-detail [data-ap-tab=incident]").click()');
   await expectEventually('document.querySelector("#ap-console-detail textarea")!==null','incident note editor');
+  const first=await getJson('/api/dashboard?filter=All&pageSize=1');
+  const originalRun=first.runId;
+  const expected=await getJson('/api/dashboard?runId='+originalRun+'&filter=RepeatSuspected&sort=RecentDownCount&descending=true&repeatThreshold=1&priorityThreshold=1&pageSize=500');
+  const recovered=expected.rows.find(row=>row.sourceApId==="9");
+  assert.ok(recovered && recovered.currentState==="Up" && recovered.statusHistory.newDownCount24Hours>=1,"Demo recovered AP must be included in repeat filter");
+  assert.equal(await evalExpr('document.querySelector("#repeat-threshold").value'),"3");
+  assert.equal(await evalExpr('document.querySelector("#priority-threshold").value'),"5");
+  await evalExpr('document.querySelector("[data-filter=RepeatSuspected]").click()');
+  await expectEventually('document.querySelector("[data-filter=RepeatSuspected]")?.getAttribute("aria-pressed")==="true"','repeat filter selected');
+  await evalExpr('(()=>{document.querySelector("#ap-filter-details").open=true;document.querySelector("#repeat-threshold").value="1";document.querySelector("#priority-threshold").value="1";document.querySelector("#repeat-threshold-form").requestSubmit()})()');
+  await expectEventually('document.querySelector("#metric-repeat")?.textContent==='+JSON.stringify(expected.repeatSuspectedCount.toLocaleString("ko-KR")+"대")+' && document.querySelector("#metric-repeat-priority")?.textContent==='+JSON.stringify(expected.repeatPriorityCount.toLocaleString("ko-KR"))+' && document.querySelector("#ap-sort")?.value==="repeat"','repeat threshold and server count');
+  await selectAp(recovered.apId);
+  await openFollowUp();
+  await submitFollowUp(true);
+  const registration=await getJson('/api/operations/aps/'+recovered.apId+'/registration');
+  assert.equal(registration.registration.inventory?.values?.FollowUp,"true");
+  assert.equal((await getJson(followUpPath(originalRun))).totalRows,0,'marking must not rewrite the first committed run');
+  console.log("PASS: actual Edge repeat threshold, recovered AP selection, and management target registration; existing run stays immutable");
   await evalExpr('document.querySelector("[data-view=help]").click()');
   await expectEventually('document.querySelector("[data-screen=help]")?.hidden===false','help route');
   assert.equal(await evalExpr('document.querySelector("#help-update-title")?.textContent'),"업데이트 전 읽기 전용 점검");
@@ -75,6 +158,7 @@ try{
   assert.ok(safety&&/상태|수집/.test(safety));
   console.log("PASS: actual headless Edge rendered dashboard, AP selection, incident memo editor, help and safe diagnostic UI");
   passed=true;
+  }
 }finally{
   try{socket?.close();}catch{}
   child.kill();
